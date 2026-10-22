@@ -184,6 +184,7 @@ impl StateExtensionMap {
             if let Some(h) = b.as_any_mut().downcast_mut::<SlotHolder<T>>() {
                 return Some(Arc::make_mut(&mut h.0));
             }
+        }
         None
     }
 
