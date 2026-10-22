@@ -53,6 +53,28 @@ pub enum ConfigValidationError {
     InvalidSocketAddr(String),
     #[error("Path validation error: {0}")]
     PathError(#[from] PathValidationError),
+    #[error("Invalid provider: {0}")]
+    InvalidProvider(String),
+    #[error("Invalid semantic cache entries: {0}")]
+    InvalidSemanticCacheEntries(usize),
+    #[error("Invalid URL: {0}")]
+    InvalidUrl(String),
+    #[error("Invalid webhook timeout: {0}")]
+    InvalidWebhookTimeout(u64),
+    #[error("Invalid sandbox mode: {0}")]
+    InvalidSandboxMode(String),
+    #[error("Invalid worker count: {0}")]
+    InvalidWorkerCount(usize),
+    #[error("Invalid WASM budget: {0}")]
+    InvalidWasmBudget(u64),
+    #[error("Invalid epoch tick: {0}")]
+    InvalidEpochTick(u64),
+    #[error("Invalid wall clock timeout: {0}")]
+    InvalidWallClockTimeout(u64),
+    #[error("Invalid endpoints")]
+    InvalidEndpoints,
+    #[error("Invalid QUIC timeout: {0}")]
+    InvalidQuicTimeout(u64),
 }
 
 #[derive(Error, Debug)]
