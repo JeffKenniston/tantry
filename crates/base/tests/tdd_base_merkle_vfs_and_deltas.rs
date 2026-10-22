@@ -1,20 +1,18 @@
 use base::ast::{ContentBlock, FileData, Message};
 use base::delta::{FileDelta, MessageDelta};
-use base::error::PathValidationError;
 use base::path::validate_and_normalize_path;
-use base::platform::{RuntimePlatform, interpolate_env_vars};
-use base::state::{SubagentMode, TantryState};
+use base::platform::RuntimePlatform;
 use base::typemap::{
-    CodecTag, ErasedSlot, SlotVisibility, StateExtensionMap, StateExtensionRegistry, StateSlot,
+    CodecTag, SlotVisibility, StateExtensionMap, StateExtensionRegistry, StateSlot,
     register_slot,
 };
 use base::vfs::VfsTree;
 use chrono::Utc;
 use proptest::prelude::*;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 proptest! {
+    #![proptest_config(ProptestConfig::with_cases(25000))]
     #[test]
     fn test_path_normalization_adversarial(raw in ".*") {
         let normalized = validate_and_normalize_path(&raw);
@@ -61,20 +59,25 @@ fn test_vfs_diff_and_stats() {
     let (deltas, visited) = tree_before.diff_with_stats(&tree_after);
     assert!(visited <= 20); // Not exploring unchanged subtrees, just verifying bound
 
-    let mut expected_deltas = vec![
+    let expected_deltas = vec![
         FileDelta::Upsert {
             path: "/dir2/file2.txt".into(),
-            data: data2_mod,
+            data: data2_mod.clone(),
         },
         FileDelta::Upsert {
             path: "/dir2/file3.txt".into(),
-            data: data1,
+            data: data1.clone(),
         },
         FileDelta::Upsert {
             path: "/dir3/file4.txt".into(),
-            data: data2,
+            data: data2.clone(),
         },
     ];
+
+    assert_eq!(deltas.len(), expected_deltas.len());
+    for expected in expected_deltas {
+        assert!(deltas.contains(&expected));
+    }
 
     // Test that applying the batch makes them identical
     let mut tree_migrated = tree_before.clone();
@@ -164,7 +167,7 @@ fn test_message_deltas() {
     // Patch by ID
     let mut replacement = patched.clone();
     replacement.id = msg1_id;
-    MessageDelta::apply(
+    let evicted = MessageDelta::apply(
         &mut msgs,
         MessageDelta::PatchById {
             target_id: msg1_id,
@@ -174,6 +177,7 @@ fn test_message_deltas() {
     .unwrap();
 
     assert_eq!(msgs[0].content, replacement.content);
+    assert_eq!(evicted.len(), 1);
 
     // Compact
     let summary = Message::system("Summary".into(), None);
@@ -219,4 +223,5 @@ fn test_platform_rebasing() {
     );
 
     assert_eq!(platform.effective_max_workers(100), 8);
+    assert_eq!(platform.effective_max_workers(0), 1);
 }
