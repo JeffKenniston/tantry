@@ -2,6 +2,11 @@ use data::db::DbHandle;
 use data::crypto::*;
 use data::error::DataError;
 use iam::key_hierarchy::KeyHierarchy;
+use data::audit_mmr::AuditMmrStore;
+use data::vector_index::MatryoshkaVectorStore;
+use iam::{IdentityManager, AuditSthSignature};
+use std::sync::{Arc, Mutex};
+use rusqlite::Connection;
 
 #[test]
 fn test_writer_first_dbhandle() {
@@ -61,12 +66,6 @@ fn test_crypto_shred_thread() {
     assert!(matches!(result, Err(DataError::CryptoShredded(id)) if id == thread_id));
 }
 
-use data::audit_mmr::AuditMmrStore;
-use data::vector_index::MatryoshkaVectorStore;
-use iam::{IdentityManager, AuditSthSignature};
-use std::sync::{Arc, Mutex};
-use rusqlite::Connection;
-
 struct MockIdentityManager;
 impl IdentityManager for MockIdentityManager {
     fn key_hierarchy(&self) -> &iam::key_hierarchy::KeyHierarchy {
@@ -95,21 +94,40 @@ fn test_audit_mmr() {
     writer.execute_batch("
         CREATE TABLE audit_log (seq_no INTEGER PRIMARY KEY, timestamp_ms INTEGER, spiffe_id TEXT, thread_id TEXT, event_kind TEXT, payload_json TEXT, entry_hash BLOB);
         CREATE TABLE audit_mmr_nodes (mmr_pos INTEGER PRIMARY KEY, height INTEGER, node_hash BLOB, seq_no INTEGER);
+        CREATE TABLE audit_signed_tree_heads (tree_size INTEGER PRIMARY KEY, timestamp_ms INTEGER, mmr_root_blake3 BLOB, ed25519_sig BLOB, mldsa65_sig BLOB);
     ").unwrap();
 
     let db = Arc::new(Mutex::new(writer));
     let mmr = AuditMmrStore::new(db);
 
-    mmr.append_entry(1, 1000, "spiffe://test", "thread1", "test", "{}").unwrap();
-    mmr.append_entry(2, 2000, "spiffe://test", "thread1", "test", "{}").unwrap();
+    for i in 1..=1000 {
+        mmr.append_entry(i, i * 1000, "spiffe://test", "thread1", "test", "{}").unwrap();
+    }
 
     let iam = MockIdentityManager;
     let sth = mmr.record_signed_tree_head(&iam).unwrap();
-    assert_eq!(sth.tree_size, 2);
+    assert_eq!(sth.tree_size, 1000);
 
-    let _ = mmr.generate_inclusion_proof(1).unwrap();
-    let _ = mmr.generate_consistency_proof(1, 2).unwrap();
-    assert!(AuditMmrStore::verify_inclusion_proof(&[], &[0u8; 32]));
+    let w = mmr.db.lock().unwrap();
+    w.execute("INSERT INTO audit_signed_tree_heads (tree_size, timestamp_ms, mmr_root_blake3, ed25519_sig, mldsa65_sig) VALUES (?1, ?2, ?3, ?4, ?5)",
+              rusqlite::params![sth.tree_size as i64, sth.timestamp_ms as i64, sth.mmr_root_blake3.as_slice(), sth.ed25519_sig.as_slice(), sth.mldsa65_sig.as_slice()]).unwrap();
+    drop(w);
+
+    let proof1 = mmr.generate_inclusion_proof(1).unwrap();
+    let proof2 = mmr.generate_consistency_proof(1, 1000).unwrap();
+    assert!(AuditMmrStore::verify_inclusion_proof(&proof1, &[0u8; 32]));
+    assert!(AuditMmrStore::verify_consistency_proof(&proof2, &[0u8; 32], &[0u8; 32]));
+
+    // Verify valid chain
+    assert!(mmr.verify_all_chain_and_sths(&iam).is_ok());
+
+    // Tamper test
+    let w = mmr.db.lock().unwrap();
+    w.execute("UPDATE audit_log SET payload_json = '{\"tampered\": true}' WHERE seq_no = 500", []).unwrap();
+    drop(w);
+
+    let res = mmr.verify_all_chain_and_sths(&iam);
+    assert_eq!(res, Err(500));
 }
 
 #[test]

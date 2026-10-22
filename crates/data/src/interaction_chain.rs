@@ -220,7 +220,19 @@ impl InteractionChainStore {
     }
 
     pub fn list_archived_messages(&self, thread_id: &str) -> Result<Vec<Message>, DataError> {
-        // Just a placeholder, assuming no additional parsing logic needed without proper spec
-        Ok(Vec::new())
+        let conn = self.db.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT message_json FROM archived_messages WHERE thread_id = ?1 ORDER BY archived_at_ms ASC")?;
+        let rows = stmt.query_map(params![thread_id], |row| {
+            let text: String = row.get(0)?;
+            Ok(text)
+        })?;
+
+        let mut msgs = Vec::new();
+        for row in rows {
+            let json = row?;
+            let msg: Message = serde_json::from_str(&json).map_err(|e| DataError::Serialization(e.to_string()))?;
+            msgs.push(msg);
+        }
+        Ok(msgs)
     }
 }

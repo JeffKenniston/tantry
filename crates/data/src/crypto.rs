@@ -1,12 +1,13 @@
 use crate::error::DataError;
 use blake3;
-use rand::{RngCore, Rng};
+use rand::RngCore;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::atomic::{AtomicU64, Ordering};
 use chacha20poly1305::{XChaCha20Poly1305, KeyInit, aead::{Aead, Key}};
 use aes_gcm_siv::{Aes256GcmSiv};
 use iam::key_hierarchy::KeyHierarchy;
 use rusqlite::Connection;
+use core::convert::TryInto;
 
 pub fn compute_canonical_aad(
     table_name: &str,
@@ -50,16 +51,17 @@ pub fn encrypt_envelope_xchacha20(
     let compressed = zstd::encode_all(plaintext, 3).map_err(|e| DataError::ZstdError(e.to_string()))?;
 
     let nonce_bytes = generate_xchacha20_nonce();
-    let nonce = chacha20poly1305::XNonce::from_slice(&nonce_bytes);
+    let nonce = chacha20poly1305::XNonce::from(nonce_bytes);
 
-    let cipher = XChaCha20Poly1305::new(Key::<XChaCha20Poly1305>::from_slice(dek));
+    let key = Key::<XChaCha20Poly1305>::from(*dek);
+    let cipher = XChaCha20Poly1305::new(&key);
 
     let payload = chacha20poly1305::aead::Payload {
         msg: &compressed,
         aad: aad,
     };
 
-    let ciphertext = cipher.encrypt(nonce, payload).map_err(|e| DataError::AeadError(e.to_string()))?;
+    let ciphertext = cipher.encrypt(&nonce, payload).map_err(|e| DataError::AeadError(e.to_string()))?;
 
     let mut wire = Vec::with_capacity(1 + 1 + 24 + ciphertext.len());
     wire.push(0x03);
@@ -88,29 +90,31 @@ pub fn decrypt_envelope(
             if wire.len() < 2 + 24 + 16 {
                 return Err(DataError::Serialization("XChaCha wire format too short".to_string()));
             }
-            let nonce_bytes = &wire[2..26];
+            let nonce_bytes: [u8; 24] = wire[2..26].try_into().map_err(|_| DataError::Serialization("Bad nonce".to_string()))?;
             let ciphertext = &wire[26..];
-            let cipher = XChaCha20Poly1305::new(Key::<XChaCha20Poly1305>::from_slice(dek));
-            let nonce = chacha20poly1305::XNonce::from_slice(nonce_bytes);
+            let key = Key::<XChaCha20Poly1305>::from(*dek);
+            let cipher = XChaCha20Poly1305::new(&key);
+            let nonce = chacha20poly1305::XNonce::from(nonce_bytes);
             let payload = chacha20poly1305::aead::Payload {
                 msg: ciphertext,
                 aad: expected_aad,
             };
-            cipher.decrypt(nonce, payload).map_err(|_| DataError::AadMismatch)?
+            cipher.decrypt(&nonce, payload).map_err(|_| DataError::AadMismatch)?
         },
         0x02 => { // Aes256GcmSiv
             if wire.len() < 2 + 12 + 16 {
                 return Err(DataError::Serialization("AES wire format too short".to_string()));
             }
-            let nonce_bytes = &wire[2..14];
+            let nonce_bytes: [u8; 12] = wire[2..14].try_into().map_err(|_| DataError::Serialization("Bad nonce".to_string()))?;
             let ciphertext = &wire[14..];
-            let cipher = Aes256GcmSiv::new(Key::<Aes256GcmSiv>::from_slice(dek));
-            let nonce = aes_gcm_siv::Nonce::from_slice(nonce_bytes);
+            let key = Key::<Aes256GcmSiv>::from(*dek);
+            let cipher = Aes256GcmSiv::new(&key);
+            let nonce = aes_gcm_siv::Nonce::from(nonce_bytes);
             let payload = aes_gcm_siv::aead::Payload {
                 msg: ciphertext,
                 aad: expected_aad,
             };
-            cipher.decrypt(nonce, payload).map_err(|_| DataError::AadMismatch)?
+            cipher.decrypt(&nonce, payload).map_err(|_| DataError::AadMismatch)?
         },
         _ => return Err(DataError::Serialization("Unknown cipher ID".to_string())),
     };
@@ -134,7 +138,7 @@ pub fn get_or_provision_key_epoch(
         }
 
         let thread_salt_val: Option<Vec<u8>> = row.get(0)?;
-        if let Some(mut salt) = thread_salt_val {
+        if let Some(salt) = thread_salt_val {
             if salt.len() != 32 {
                 return Err(DataError::Serialization("Invalid thread salt length".to_string()));
             }
