@@ -308,3 +308,17 @@ pub struct AsyncTaskHandle {
     pub child_svid_spiffe_id: String,
     pub status: AsyncTaskStatus,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RubricOutcome {
+    Satisfied,
+    Failed { feedback: String },
+    MaxIterationsReached { iterations: u32 },
+    GraderError { reason: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SubagentMode {
+    Isolated,
+    Fork,
+}
