@@ -1,41 +1,53 @@
 use crate::error::PathValidationError;
-use crate::path::{PosixPath, validate_and_normalize_path};
+use crate::path::{validate_and_normalize_path, PosixPath};
 
-pub fn interpolate_env_vars<F: Fn(&str) -> Option<String>>(input: &str, env_lookup: F) -> String {
-    let mut result = String::new();
+pub enum RuntimePlatform {
+    LinuxStandard,
+    AndroidTermux { prefix: PosixPath },
+}
+
+pub fn interpolate_env_vars<F: Fn(&str) -> Option<String>>(
+    input: &str,
+    env_lookup: F,
+) -> String {
+    let mut result = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
 
     while let Some(c) = chars.next() {
-        if c == '$' {
-            if let Some(&'{') = chars.peek() {
-                chars.next(); // Consume '{'
-                let mut var_name = String::new();
-                let mut default_value = None;
-                let mut in_default = false;
+        if c == '$' && chars.peek() == Some(&'{') {
+            chars.next(); // consume '{'
+            let mut var_name = String::new();
+            let mut default_val = None;
+            let mut has_default = false;
+            let mut default_str = String::new();
 
-                while let Some(inner_c) = chars.next() {
-                    if inner_c == '}' {
-                        break;
-                    } else if inner_c == ':' && chars.peek() == Some(&'-') {
-                        chars.next(); // Consume '-'
-                        in_default = true;
-                        default_value = Some(String::new());
-                    } else if in_default {
-                        if let Some(def) = default_value.as_mut() {
-                            def.push(inner_c);
-                        }
-                    } else {
-                        var_name.push(inner_c);
+            while let Some(nc) = chars.next() {
+                if nc == '}' {
+                    break;
+                } else if nc == ':' && chars.peek() == Some(&'-') {
+                    chars.next(); // consume '-'
+                    has_default = true;
+                } else if has_default {
+                    default_str.push(nc);
+                } else {
+                    var_name.push(nc);
+                }
+            }
+
+            if has_default {
+                default_val = Some(default_str);
+            }
+
+            if let Some(val) = env_lookup(&var_name) {
+                if val.is_empty() && has_default {
+                    if let Some(def) = default_val {
+                        result.push_str(&def);
                     }
-                }
-
-                if let Some(val) = env_lookup(&var_name) {
+                } else {
                     result.push_str(&val);
-                } else if let Some(def) = default_value {
-                    result.push_str(&def);
                 }
-            } else {
-                result.push('$');
+            } else if let Some(def) = default_val {
+                result.push_str(&def);
             }
         } else {
             result.push(c);
@@ -43,12 +55,6 @@ pub fn interpolate_env_vars<F: Fn(&str) -> Option<String>>(input: &str, env_look
     }
 
     result
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RuntimePlatform {
-    LinuxStandard,
-    AndroidTermux { prefix: PosixPath },
 }
 
 impl RuntimePlatform {
@@ -59,19 +65,13 @@ impl RuntimePlatform {
         let termux_version = env_lookup("TERMUX_VERSION").unwrap_or_default();
         let prefix = env_lookup("PREFIX").unwrap_or_default();
 
-        let is_termux = is_android_target
-            || !termux_version.is_empty()
-            || prefix.starts_with("/data/data/com.termux");
-
-        if is_termux {
-            let prefix_path = if !prefix.is_empty() {
-                prefix
-            } else {
+        if is_android_target || !termux_version.is_empty() || prefix.starts_with("/data/data/com.termux") {
+            let actual_prefix = if prefix.is_empty() {
                 "/data/data/com.termux/files/usr".to_string()
+            } else {
+                prefix
             };
-            RuntimePlatform::AndroidTermux {
-                prefix: prefix_path,
-            }
+            RuntimePlatform::AndroidTermux { prefix: actual_prefix }
         } else {
             RuntimePlatform::LinuxStandard
         }
@@ -84,32 +84,40 @@ impl RuntimePlatform {
     ) -> Result<PosixPath, PathValidationError> {
         let normalized = validate_and_normalize_path(path)?;
 
-        if let RuntimePlatform::AndroidTermux { prefix } = self
-            && !strict_posix_paths
-        {
-            if normalized.starts_with("/var/lib/tantry") && !normalized.starts_with(prefix) {
-                let suffix = normalized.strip_prefix("/var/lib/tantry").unwrap_or("");
-                return validate_and_normalize_path(&format!("{}/var/lib/tantry{}", prefix, suffix));
-            } else if normalized.starts_with("/run/spire") && !normalized.starts_with(prefix) {
-                let suffix = normalized.strip_prefix("/run/spire").unwrap_or("");
-                return validate_and_normalize_path(&format!("{}/var/run/spire{}", prefix, suffix));
-            } else if normalized.starts_with("/var/run/tantry") && !normalized.starts_with(prefix) {
-                let suffix = normalized.strip_prefix("/var/run/tantry").unwrap_or("");
-                return validate_and_normalize_path(&format!(
-                    "{}/var/run/tantry{}",
-                    prefix, suffix
-                ));
-            }
+        if strict_posix_paths {
+            return Ok(normalized);
         }
 
-        Ok(normalized)
+        match self {
+            RuntimePlatform::LinuxStandard => Ok(normalized),
+            RuntimePlatform::AndroidTermux { prefix } => {
+                if normalized.starts_with(prefix) {
+                    return Ok(normalized);
+                }
+
+                if normalized.starts_with("/var/lib/tantry") {
+                    let suffix = &normalized["/var/lib/tantry".len()..];
+                    Ok(format!("{}/var/lib/tantry{}", prefix, suffix))
+                } else if normalized.starts_with("/run/spire") {
+                    let suffix = &normalized["/run/spire".len()..];
+                    Ok(format!("{}/var/run/spire{}", prefix, suffix))
+                } else if normalized.starts_with("/var/run/tantry") {
+                    let suffix = &normalized["/var/run/tantry".len()..];
+                    Ok(format!("{}/var/run/tantry{}", prefix, suffix))
+                } else if normalized.starts_with("/usr/bin/") {
+                    let suffix = &normalized["/usr/bin/".len()..];
+                    Ok(format!("{}/bin/{}", prefix, suffix)) // termux binaries are in $PREFIX/bin, often overriding /usr/bin defaults
+                } else {
+                    Ok(normalized)
+                }
+            }
+        }
     }
 
     pub fn effective_max_workers(&self, configured: usize) -> usize {
-        let min_workers = configured.max(1);
         match self {
-            RuntimePlatform::AndroidTermux { .. } => min_workers.min(8),
-            RuntimePlatform::LinuxStandard => min_workers,
+            RuntimePlatform::LinuxStandard => configured.max(1),
+            RuntimePlatform::AndroidTermux { .. } => configured.clamp(1, 8),
         }
     }
 }
