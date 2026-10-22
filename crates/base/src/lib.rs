@@ -8,4 +8,4 @@ pub mod platform;
 pub mod state;
 pub mod tools_meta;
 pub mod typemap;
-pub mod vfs;
+pub mod vfs_tree;

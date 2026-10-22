@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use crate::path::PosixPath;
-use crate::vfs::VfsTree;
+use crate::vfs_tree::VfsTree;
 use crate::ast::FileData;
 use std::sync::Arc;
 
