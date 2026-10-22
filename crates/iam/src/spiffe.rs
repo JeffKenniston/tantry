@@ -1,55 +1,59 @@
 use crate::error::IamError;
+use url::Url;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpiffeId {
-    uri: String,
-    trust_domain: String,
+    uri: Url,
 }
 
 impl SpiffeId {
-    pub fn parse(uri: &str) -> Result<Self, IamError> {
-        if !uri.starts_with("spiffe://") {
-            return Err(IamError::InvalidSpiffeId("Missing spiffe:// scheme".into()));
-        }
-        let rest = &uri["spiffe://".len()..];
-        if rest.is_empty() {
-            return Err(IamError::InvalidSpiffeId("Empty trust domain".into()));
+    pub fn parse(uri_str: &str) -> Result<Self, IamError> {
+        let uri = Url::parse(uri_str).map_err(|_| IamError::InvalidSpiffeId("Invalid URL format".to_string()))?;
+
+        if uri.scheme() != "spiffe" {
+            return Err(IamError::InvalidSpiffeId("Scheme must be spiffe://".to_string()));
         }
 
-        let parts: Vec<&str> = rest.splitn(2, '/').collect();
-        let trust_domain = parts[0];
-        if trust_domain.is_empty() {
-            return Err(IamError::InvalidSpiffeId("Empty trust domain".into()));
+        if uri.host_str().is_none() || uri.host_str().unwrap().is_empty() {
+            return Err(IamError::InvalidSpiffeId("Trust domain (host) cannot be empty".to_string()));
         }
 
-        if uri.contains("/./") || uri.contains("/../") {
-            return Err(IamError::InvalidSpiffeId("Contains . or .. segments".into()));
+        let path = uri.path();
+        if path.is_empty() || path == "/" {
+            return Err(IamError::InvalidSpiffeId("Path cannot be empty".to_string()));
         }
 
-        Ok(Self {
-            uri: uri.to_string(),
-            trust_domain: trust_domain.to_string(),
-        })
+        for segment in uri.path_segments().unwrap_or("".split('/')) {
+            if segment == "." || segment == ".." {
+                return Err(IamError::InvalidSpiffeId("Path segments cannot be . or ..".to_string()));
+            }
+        }
+
+        Ok(Self { uri })
     }
 
     pub fn derive_subagent(&self, subagent_name: &str, child_task_id: &str) -> Result<Self, IamError> {
-        let child_uri = format!("{}/subagent/{}/task/{}", self.uri, subagent_name, child_task_id);
-        if !child_uri.starts_with(&format!("{}/subagent/", self.uri)) {
+        let mut new_uri = self.uri.clone();
+        let mut path = new_uri.path().to_string();
+        if path.ends_with('/') {
+            path.pop();
+        }
+
+        path.push_str(&format!("/subagent/{}/task/{}", subagent_name, child_task_id));
+        new_uri.set_path(&path);
+
+        let expected_prefix = format!("{}/subagent/", self.uri.as_str());
+        if !new_uri.as_str().starts_with(&expected_prefix) {
             return Err(IamError::HierarchyViolation {
-                parent: self.uri.clone(),
-                child: child_uri,
+                parent: self.uri.to_string(),
+                child: new_uri.to_string()
             });
         }
-        Self::parse(&child_uri)
+
+        Ok(Self { uri: new_uri })
     }
 
     pub fn uri(&self) -> &str {
-        &self.uri
-    }
-}
-
-impl std::fmt::Display for SpiffeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.uri)
+        self.uri.as_str()
     }
 }

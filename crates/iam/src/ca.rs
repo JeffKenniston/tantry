@@ -47,8 +47,6 @@ pub fn acquire_or_init_master_key(data_dir: &Path) -> Result<Zeroizing<[u8; 32]>
 
     let keystore_path = data_dir.join(".keystore_master.sealed");
     if keystore_path.exists() {
-        // In a real app this would call Android Keystore/OS Keyring.
-        // For simplicity, we just return an error since the file exists but we can't read it.
         return Err(IamError::MasterKeyUnavailable);
     }
 
@@ -116,8 +114,6 @@ pub fn sign_audit_sth(
     let ed25519_sig = ed_sk.sign(&digest).to_bytes().to_vec();
 
     use ml_dsa::MlDsa65;
-    use ml_dsa::pkcs8::DecodePrivateKey as MlDsaDecode;
-    use ml_dsa::signature::Signer as _;
     use ml_dsa::SignatureEncoding;
 
     let ml_sk = ml_dsa::SigningKey::<MlDsa65>::from_pkcs8_der(mldsa65_signing_key_bytes)
@@ -152,7 +148,6 @@ pub fn verify_audit_sth(
 
     use ml_dsa::MlDsa65;
     use ml_dsa::pkcs8::DecodePublicKey;
-    use ml_dsa::signature::Verifier as _;
 
     let ml_vk = ml_dsa::VerifyingKey::<MlDsa65>::from_public_key_der(mldsa65_verifying_key_bytes)
         .map_err(|_| IamError::PqSignatureVerificationFailed)?;

@@ -1,7 +1,7 @@
 use crate::ast::{FileData, Message, MessageId};
 use crate::error::{PathValidationError, StateReducerError};
 use crate::path::PosixPath;
-use crate::vfs::VfsTree;
+use crate::vfs_tree::VfsTree;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -2,30 +2,40 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum IamError {
-    #[error("Invalid SPIFFE ID: {0}")]
+    #[error("Invalid SpiffeId: {0}")]
     InvalidSpiffeId(String),
-    #[error("Hierarchy violation: {parent} cannot spawn {child}")]
+    #[error("Hierarchy Violation: parent {parent}, child {child}")]
     HierarchyViolation { parent: String, child: String },
-    #[error("TTL escalation")]
+    #[error("TTL Escalation detected")]
     TtlEscalation,
-    #[error("Certificate generation error: {0}")]
+    #[error("Certificate Generation Error: {0}")]
     CertificateGenerationError(String),
-    #[error("PQ signature verification failed")]
+    #[error("PQ Signature Verification Failed")]
     PqSignatureVerificationFailed,
-    #[error("Ed25519 verification failed")]
+    #[error("Ed25519 Verification Failed")]
     Ed25519VerificationFailed,
-    #[error("DPoP validation failed: {0}")]
+    #[error("DPoP Validation Failed: {0}")]
     DpopValidationFailed(String),
-    #[error("DPoP replay detected: {0}")]
+    #[error("DPoP Replay Detected: {0}")]
     DpopReplayDetected(String),
-    #[error("Master key unavailable")]
+    #[error("Master Key Unavailable")]
     MasterKeyUnavailable,
-    #[error("Key epoch shredded: thread {thread_id}, epoch {epoch}")]
+    #[error("Key Epoch Shredded: thread {thread_id}, epoch {epoch}")]
     KeyEpochShredded { thread_id: String, epoch: u32 },
-    #[error("Tunnel grant expired or invalid: {0}")]
+    #[error("Tunnel Grant Expired Or Invalid: {0}")]
     TunnelGrantExpiredOrInvalid(String),
-    #[error("SPIRE socket unavailable: {0}")]
+    #[error("Spire Socket Unavailable: {0}")]
     SpireSocketUnavailable(String),
     #[error("Not implemented")]
     NotImplemented,
+    #[error("Master key unavailable")]
+    MasterKeyUnavailable,
+    #[error("Certificate generation error: {0}")]
+    CertificateGenerationError(String),
+    #[error("Ed25519 verification failed")]
+    Ed25519VerificationFailed,
+    #[error("PQ signature verification failed")]
+    PqSignatureVerificationFailed,
+    #[error("SPIRE socket unavailable: {0}")]
+    SpireSocketUnavailable(String),
 }

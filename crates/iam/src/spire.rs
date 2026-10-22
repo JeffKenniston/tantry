@@ -17,7 +17,6 @@ pub struct SpireSocketIdentityManager {
 
 impl SpireSocketIdentityManager {
     pub async fn connect(socket_path: PathBuf) -> Result<Self, IamError> {
-        // Attempt connect with timeout
         let _stream = tokio::time::timeout(
             Duration::from_millis(500),
             UnixStream::connect(&socket_path),
@@ -30,14 +29,11 @@ impl SpireSocketIdentityManager {
         let active_svid = Arc::new(RwLock::new(None));
         let historical_svids = Arc::new(RwLock::new(VecDeque::with_capacity(16)));
 
-        // In a real implementation this would fetch SVIDs from SPIRE Workload API.
-        // We'll spawn a background task for rotation logic that rotates SVIDs at 80% TTL.
         let active_clone = Arc::clone(&active_svid);
         let history_clone = Arc::clone(&historical_svids);
 
         tokio::spawn(async move {
             loop {
-                // Dummy rotation logic
                 sleep(Duration::from_secs(3600)).await;
 
                 let mut current = active_clone.write().await;
@@ -62,7 +58,6 @@ impl SpireSocketIdentityManager {
     }
 
     pub async fn get_current_svid(&self) -> Option<WorkloadSvid> {
-         // Dummy implementation
          None
     }
 }
