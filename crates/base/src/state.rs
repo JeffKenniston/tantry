@@ -18,7 +18,7 @@ pub enum SubagentMode {
     Fork,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct TantryState {
     pub thread_id: String,
     pub step_index: u64,

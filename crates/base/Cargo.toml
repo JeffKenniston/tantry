@@ -6,13 +6,13 @@ edition = "2024"
 [dependencies]
 thiserror = "1"
 uuid = { version = "1", features = ["v7", "serde"] }
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 rkyv = { version = "0.8.18", features = ["bytecheck"] }
 rmp-serde = "1"
 bytecheck = "0.8"
-bytes = "1"
+bytes = { version = "1", features = ["serde"] }
 blake3 = "1"
 
 [dev-dependencies]

@@ -4,7 +4,7 @@ use crate::path::PosixPath;
 use crate::vfs::VfsTree;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MessageDelta {
     Append(Vec<Message>),
     PatchById {
@@ -58,7 +58,7 @@ impl MessageDelta {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FileDelta {
     Upsert {
         path: PosixPath,

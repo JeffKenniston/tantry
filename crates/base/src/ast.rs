@@ -231,7 +231,7 @@ pub struct TodoItem {
     pub status: TodoStatus,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FileData {
     pub content: Bytes,
     pub blake3_hash: [u8; 32],
