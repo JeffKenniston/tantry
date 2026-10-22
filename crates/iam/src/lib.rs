@@ -5,6 +5,8 @@ pub mod key_hierarchy;
 pub mod spire;
 pub mod svid;
 pub mod tunnel_grant;
+pub mod spiffe;
+pub mod pq_ext;
 
 pub use ca::*;
 pub use error::*;
