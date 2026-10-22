@@ -60,3 +60,74 @@ fn test_crypto_shred_thread() {
     let result = get_or_provision_key_epoch(&writer, thread_id, 1);
     assert!(matches!(result, Err(DataError::CryptoShredded(id)) if id == thread_id));
 }
+
+use data::audit_mmr::AuditMmrStore;
+use data::vector_index::MatryoshkaVectorStore;
+use iam::{IdentityManager, AuditSthSignature};
+use std::sync::{Arc, Mutex};
+use rusqlite::Connection;
+
+struct MockIdentityManager;
+impl IdentityManager for MockIdentityManager {
+    fn key_hierarchy(&self) -> &iam::key_hierarchy::KeyHierarchy {
+        unimplemented!()
+    }
+    fn sign_audit_sth(&self, tree_size: u64, timestamp_ms: i64, mmr_root_blake3: &[u8; 32]) -> Result<AuditSthSignature, iam::error::IamError> {
+        Ok(AuditSthSignature {
+            tree_size,
+            timestamp_ms,
+            mmr_root_blake3: *mmr_root_blake3,
+            ed25519_sig: vec![0; 64],
+            mldsa65_sig: vec![0; 3309],
+        })
+    }
+    fn verify_audit_sth(&self, _sth: &AuditSthSignature) -> Result<(), iam::error::IamError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn test_audit_mmr() {
+    let tmp = std::env::temp_dir().join("test_audit.sqlite");
+    let _ = std::fs::remove_file(&tmp);
+    let writer = Connection::open(tmp.to_str().unwrap()).unwrap();
+
+    writer.execute_batch("
+        CREATE TABLE audit_log (seq_no INTEGER PRIMARY KEY, timestamp_ms INTEGER, spiffe_id TEXT, thread_id TEXT, event_kind TEXT, payload_json TEXT, entry_hash BLOB);
+        CREATE TABLE audit_mmr_nodes (mmr_pos INTEGER PRIMARY KEY, height INTEGER, node_hash BLOB, seq_no INTEGER);
+    ").unwrap();
+
+    let db = Arc::new(Mutex::new(writer));
+    let mmr = AuditMmrStore::new(db);
+
+    mmr.append_entry(1, 1000, "spiffe://test", "thread1", "test", "{}").unwrap();
+    mmr.append_entry(2, 2000, "spiffe://test", "thread1", "test", "{}").unwrap();
+
+    let iam = MockIdentityManager;
+    let sth = mmr.record_signed_tree_head(&iam).unwrap();
+    assert_eq!(sth.tree_size, 2);
+
+    let _ = mmr.generate_inclusion_proof(1).unwrap();
+    let _ = mmr.generate_consistency_proof(1, 2).unwrap();
+    assert!(AuditMmrStore::verify_inclusion_proof(&[], &[0u8; 32]));
+}
+
+#[test]
+fn test_quantized_vec() {
+    let tmp = std::env::temp_dir().join("test_vec.sqlite");
+    let _ = std::fs::remove_file(&tmp);
+    let writer = Connection::open(tmp.to_str().unwrap()).unwrap();
+    let db = Arc::new(Mutex::new(writer));
+    let store = MatryoshkaVectorStore::new(db);
+
+    let vec1: Vec<f32> = vec![0.1, 0.2, 0.3, -0.4];
+    let vec2: Vec<f32> = vec![-0.1, -0.2, -0.3, 0.4];
+
+    store.insert_vector("v1", &vec1).unwrap();
+    store.insert_vector("v2", &vec2).unwrap();
+
+    let query: Vec<f32> = vec![0.1, 0.2, 0.3, 0.0];
+    let res = store.search(&query, 10, -1.0).unwrap();
+
+    assert!(!res.is_empty());
+}
