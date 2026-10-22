@@ -6,51 +6,54 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum MerkleNode {
-    File(Arc<FileData>),
-    Directory(Arc<MerkleDirNode>),
-}
-
-impl MerkleNode {
-    pub fn blake3_hash(&self) -> [u8; 32] {
-        match self {
-            MerkleNode::File(f) => f.blake3_hash,
-            MerkleNode::Directory(d) => d.subtree_blake3,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct MerkleDirNode {
-    pub children: BTreeMap<String, MerkleNode>,
+    pub segment: String,
     pub subtree_blake3: [u8; 32],
     pub file_count: usize,
+    pub subdirs: BTreeMap<String, Arc<MerkleDirNode>>,
+    pub files: BTreeMap<String, Arc<FileData>>,
 }
 
 impl Default for MerkleDirNode {
     fn default() -> Self {
         Self {
-            children: BTreeMap::new(),
+            segment: String::new(),
             subtree_blake3: blake3::hash(b"").into(),
             file_count: 0,
+            subdirs: BTreeMap::new(),
+            files: BTreeMap::new(),
         }
     }
 }
 
 impl MerkleDirNode {
+    pub fn new(segment: String) -> Self {
+        let mut node = Self {
+            segment,
+            ..Default::default()
+        };
+        node.recompute_hash();
+        node
+    }
+
     pub fn recompute_hash(&mut self) {
         let mut hasher = blake3::Hasher::new();
-        let mut count = 0;
+        hasher.update(b"tantry:merkle_dir:v3:");
+        hasher.update(self.segment.as_bytes());
 
-        for (name, node) in &self.children {
-            let hash = node.blake3_hash();
+        let mut count = self.files.len();
+
+        for (name, file) in &self.files {
+            hasher.update(b"/F:");
             hasher.update(name.as_bytes());
-            hasher.update(&hash);
+            hasher.update(&file.blake3_hash);
+        }
 
-            match node {
-                MerkleNode::File(_) => count += 1,
-                MerkleNode::Directory(d) => count += d.file_count,
-            }
+        for (name, dir) in &self.subdirs {
+            hasher.update(b"/D:");
+            hasher.update(name.as_bytes());
+            hasher.update(&dir.subtree_blake3);
+            count += dir.file_count;
         }
 
         self.subtree_blake3 = hasher.finalize().into();
@@ -71,8 +74,10 @@ impl Default for VfsTree {
 
 impl VfsTree {
     pub fn new() -> Self {
+        let mut root = MerkleDirNode::new("".to_string());
+        root.recompute_hash();
         Self {
-            root: Arc::new(MerkleDirNode::default()),
+            root: Arc::new(root),
         }
     }
 
@@ -95,31 +100,18 @@ impl VfsTree {
         }
 
         let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-        let mut current_dir = &*self.root;
-
-        for (i, &segment) in segments.iter().enumerate() {
-            let is_last = i == segments.len() - 1;
-            if let Some(node) = current_dir.children.get(segment) {
-                match node {
-                    MerkleNode::File(f) => {
-                        if is_last {
-                            return Some(f);
-                        } else {
-                            return None;
-                        }
-                    }
-                    MerkleNode::Directory(d) => {
-                        if is_last {
-                            return None;
-                        }
-                        current_dir = d;
-                    }
-                }
-            } else {
-                return None;
-            }
+        if segments.is_empty() {
+            return None;
         }
 
+        let mut current_dir = &self.root;
+        for (i, segment) in segments.iter().enumerate() {
+            if i == segments.len() - 1 {
+                return current_dir.files.get(*segment);
+            } else {
+                current_dir = current_dir.subdirs.get(*segment)?;
+            }
+        }
         None
     }
 
@@ -128,9 +120,7 @@ impl VfsTree {
         normalized_path: PosixPath,
         data: Arc<FileData>,
     ) -> Result<Option<Arc<FileData>>, PathValidationError> {
-        let path = normalized_path
-            .strip_prefix('/')
-            .unwrap_or(&normalized_path);
+        let path = normalized_path.strip_prefix('/').unwrap_or(&normalized_path);
         if path.is_empty() {
             return Err(PathValidationError::EmptyPath);
         }
@@ -155,34 +145,25 @@ impl VfsTree {
         let segment = segments[depth];
         let is_last = depth == segments.len() - 1;
 
-        let mut replaced = None;
+        let replaced;
 
         if is_last {
-            if let Some(old) = new_dir
-                .children
-                .insert(segment.to_string(), MerkleNode::File(data))
-            {
-                if let MerkleNode::File(f) = old {
-                    replaced = Some(f);
-                }
-            }
+            new_dir.subdirs.remove(segment);
+            replaced = new_dir.files.insert(segment.to_string(), data);
         } else {
-            let child_node = new_dir.children.get(segment);
-            let next_dir = match child_node {
-                Some(MerkleNode::Directory(d)) => d.clone(),
-                Some(MerkleNode::File(_)) => {
-                    // Overwriting file with dir path, let's treat it as a new dir
-                    Arc::new(MerkleDirNode::default())
-                }
-                None => Arc::new(MerkleDirNode::default()),
+            new_dir.files.remove(segment);
+            let child_dir = new_dir.subdirs.get(segment);
+            let next_dir = match child_dir {
+                Some(d) => d.clone(),
+                None => Arc::new(MerkleDirNode::new(segment.to_string())),
             };
 
             let (child_replaced, next_dir) =
                 Self::insert_recursive(&next_dir, segments, depth + 1, data)?;
             replaced = child_replaced;
             new_dir
-                .children
-                .insert(segment.to_string(), MerkleNode::Directory(next_dir));
+                .subdirs
+                .insert(segment.to_string(), next_dir);
         }
 
         new_dir.recompute_hash();
@@ -215,30 +196,26 @@ impl VfsTree {
         let segment = segments[depth];
         let is_last = depth == segments.len() - 1;
 
-        if !dir.children.contains_key(segment) {
-            return (None, dir.clone());
-        }
-
         let mut new_dir = (**dir).clone();
-        let mut removed = None;
+        let removed;
 
         if is_last {
-            if let Some(MerkleNode::File(f)) = new_dir.children.remove(segment) {
-                removed = Some(f);
-            }
+            removed = new_dir.files.remove(segment);
         } else {
-            if let Some(MerkleNode::Directory(child_dir)) = new_dir.children.get(segment) {
+            if let Some(child_dir) = new_dir.subdirs.get(segment) {
                 let (child_removed, new_child_dir) =
                     Self::remove_recursive(child_dir, segments, depth + 1);
                 removed = child_removed;
 
                 if new_child_dir.file_count == 0 {
-                    new_dir.children.remove(segment);
+                    new_dir.subdirs.remove(segment);
                 } else {
                     new_dir
-                        .children
-                        .insert(segment.to_string(), MerkleNode::Directory(new_child_dir));
+                        .subdirs
+                        .insert(segment.to_string(), new_child_dir);
                 }
+            } else {
+                removed = None;
             }
         }
 
@@ -279,105 +256,36 @@ impl VfsTree {
             return;
         }
 
-        let mut before_keys: Vec<_> = before.children.keys().collect();
-        let mut after_keys: Vec<_> = after.children.keys().collect();
-        before_keys.sort();
-        after_keys.sort();
+        let b_keys: std::collections::BTreeSet<&String> = before.files.keys().chain(before.subdirs.keys()).collect();
+        let a_keys: std::collections::BTreeSet<&String> = after.files.keys().chain(after.subdirs.keys()).collect();
 
-        let mut b_iter = before_keys.into_iter().peekable();
-        let mut a_iter = after_keys.into_iter().peekable();
+        let all_keys: std::collections::BTreeSet<&String> = b_keys.union(&a_keys).cloned().collect();
 
-        while let (Some(&b_key_str), Some(&a_key_str)) = (b_iter.peek(), a_iter.peek()) {
-            let b_key = b_key_str.as_str();
-            let a_key = a_key_str.as_str();
+        for key in all_keys {
+            let current_path = format!("{}/{}", path_prefix, key);
 
-            if b_key == a_key {
-                let current_path = format!("{}/{}", path_prefix, b_key);
-                let b_node = before.children.get(b_key).unwrap();
-                let a_node = after.children.get(a_key).unwrap();
+            let b_file = before.files.get(key);
+            let b_dir = before.subdirs.get(key);
+            let a_file = after.files.get(key);
+            let a_dir = after.subdirs.get(key);
 
-                if b_node.blake3_hash() != a_node.blake3_hash() {
-                    match (b_node, a_node) {
-                        (MerkleNode::File(_), MerkleNode::File(a_f)) => {
-                            deltas.push(FileDelta::Upsert {
-                                path: current_path,
-                                data: a_f.clone(),
-                            });
-                        }
-                        (MerkleNode::Directory(b_d), MerkleNode::Directory(a_d)) => {
-                            Self::diff_recursive(b_d, a_d, current_path, deltas, visited);
-                        }
-                        (MerkleNode::File(_), MerkleNode::Directory(a_d)) => {
-                            deltas.push(FileDelta::Delete {
-                                path: current_path.clone(),
-                            });
-                            Self::collect_upserts(a_d, current_path, deltas, visited);
-                        }
-                        (MerkleNode::Directory(b_d), MerkleNode::File(a_f)) => {
-                            Self::collect_deletes(b_d, current_path.clone(), deltas, visited);
-                            deltas.push(FileDelta::Upsert {
-                                path: current_path,
-                                data: a_f.clone(),
-                            });
-                        }
-                    }
+            if let (Some(bf), Some(af)) = (b_file, a_file) {
+                if bf.blake3_hash != af.blake3_hash {
+                    deltas.push(FileDelta::Upsert { path: current_path, data: af.clone() });
                 }
-
-                b_iter.next();
-                a_iter.next();
-            } else if b_key < a_key {
-                let current_path = format!("{}/{}", path_prefix, b_key);
-                match before.children.get(b_key).unwrap() {
-                    MerkleNode::File(_) => {
-                        deltas.push(FileDelta::Delete { path: current_path });
-                    }
-                    MerkleNode::Directory(d) => {
-                        Self::collect_deletes(d, current_path, deltas, visited);
-                    }
-                }
-                b_iter.next();
+            } else if let (Some(bd), Some(ad)) = (b_dir, a_dir) {
+                Self::diff_recursive(bd, ad, current_path, deltas, visited);
             } else {
-                let current_path = format!("{}/{}", path_prefix, a_key);
-                match after.children.get(a_key).unwrap() {
-                    MerkleNode::File(f) => {
-                        deltas.push(FileDelta::Upsert {
-                            path: current_path,
-                            data: f.clone(),
-                        });
-                    }
-                    MerkleNode::Directory(d) => {
-                        Self::collect_upserts(d, current_path, deltas, visited);
-                    }
+                if let Some(d) = b_dir {
+                    Self::collect_deletes(d, current_path.clone(), deltas, visited);
+                } else if b_file.is_some() {
+                    deltas.push(FileDelta::Delete { path: current_path.clone() });
                 }
-                a_iter.next();
-            }
-        }
 
-        while let Some(b_key_str) = b_iter.next() {
-            let b_key = b_key_str.as_str();
-            let current_path = format!("{}/{}", path_prefix, b_key);
-            match before.children.get(b_key).unwrap() {
-                MerkleNode::File(_) => {
-                    deltas.push(FileDelta::Delete { path: current_path });
-                }
-                MerkleNode::Directory(d) => {
-                    Self::collect_deletes(d, current_path, deltas, visited);
-                }
-            }
-        }
-
-        while let Some(a_key_str) = a_iter.next() {
-            let a_key = a_key_str.as_str();
-            let current_path = format!("{}/{}", path_prefix, a_key);
-            match after.children.get(a_key).unwrap() {
-                MerkleNode::File(f) => {
-                    deltas.push(FileDelta::Upsert {
-                        path: current_path,
-                        data: f.clone(),
-                    });
-                }
-                MerkleNode::Directory(d) => {
+                if let Some(d) = a_dir {
                     Self::collect_upserts(d, current_path, deltas, visited);
+                } else if let Some(f) = a_file {
+                    deltas.push(FileDelta::Upsert { path: current_path, data: f.clone() });
                 }
             }
         }
@@ -390,17 +298,18 @@ impl VfsTree {
         visited: &mut usize,
     ) {
         *visited += 1;
-        let mut keys: Vec<_> = dir.children.keys().collect();
-        keys.sort();
+
+        let keys: std::collections::BTreeSet<&String> = dir.files.keys().chain(dir.subdirs.keys()).collect();
 
         for key in keys {
             let current_path = format!("{}/{}", path_prefix, key);
-            match dir.children.get(key).unwrap() {
-                MerkleNode::File(f) => deltas.push(FileDelta::Upsert {
+            if let Some(f) = dir.files.get(key) {
+                deltas.push(FileDelta::Upsert {
                     path: current_path,
                     data: f.clone(),
-                }),
-                MerkleNode::Directory(d) => Self::collect_upserts(d, current_path, deltas, visited),
+                });
+            } else if let Some(d) = dir.subdirs.get(key) {
+                Self::collect_upserts(d, current_path, deltas, visited);
             }
         }
     }
@@ -412,14 +321,15 @@ impl VfsTree {
         visited: &mut usize,
     ) {
         *visited += 1;
-        let mut keys: Vec<_> = dir.children.keys().collect();
-        keys.sort();
+
+        let keys: std::collections::BTreeSet<&String> = dir.files.keys().chain(dir.subdirs.keys()).collect();
 
         for key in keys {
             let current_path = format!("{}/{}", path_prefix, key);
-            match dir.children.get(key).unwrap() {
-                MerkleNode::File(_) => deltas.push(FileDelta::Delete { path: current_path }),
-                MerkleNode::Directory(d) => Self::collect_deletes(d, current_path, deltas, visited),
+            if dir.files.contains_key(key) {
+                deltas.push(FileDelta::Delete { path: current_path });
+            } else if let Some(d) = dir.subdirs.get(key) {
+                Self::collect_deletes(d, current_path, deltas, visited);
             }
         }
     }
