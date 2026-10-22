@@ -1,12 +1,16 @@
-use crate::ast::{AsyncTaskHandle, ContentBlock, Message, RubricOutcome, SkillFrontmatter, SubagentMode, TaskId, TodoItem};
-use crate::delta::MessageDelta;
-use crate::error::StateReducerError;
-use crate::path::PosixPath;
-use crate::typemap::StateExtensionMap;
-use crate::vfs::VfsTree;
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, PartialEq, Default)]
+use crate::ast::{
+    AsyncTaskHandle, ContentBlock, Message, RubricOutcome, SkillFrontmatter,
+    SubagentMode, TaskId, TodoItem,
+};
+use crate::path::PosixPath;
+use crate::delta::MessageDelta;
+use crate::error::StateReducerError;
+use crate::typemap::StateExtensionMap;
+use crate::vfs::VfsTree;
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct TantryState {
     pub thread_id: String,
     pub step_index: u64,
@@ -44,7 +48,7 @@ impl TantryState {
             step_index: 0,
             last_checkpoint_id: None,
             messages,
-            files: self.files.clone(), // $O(1)$ Arc clone
+            files: self.files.clone(),
             todos: Vec::new(),
             skills_metadata: Vec::new(),
             memory_contents: BTreeMap::new(),
@@ -61,36 +65,31 @@ impl TantryState {
         tool_use_id: &str,
         modified_arguments: serde_json::Value,
     ) -> Result<MessageDelta, StateReducerError> {
-        let mut target_msg: Option<&Message> = None;
-        let mut patch_idx = None;
-
         for msg in self.messages.iter().rev() {
-            if let Some(idx) = msg.content.iter().position(|block| {
+            let has_target_tool = msg.content.iter().any(|block| {
                 if let ContentBlock::ToolUse { id, .. } = block {
                     id == tool_use_id
                 } else {
                     false
                 }
-            }) {
-                target_msg = Some(msg);
-                patch_idx = Some(idx);
-                break;
+            });
+
+            if has_target_tool {
+                let mut replacement = msg.clone();
+                for block in &mut replacement.content {
+                    if let ContentBlock::ToolUse { id, input, .. } = block {
+                        if id == tool_use_id {
+                            *input = modified_arguments.clone();
+                        }
+                    }
+                }
+                return Ok(MessageDelta::PatchById {
+                    target_id: msg.id,
+                    replacement,
+                });
             }
         }
 
-        if let (Some(msg), Some(idx)) = (target_msg, patch_idx) {
-            let mut replacement = msg.clone();
-            if let ContentBlock::ToolUse { ref mut input, .. } = replacement.content[idx] {
-                *input = modified_arguments;
-            }
-            Ok(MessageDelta::PatchById {
-                target_id: msg.id,
-                replacement,
-            })
-        } else {
-            Err(StateReducerError::InvalidToolUsePatch(
-                tool_use_id.to_string(),
-            ))
-        }
+        Err(StateReducerError::InvalidToolUsePatch(tool_use_id.to_string()))
     }
 }
