@@ -26,6 +26,4 @@ pub enum IamError {
     TunnelGrantExpiredOrInvalid(String),
     #[error("Spire Socket Unavailable: {0}")]
     SpireSocketUnavailable(String),
-    #[error("Not implemented")]
-    NotImplemented,
 }
