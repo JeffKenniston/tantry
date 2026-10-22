@@ -1,5 +1,9 @@
 pub mod error;
 pub mod key_hierarchy;
+pub mod spiffe;
+pub mod svid;
+pub mod dpop;
+pub mod tunnel_grant;
 
 pub struct AuditSthSignature {
     pub tree_size: u64,
