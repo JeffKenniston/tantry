@@ -1,22 +1,10 @@
-use crate::ast::{AsyncTaskHandle, ContentBlock, Message, SkillFrontmatter, TaskId, TodoItem};
+use crate::ast::{AsyncTaskHandle, ContentBlock, Message, RubricOutcome, SkillFrontmatter, SubagentMode, TaskId, TodoItem};
 use crate::delta::MessageDelta;
 use crate::error::StateReducerError;
 use crate::path::PosixPath;
 use crate::typemap::StateExtensionMap;
 use crate::vfs::VfsTree;
 use std::collections::BTreeMap;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RubricOutcome {
-    Pass,
-    Fail { reason: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SubagentMode {
-    Isolated,
-    Fork,
-}
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct TantryState {

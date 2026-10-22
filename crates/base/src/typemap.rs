@@ -151,11 +151,10 @@ impl StateExtensionMap {
     }
 
     pub fn get_mut<T: StateSlot>(&mut self) -> Option<&mut T> {
-        if let Some(erased) = self.map.get_mut(&TypeId::of::<T>()) {
-            if let Some(holder) = erased.as_any_mut().downcast_mut::<SlotHolder<T>>() {
+        if let Some(erased) = self.map.get_mut(&TypeId::of::<T>())
+            && let Some(holder) = erased.as_any_mut().downcast_mut::<SlotHolder<T>>() {
                 return Some(Arc::make_mut(&mut holder.0));
             }
-        }
         None
     }
 
