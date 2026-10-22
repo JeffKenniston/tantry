@@ -84,29 +84,21 @@ impl RuntimePlatform {
     ) -> Result<PosixPath, PathValidationError> {
         let normalized = validate_and_normalize_path(path)?;
 
-        if let RuntimePlatform::AndroidTermux { prefix } = self {
-            if !strict_posix_paths {
-                if normalized.starts_with("/var/lib/tantry") && !normalized.starts_with(prefix) {
-                    let suffix = normalized.strip_prefix("/var/lib/tantry").unwrap_or("");
-                    return validate_and_normalize_path(&format!(
-                        "{}/var/lib/tantry{}",
-                        prefix, suffix
-                    ));
-                } else if normalized.starts_with("/run/spire") && !normalized.starts_with(prefix) {
-                    let suffix = normalized.strip_prefix("/run/spire").unwrap_or("");
-                    return validate_and_normalize_path(&format!(
-                        "{}/var/run/spire{}",
-                        prefix, suffix
-                    ));
-                } else if normalized.starts_with("/var/run/tantry")
-                    && !normalized.starts_with(prefix)
-                {
-                    let suffix = normalized.strip_prefix("/var/run/tantry").unwrap_or("");
-                    return validate_and_normalize_path(&format!(
-                        "{}/var/run/tantry{}",
-                        prefix, suffix
-                    ));
-                }
+        if let RuntimePlatform::AndroidTermux { prefix } = self
+            && !strict_posix_paths
+        {
+            if normalized.starts_with("/var/lib/tantry") && !normalized.starts_with(prefix) {
+                let suffix = normalized.strip_prefix("/var/lib/tantry").unwrap_or("");
+                return validate_and_normalize_path(&format!("{}/var/lib/tantry{}", prefix, suffix));
+            } else if normalized.starts_with("/run/spire") && !normalized.starts_with(prefix) {
+                let suffix = normalized.strip_prefix("/run/spire").unwrap_or("");
+                return validate_and_normalize_path(&format!("{}/var/run/spire{}", prefix, suffix));
+            } else if normalized.starts_with("/var/run/tantry") && !normalized.starts_with(prefix) {
+                let suffix = normalized.strip_prefix("/var/run/tantry").unwrap_or("");
+                return validate_and_normalize_path(&format!(
+                    "{}/var/run/tantry{}",
+                    prefix, suffix
+                ));
             }
         }
 

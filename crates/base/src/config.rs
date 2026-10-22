@@ -1,8 +1,9 @@
 use crate::error::{BaseError, ConfigValidationError};
 use crate::path::PosixPath;
-use crate::platform::RuntimePlatform;
+use crate::platform::{interpolate_env_vars, RuntimePlatform};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TantryConfig {
     pub system: SystemConfig,
     pub cognitive: CognitiveConfig,
@@ -12,7 +13,7 @@ pub struct TantryConfig {
     pub transport: TransportConfig,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SystemConfig {
     pub trust_domain: String,
     pub strict_posix_paths: bool,
@@ -20,14 +21,14 @@ pub struct SystemConfig {
     pub run_dir: PosixPath,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CognitiveConfig {
     pub default_system_prompt: String,
     pub memory_ttl_seconds: u32,
     pub similarity_threshold: f32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelTiersConfig {
     pub frontier_deep: String,
     pub reasoning_pro: String,
@@ -35,13 +36,13 @@ pub struct ModelTiersConfig {
     pub compact_lite: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BillingConfig {
     pub soft_limit_usd: f64,
     pub hard_limit_usd: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SandboxesConfig {
     pub max_workers: usize,
     pub wasm: WasmSandboxConfig,
@@ -49,23 +50,23 @@ pub struct SandboxesConfig {
     pub termux_proot: TermuxProotSandboxConfig,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WasmSandboxConfig {
     pub max_memory_bytes: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FirecrackerSandboxConfig {
     pub kernel_image_path: PosixPath,
     pub rootfs_path: PosixPath,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TermuxProotSandboxConfig {
     pub guest_rootfs_path: PosixPath,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransportConfig {
     pub mcp_protocol_version: String,
     pub listen_addr: String,
@@ -73,20 +74,25 @@ pub struct TransportConfig {
 
 impl TantryConfig {
     pub fn parse_and_validate<F>(
-        _toml_str: &str,
+        toml_str: &str,
         env_lookup: F,
         is_android_target: bool,
     ) -> Result<Self, BaseError>
     where
         F: Fn(&str) -> Option<String>,
     {
-        let platform = RuntimePlatform::detect_from_env(env_lookup, is_android_target);
-        let _ = platform;
-        Err(BaseError::Config(
-            ConfigValidationError::InvalidTrustDomain(
-                "TOML parsing not fully implemented in AST stub".into(),
-            ),
-        ))
+        let interpolated = interpolate_env_vars(toml_str, &env_lookup);
+        let mut config: Self = toml::from_str(&interpolated).map_err(|e| {
+            BaseError::Config(ConfigValidationError::InvalidTrustDomain(format!(
+                "TOML parsing failed: {}",
+                e
+            )))
+        })?;
+
+        let platform = RuntimePlatform::detect_from_env(&env_lookup, is_android_target);
+        config.validate(&platform)?;
+
+        Ok(config)
     }
 
     pub fn validate(&mut self, platform: &RuntimePlatform) -> Result<(), BaseError> {
@@ -112,11 +118,22 @@ impl TantryConfig {
             .into());
         }
 
-        if self.sandboxes.wasm.max_memory_bytes % 65536 != 0 {
+        if !num::Integer::is_multiple_of(&self.sandboxes.wasm.max_memory_bytes, &65536) {
             return Err(ConfigValidationError::InvalidWasmMemoryBytes(
                 self.sandboxes.wasm.max_memory_bytes,
             )
             .into());
+        }
+
+        if !self.transport.mcp_protocol_version.starts_with("2024-") && !self.transport.mcp_protocol_version.starts_with("2026-") {
+            return Err(ConfigValidationError::InvalidMcpProtocolVersion(
+                self.transport.mcp_protocol_version.clone(),
+            )
+            .into());
+        }
+
+        if self.transport.listen_addr.parse::<std::net::SocketAddr>().is_err() {
+            return Err(ConfigValidationError::InvalidSocketAddr(self.transport.listen_addr.clone()).into());
         }
 
         self.sandboxes.max_workers = platform.effective_max_workers(self.sandboxes.max_workers);

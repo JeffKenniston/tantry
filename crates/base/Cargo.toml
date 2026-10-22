@@ -14,6 +14,8 @@ rmp-serde = "1"
 bytecheck = "0.8"
 bytes = { version = "1", features = ["serde"] }
 blake3 = "1"
+toml = "1.1.8"
+num = "0.4.3"
 
 [dev-dependencies]
 proptest = "1.6.0"
