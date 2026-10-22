@@ -1,7 +1,7 @@
 use crate::ast::{CacheControl, ToolCallId};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModelTier {
     FrontierDeep,
     ReasoningPro,
@@ -12,25 +12,25 @@ pub enum ModelTier {
 impl ModelTier {
     pub fn as_str(&self) -> &'static str {
         match self {
-            ModelTier::FrontierDeep => "frontier_deep",
-            ModelTier::ReasoningPro => "reasoning_pro",
-            ModelTier::FastExecution => "fast_execution",
-            ModelTier::CompactLite => "compact_lite",
+            Self::FrontierDeep => "FrontierDeep",
+            Self::ReasoningPro => "ReasoningPro",
+            Self::FastExecution => "FastExecution",
+            Self::CompactLite => "CompactLite",
         }
     }
 
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
-            "frontier_deep" => Some(ModelTier::FrontierDeep),
-            "reasoning_pro" => Some(ModelTier::ReasoningPro),
-            "fast_execution" => Some(ModelTier::FastExecution),
-            "compact_lite" => Some(ModelTier::CompactLite),
+            "FrontierDeep" => Some(Self::FrontierDeep),
+            "ReasoningPro" => Some(Self::ReasoningPro),
+            "FastExecution" => Some(Self::FastExecution),
+            "CompactLite" => Some(Self::CompactLite),
             _ => None,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct TokenUsage {
     pub input_tokens: u64,
     pub cached_tokens: u64,
@@ -93,8 +93,8 @@ pub enum StreamEvent {
 impl StreamEvent {
     pub fn coalesce_in_place(&mut self, next: StreamEvent) -> Result<(), StreamEvent> {
         if let StreamEvent::ModelDelta {
-            text_delta: cur_text,
-            reasoning_delta: cur_reasoning,
+            text_delta,
+            reasoning_delta,
         } = self
         {
             if let StreamEvent::ModelDelta {
@@ -102,23 +102,21 @@ impl StreamEvent {
                 reasoning_delta: next_reasoning,
             } = next
             {
-                cur_text.push_str(&next_text);
-
-                if let Some(next_r) = next_reasoning {
-                    if let Some(cur_r) = cur_reasoning {
-                        cur_r.push_str(&next_r);
+                text_delta.push_str(&next_text);
+                if let Some(nr) = next_reasoning {
+                    if let Some(r) = reasoning_delta {
+                        r.push_str(&nr);
                     } else {
-                        *cur_reasoning = Some(next_r);
+                        *reasoning_delta = Some(nr);
                     }
                 }
-
-                return Ok(());
+                Ok(())
             } else {
-                return Err(next);
+                Err(next)
             }
+        } else {
+            Err(next)
         }
-
-        Err(next)
     }
 }
 

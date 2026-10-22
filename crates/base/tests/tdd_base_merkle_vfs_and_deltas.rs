@@ -3,7 +3,7 @@ use base::delta::{FileDelta, MessageDelta};
 use base::path::validate_and_normalize_path;
 use base::platform::RuntimePlatform;
 use base::typemap::{
-    CodecTag, SlotVisibility, StateExtensionMap, StateExtensionRegistry, StateSlot,
+    CodecTag, SlotVisibility, StateExtensionMap, DefaultExtensionRegistryImpl, StateSlot,
     register_slot,
 };
 use base::vfs::VfsTree;
@@ -136,7 +136,7 @@ fn test_extension_map_cow_and_hydration() {
     assert!(forked.get::<DummyExt>().is_some());
     assert!(forked.get::<PrivExt>().is_none());
 
-    let mut registry = StateExtensionRegistry::new();
+    let mut registry = DefaultExtensionRegistryImpl::new();
     register_slot::<DummyExt>(&mut registry);
     register_slot::<PrivExt>(&mut registry);
 

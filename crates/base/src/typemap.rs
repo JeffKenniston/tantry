@@ -1,24 +1,27 @@
-use crate::error::ExtensionError;
 use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
+use core::fmt;
 
+use crate::error::ExtensionError;
+
+/// TypeIdHasher: Identity `write_u64(&mut self, id: u64)` (`self.0 = id`) and FNV-1a `write(&mut self, bytes: &[u8])`.
 #[derive(Default)]
 pub struct TypeIdHasher(u64);
 
 impl Hasher for TypeIdHasher {
-    fn write_u64(&mut self, id: u64) {
-        self.0 = id;
-    }
-
     fn write(&mut self, bytes: &[u8]) {
-        let mut hash = 0xcbf29ce484222325;
-        for &byte in bytes {
-            hash ^= byte as u64;
-            hash = hash.wrapping_mul(0x100000001b3);
+        let mut hash = 14695981039346656037u64;
+        for byte in bytes {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(1099511628211u64);
         }
         self.0 = hash;
+    }
+
+    fn write_u64(&mut self, i: u64) {
+        self.0 = i;
     }
 
     fn finish(&self) -> u64 {
@@ -55,84 +58,112 @@ pub trait StateSlot: Any + Send + Sync + Clone + 'static {
 pub trait ErasedSlot: Any + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
+    fn wire_key(&self) -> &'static str;
     fn visibility(&self) -> SlotVisibility;
     fn codec_tag(&self) -> CodecTag;
-    fn wire_key(&self) -> &'static str;
-    fn encode_erased(&self) -> Result<Vec<u8>, ExtensionError>;
-    fn clone_erased(&self) -> Box<dyn ErasedSlot>;
-    fn type_id_erased(&self) -> TypeId;
+    fn encode_payload(&self) -> Result<Vec<u8>, ExtensionError>;
+    fn clone_box(&self) -> Box<dyn ErasedSlot>;
+    fn clone_shared_only(&self) -> Option<Box<dyn ErasedSlot>>;
 }
 
-struct SlotHolder<T>(Arc<T>);
+#[derive(Clone)]
+pub struct SlotHolder<T: StateSlot>(Arc<T>);
 
 impl<T: StateSlot> ErasedSlot for SlotHolder<T> {
     fn as_any(&self) -> &dyn Any {
         self
     }
-
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
-
-    fn visibility(&self) -> SlotVisibility {
-        T::VISIBILITY
-    }
-
-    fn codec_tag(&self) -> CodecTag {
-        T::CODEC_TAG
-    }
-
     fn wire_key(&self) -> &'static str {
         T::WIRE_KEY
     }
-
-    fn encode_erased(&self) -> Result<Vec<u8>, ExtensionError> {
+    fn visibility(&self) -> SlotVisibility {
+        T::VISIBILITY
+    }
+    fn codec_tag(&self) -> CodecTag {
+        T::CODEC_TAG
+    }
+    fn encode_payload(&self) -> Result<Vec<u8>, ExtensionError> {
         self.0.encode_payload()
     }
-
-    fn clone_erased(&self) -> Box<dyn ErasedSlot> {
-        Box::new(SlotHolder(self.0.clone()))
+    fn clone_box(&self) -> Box<dyn ErasedSlot> {
+        Box::new(self.clone())
     }
-
-    fn type_id_erased(&self) -> TypeId {
-        TypeId::of::<T>()
+    fn clone_shared_only(&self) -> Option<Box<dyn ErasedSlot>> {
+        if T::VISIBILITY == SlotVisibility::Shared {
+            Some(self.clone_box())
+        } else {
+            None
+        }
     }
 }
 
-pub type StateExtensionRegistry =
-    HashMap<String, fn(&[u8]) -> Result<Box<dyn ErasedSlot>, ExtensionError>>;
-
-pub fn register_slot<T: StateSlot>(registry: &mut StateExtensionRegistry) {
-    registry.insert(T::WIRE_KEY.to_string(), |bytes| {
-        let decoded = T::decode_payload(bytes)?;
-        Ok(Box::new(SlotHolder(Arc::new(decoded))))
-    });
+pub trait StateExtensionRegistry {
+    fn decode_and_insert(
+        &self,
+        wire_key: &str,
+        codec_tag: u8,
+        payload: &[u8],
+        map: &mut StateExtensionMap,
+    ) -> Result<(), ExtensionError>;
 }
 
-#[derive(Default)]
+// Default registry since it's referenced in specs.
+pub struct DefaultExtensionRegistry;
+
+impl StateExtensionRegistry for DefaultExtensionRegistry {
+    fn decode_and_insert(
+        &self,
+        wire_key: &str,
+        _codec_tag: u8,
+        _payload: &[u8],
+        _map: &mut StateExtensionMap,
+    ) -> Result<(), ExtensionError> {
+        Err(ExtensionError::UnknownWireKey(wire_key.to_string()))
+    }
+}
+
 pub struct StateExtensionMap {
-    map: FastTypeMap<Box<dyn ErasedSlot>>,
+    inner: FastTypeMap<Box<dyn ErasedSlot>>,
 }
 
 impl Clone for StateExtensionMap {
     fn clone(&self) -> Self {
-        let mut map = FastTypeMap::default();
-        for (id, slot) in &self.map {
-            map.insert(*id, slot.clone_erased());
+        let mut inner = FastTypeMap::default();
+        for (k, v) in &self.inner {
+            inner.insert(*k, v.clone_box());
         }
-        Self { map }
+        Self { inner }
     }
 }
 
-impl std::fmt::Debug for StateExtensionMap {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("StateExtensionMap").finish()
+impl Default for StateExtensionMap {
+    fn default() -> Self {
+        Self {
+            inner: FastTypeMap::default(),
+        }
+    }
+}
+
+impl fmt::Debug for StateExtensionMap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StateExtensionMap")
+            .field("slots", &self.inner.len())
+            .finish()
     }
 }
 
 impl PartialEq for StateExtensionMap {
-    fn eq(&self, _other: &Self) -> bool {
-        true
+    fn eq(&self, other: &Self) -> bool {
+        if self.inner.len() != other.inner.len() {
+            return false;
+        }
+        // Serialization check since types are erased
+        let left = self.serialize_all().unwrap_or_default();
+        let right = other.serialize_all().unwrap_or_default();
+        left == right
     }
 }
 
@@ -142,49 +173,46 @@ impl StateExtensionMap {
     }
 
     pub fn get<T: StateSlot>(&self) -> Option<&T> {
-        self.map.get(&TypeId::of::<T>()).and_then(|erased| {
-            erased
-                .as_any()
-                .downcast_ref::<SlotHolder<T>>()
-                .map(|holder| &*holder.0)
-        })
+        self.inner
+            .get(&TypeId::of::<T>())
+            .and_then(|b| b.as_any().downcast_ref::<SlotHolder<T>>())
+            .map(|h| &*h.0)
     }
 
     pub fn get_mut<T: StateSlot>(&mut self) -> Option<&mut T> {
-        if let Some(erased) = self.map.get_mut(&TypeId::of::<T>()) {
-            if let Some(holder) = erased.as_any_mut().downcast_mut::<SlotHolder<T>>() {
-                return Some(Arc::make_mut(&mut holder.0));
+        if let Some(b) = self.inner.get_mut(&TypeId::of::<T>()) {
+            if let Some(h) = b.as_any_mut().downcast_mut::<SlotHolder<T>>() {
+                return Some(Arc::make_mut(&mut h.0));
             }
         }
         None
     }
 
     pub fn insert<T: StateSlot>(&mut self, val: T) {
-        self.map
+        self.inner
             .insert(TypeId::of::<T>(), Box::new(SlotHolder(Arc::new(val))));
     }
 
     pub fn remove<T: StateSlot>(&mut self) {
-        self.map.remove(&TypeId::of::<T>());
+        self.inner.remove(&TypeId::of::<T>());
     }
 
     pub fn fork_shared_only(&self) -> Self {
-        let mut child = FastTypeMap::default();
-        for (id, slot) in &self.map {
-            if slot.visibility() == SlotVisibility::Shared {
-                child.insert(*id, slot.clone_erased());
+        let mut inner = FastTypeMap::default();
+        for (k, v) in &self.inner {
+            if let Some(shared) = v.clone_shared_only() {
+                inner.insert(*k, shared);
             }
         }
-        Self { map: child }
+        Self { inner }
     }
 
     pub fn serialize_all(&self) -> Result<BTreeMap<String, Vec<u8>>, ExtensionError> {
         let mut result = BTreeMap::new();
-        for slot in self.map.values() {
-            let mut payload = vec![slot.codec_tag() as u8];
-            let encoded = slot.encode_erased()?;
-            payload.extend_from_slice(&encoded);
-            result.insert(slot.wire_key().to_string(), payload);
+        for v in self.inner.values() {
+            let mut payload = vec![v.codec_tag() as u8];
+            payload.extend(v.encode_payload()?);
+            result.insert(v.wire_key().to_string(), payload);
         }
         Ok(result)
     }
@@ -192,31 +220,63 @@ impl StateExtensionMap {
     pub fn hydrate_all(
         &mut self,
         raw: &BTreeMap<String, Vec<u8>>,
-        registry: &StateExtensionRegistry,
+        registry: &dyn StateExtensionRegistry,
     ) -> Result<(), ExtensionError> {
-        for (key, payload) in raw {
-            if payload.is_empty() {
+        for (wire_key, data) in raw {
+            if data.is_empty() {
                 return Err(ExtensionError::DeserializationFailed(
-                    "Empty payload".into(),
+                    "Empty payload".to_string(),
                 ));
             }
-
-            let tag_byte = payload[0];
-            let bytes = &payload[1..];
-
-            if let Some(decoder) = registry.get(key) {
-                let decoded = decoder(bytes)?;
-                if decoded.codec_tag() as u8 != tag_byte {
-                    return Err(ExtensionError::CodecTagMismatch {
-                        expected: decoded.codec_tag() as u8,
-                        actual: tag_byte,
-                    });
-                }
-                self.map.insert(decoded.type_id_erased(), decoded);
-            } else {
-                return Err(ExtensionError::UnknownWireKey(key.clone()));
-            }
+            let codec_tag = data[0];
+            let payload = &data[1..];
+            registry.decode_and_insert(wire_key, codec_tag, payload, self)?;
         }
         Ok(())
     }
+}
+
+
+pub struct DefaultExtensionRegistryImpl {
+    decoders: HashMap<String, (u8, Box<dyn Fn(&[u8]) -> Result<(TypeId, Box<dyn ErasedSlot>), ExtensionError>>)>,
+}
+
+impl DefaultExtensionRegistryImpl {
+    pub fn new() -> Self {
+        Self { decoders: HashMap::new() }
+    }
+}
+
+impl StateExtensionRegistry for DefaultExtensionRegistryImpl {
+    fn decode_and_insert(
+        &self,
+        wire_key: &str,
+        codec_tag: u8,
+        payload: &[u8],
+        map: &mut StateExtensionMap,
+    ) -> Result<(), ExtensionError> {
+        if let Some((expected_tag, decoder)) = self.decoders.get(wire_key) {
+            if codec_tag != *expected_tag {
+                return Err(ExtensionError::CodecTagMismatch {
+                    expected: *expected_tag,
+                    actual: codec_tag,
+                });
+            }
+            let (type_id, erased) = decoder(payload)?;
+            map.inner.insert(type_id, erased);
+            Ok(())
+        } else {
+            Err(ExtensionError::UnknownWireKey(wire_key.to_string()))
+        }
+    }
+}
+
+pub fn register_slot<T: StateSlot>(registry: &mut DefaultExtensionRegistryImpl) {
+    registry.decoders.insert(
+        T::WIRE_KEY.to_string(),
+        (T::CODEC_TAG as u8, Box::new(|bytes| {
+            let val = T::decode_payload(bytes)?;
+            Ok((TypeId::of::<T>(), Box::new(SlotHolder(Arc::new(val)))))
+        })),
+    );
 }
