@@ -8,7 +8,7 @@ use crate::path::PosixPath;
 use crate::delta::MessageDelta;
 use crate::error::StateReducerError;
 use crate::typemap::StateExtensionMap;
-use crate::vfs::VfsTree;
+use crate::vfs_tree::VfsTree;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TantryState {

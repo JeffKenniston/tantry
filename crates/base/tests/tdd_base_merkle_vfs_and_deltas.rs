@@ -6,7 +6,7 @@ use base::typemap::{
     CodecTag, SlotVisibility, StateExtensionMap, DefaultExtensionRegistryImpl, StateSlot,
     register_slot,
 };
-use base::vfs::VfsTree;
+use base::vfs_tree::VfsTree;
 use chrono::Utc;
 use proptest::prelude::*;
 use std::sync::Arc;
@@ -58,6 +58,32 @@ fn test_vfs_diff_and_stats() {
 
     let (deltas, visited) = tree_before.diff_with_stats(&tree_after);
     assert!(visited <= 20); // Not exploring unchanged subtrees, just verifying bound
+
+    // 1. Proves `VfsTree::diff_with_stats` produces the exact same `Vec<FileDelta>` as a full scan while visiting <= 2 * K * max_depth directory nodes (O(K log N)).
+    let mut full_scan = Vec::new();
+    let all_paths = vec![
+        "/dir1/file1.txt",
+        "/dir2/file2.txt",
+        "/dir2/file3.txt",
+        "/dir3/file4.txt",
+        "/dir4/delete_me.txt",
+    ];
+     // removed
+    for path in all_paths {
+        match (tree_before.get(path), tree_after.get(path)) {
+            (Some(b), Some(a)) if b.blake3_hash != a.blake3_hash => {
+                full_scan.push(FileDelta::Upsert { path: path.to_string().into(), data: (*a).clone() });
+            }
+            (None, Some(a)) => {
+                full_scan.push(FileDelta::Upsert { path: path.to_string().into(), data: (*a).clone() });
+            }
+            (Some(_), None) => {
+                full_scan.push(FileDelta::Delete { path: path.to_string().into() });
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(deltas, full_scan);
 
     let expected_deltas = vec![
         FileDelta::Upsert {

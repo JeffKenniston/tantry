@@ -26,4 +26,16 @@ pub enum IamError {
     TunnelGrantExpiredOrInvalid(String),
     #[error("Spire Socket Unavailable: {0}")]
     SpireSocketUnavailable(String),
+    #[error("Not implemented")]
+    NotImplemented,
+    #[error("Master key unavailable")]
+    MasterKeyUnavailable,
+    #[error("Certificate generation error: {0}")]
+    CertificateGenerationError(String),
+    #[error("Ed25519 verification failed")]
+    Ed25519VerificationFailed,
+    #[error("PQ signature verification failed")]
+    PqSignatureVerificationFailed,
+    #[error("SPIRE socket unavailable: {0}")]
+    SpireSocketUnavailable(String),
 }
