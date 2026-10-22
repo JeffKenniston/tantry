@@ -1,13 +1,16 @@
-pub mod key_hierarchy {
-    pub struct KeyHierarchy;
-    impl KeyHierarchy {
-        pub fn crypto_shred_thread(&self, _thread_id: &str) {}
-        pub fn derive_dek(&self, epoch_salt: &[u8; 32], thread_salt: &[u8; 32]) -> [u8; 32] {
-            let mut dek = [0u8; 32];
-            for i in 0..32 {
-                dek[i] = epoch_salt[i] ^ thread_salt[i];
-            }
-            dek
-        }
-    }
+pub mod error;
+pub mod key_hierarchy;
+
+pub struct AuditSthSignature {
+    pub tree_size: u64,
+    pub timestamp_ms: i64,
+    pub mmr_root_blake3: [u8; 32],
+    pub ed25519_sig: Vec<u8>,
+    pub mldsa65_sig: Vec<u8>,
+}
+
+pub trait IdentityManager: Send + Sync {
+    fn key_hierarchy(&self) -> &key_hierarchy::KeyHierarchy;
+    fn sign_audit_sth(&self, tree_size: u64, timestamp_ms: i64, mmr_root_blake3: &[u8; 32]) -> Result<AuditSthSignature, error::IamError>;
+    fn verify_audit_sth(&self, sth: &AuditSthSignature) -> Result<(), error::IamError>;
 }
