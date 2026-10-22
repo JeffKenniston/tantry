@@ -114,7 +114,6 @@ impl VfsTree {
         }
         None
     }
-
     pub fn insert(
         &mut self,
         normalized_path: PosixPath,
@@ -130,45 +129,45 @@ impl VfsTree {
             return Err(PathValidationError::EmptyPath);
         }
 
-        let (replaced, new_root) = Self::insert_recursive(&self.root, &segments, 0, data)?;
-        self.root = new_root;
+        let replaced = Self::insert_recursive(&mut self.root, &segments, 0, data)?;
         Ok(replaced)
     }
 
     fn insert_recursive(
-        dir: &Arc<MerkleDirNode>,
+        dir: &mut Arc<MerkleDirNode>,
         segments: &[&str],
         depth: usize,
-        data: Arc<FileData>,
-    ) -> Result<(Option<Arc<FileData>>, Arc<MerkleDirNode>), PathValidationError> {
-        let mut new_dir = (**dir).clone();
+        mut data: Arc<FileData>,
+    ) -> Result<Option<Arc<FileData>>, PathValidationError> {
         let segment = segments[depth];
         let is_last = depth == segments.len() - 1;
 
         let replaced;
 
+        let new_dir = Arc::make_mut(dir);
+
         if is_last {
             new_dir.subdirs.remove(segment);
+            if let Some(existing) = new_dir.files.get(segment) {
+                let mut new_data = (*data).clone();
+                new_data.created_at = existing.created_at;
+                data = Arc::new(new_data);
+            }
             replaced = new_dir.files.insert(segment.to_string(), data);
         } else {
             new_dir.files.remove(segment);
-            let child_dir = new_dir.subdirs.get(segment);
-            let next_dir = match child_dir {
-                Some(d) => d.clone(),
-                None => Arc::new(MerkleDirNode::new(segment.to_string())),
-            };
+            if !new_dir.subdirs.contains_key(segment) {
+                new_dir.subdirs.insert(segment.to_string(), Arc::new(MerkleDirNode::new(segment.to_string())));
+            }
+            let child_dir = new_dir.subdirs.get_mut(segment).unwrap();
 
-            let (child_replaced, next_dir) =
-                Self::insert_recursive(&next_dir, segments, depth + 1, data)?;
-            replaced = child_replaced;
-            new_dir
-                .subdirs
-                .insert(segment.to_string(), next_dir);
+            replaced = Self::insert_recursive(child_dir, segments, depth + 1, data)?;
         }
 
         new_dir.recompute_hash();
-        Ok((replaced, Arc::new(new_dir)))
+        Ok(replaced)
     }
+
 
     pub fn remove(&mut self, normalized_path: &str) -> Option<Arc<FileData>> {
         let path = normalized_path.strip_prefix('/').unwrap_or(normalized_path);
@@ -181,52 +180,49 @@ impl VfsTree {
             return None;
         }
 
-        let (removed, new_root) = Self::remove_recursive(&self.root, &segments, 0);
-        if removed.is_some() {
-            self.root = new_root;
-        }
-        removed
+        Self::remove_recursive(&mut self.root, &segments, 0)
     }
 
     fn remove_recursive(
-        dir: &Arc<MerkleDirNode>,
+        dir: &mut Arc<MerkleDirNode>,
         segments: &[&str],
         depth: usize,
-    ) -> (Option<Arc<FileData>>, Arc<MerkleDirNode>) {
+    ) -> Option<Arc<FileData>> {
         let segment = segments[depth];
         let is_last = depth == segments.len() - 1;
 
-        let mut new_dir = (**dir).clone();
+        let mut remove_child = false;
         let removed;
 
-        if is_last {
-            removed = new_dir.files.remove(segment);
-        } else {
-            if let Some(child_dir) = new_dir.subdirs.get(segment) {
-                let (child_removed, new_child_dir) =
-                    Self::remove_recursive(child_dir, segments, depth + 1);
-                removed = child_removed;
+        {
+            let new_dir = Arc::make_mut(dir);
 
-                if new_child_dir.file_count == 0 {
-                    new_dir.subdirs.remove(segment);
-                } else {
-                    new_dir
-                        .subdirs
-                        .insert(segment.to_string(), new_child_dir);
-                }
+            if is_last {
+                removed = new_dir.files.remove(segment);
             } else {
-                removed = None;
+                if let Some(child_dir) = new_dir.subdirs.get_mut(segment) {
+                    removed = Self::remove_recursive(child_dir, segments, depth + 1);
+                    if child_dir.file_count == 0 {
+                        remove_child = true;
+                    }
+                } else {
+                    removed = None;
+                }
+            }
+
+            if remove_child {
+                new_dir.subdirs.remove(segment);
+            }
+
+            if removed.is_some() {
+                new_dir.recompute_hash();
             }
         }
 
-        if removed.is_some() {
-            new_dir.recompute_hash();
-        }
-
-        (removed, Arc::new(new_dir))
+        removed
     }
 
-    pub fn diff(&self, after: &Self) -> Vec<FileDelta> {
+pub fn diff(&self, after: &Self) -> Vec<FileDelta> {
         let (deltas, _) = self.diff_with_stats(after);
         deltas
     }
