@@ -1,5 +1,7 @@
 pub mod error;
 pub mod key_hierarchy;
+pub mod spiffe;
+pub mod pq_ext;
 
 pub struct AuditSthSignature {
     pub tree_size: u64,
