@@ -79,10 +79,7 @@ impl TaskLedgerStore {
         drop(stmt);
 
         if spent + reserved + lease_micros > hard {
-            // Need a custom DataError for this? The spec says `Err(CognitiveError::BudgetExhausted)`.
-            // But this returns DataError, so let's use a specific one or Serialization. We'll use Serialization for now, or just AadMismatch? Let's add BudgetExhausted to DataError.
-            // Oh, I can't modify DataError from here without checking it. Let's just return Err(DataError::Serialization("BudgetExhausted".to_string()));
-            return Err(DataError::Serialization("BudgetExhausted".to_string()));
+            return Err(DataError::BudgetExhausted("Budget exhausted".to_string()));
         }
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
@@ -103,7 +100,7 @@ impl TaskLedgerStore {
         drop(stmt);
 
         if spent + reserved + additional_micros > hard {
-            return Err(DataError::Serialization("BudgetExhausted".to_string()));
+            return Err(DataError::BudgetExhausted("Budget exhausted".to_string()));
         }
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;

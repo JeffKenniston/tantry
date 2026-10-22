@@ -20,4 +20,6 @@ pub enum DataError {
     MmrProofInvalid,
     #[error("Serialization error: {0}")]
     Serialization(String),
+    #[error("Budget exhausted: {0}")]
+    BudgetExhausted(String),
 }
