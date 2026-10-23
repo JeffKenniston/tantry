@@ -58,7 +58,7 @@ fn test_crypto_shred_thread() {
     let _ = get_or_provision_key_epoch(&writer, thread_id, 1).unwrap();
 
     // Shred
-    let kh = KeyHierarchy;
+    let kh = KeyHierarchy::new([0u8; 32]);
     crypto_shred_thread(&mut writer, thread_id, &kh).unwrap();
 
     // Attempting to read after shredding should fail

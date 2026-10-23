@@ -88,7 +88,7 @@ impl InteractionChainStore {
     pub fn reconstruct_state_at_checkpoint(
         &self,
         target_checkpoint_id: &str,
-        registry: &base::typemap::StateExtensionRegistry,
+        registry: &dyn base::typemap::StateExtensionRegistry,
         key_hierarchy: &iam::key_hierarchy::KeyHierarchy,
     ) -> Result<ReconstructedCheckpoint, DataError> {
         let conn = self.db.lock().unwrap();
@@ -131,7 +131,7 @@ impl InteractionChainStore {
 
         chain.reverse();
 
-        let mut state = TantryState::default();
+        let mut state = TantryState { thread_id: "".to_string(), step_index: 0, last_checkpoint_id: None, messages: vec![], files: base::vfs_tree::VfsTree::new(), todos: vec![], skills_metadata: vec![], memory_contents: std::collections::BTreeMap::new(), async_tasks: std::collections::BTreeMap::new(), rubric_input: None, rubric_status: None, structured_response: None, extensions: base::typemap::StateExtensionMap::new() };
         let mut final_checkpoint_blake3 = [0u8; 32];
 
         for row in chain {
@@ -150,7 +150,7 @@ impl InteractionChainStore {
 
             // Deriving DEK securely via thread and epoch salts
             let (epoch_salt, thread_salt) = crate::crypto::get_or_provision_key_epoch(&conn, &row.thread_id, row.key_epoch)?;
-            let dek = key_hierarchy.derive_dek(&epoch_salt, &thread_salt);
+            let dek = key_hierarchy.derive_dek_from_salts(row.key_epoch, &epoch_salt, &row.thread_id, &thread_salt).map(|z| *z).unwrap_or([0u8; 32]);
 
             let aad = crate::crypto::compute_canonical_aad("interaction_checkpoints", &row.checkpoint_id, &row.thread_id, row.key_epoch);
 
