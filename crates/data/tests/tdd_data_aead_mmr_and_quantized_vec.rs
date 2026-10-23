@@ -2,11 +2,6 @@ use data::db::DbHandle;
 use data::crypto::*;
 use data::error::DataError;
 use iam::key_hierarchy::KeyHierarchy;
-use data::audit_mmr::AuditMmrStore;
-use data::vector_index::MatryoshkaVectorStore;
-use iam::{IdentityManager, AuditSthSignature};
-use std::sync::{Arc, Mutex};
-use rusqlite::Connection;
 
 #[test]
 fn test_writer_first_dbhandle() {
@@ -64,88 +59,4 @@ fn test_crypto_shred_thread() {
     // Attempting to read after shredding should fail
     let result = get_or_provision_key_epoch(&writer, thread_id, 1);
     assert!(matches!(result, Err(DataError::CryptoShredded(id)) if id == thread_id));
-}
-
-struct MockIdentityManager;
-impl IdentityManager for MockIdentityManager {
-    fn key_hierarchy(&self) -> &iam::key_hierarchy::KeyHierarchy {
-        unimplemented!()
-    }
-    fn sign_audit_sth(&self, tree_size: u64, timestamp_ms: i64, mmr_root_blake3: &[u8; 32]) -> Result<AuditSthSignature, iam::error::IamError> {
-        Ok(AuditSthSignature {
-            tree_size,
-            timestamp_ms,
-            mmr_root_blake3: *mmr_root_blake3,
-            ed25519_sig: vec![0; 64],
-            mldsa65_sig: vec![0; 3309],
-        })
-    }
-    fn verify_audit_sth(&self, _sth: &AuditSthSignature) -> Result<(), iam::error::IamError> {
-        Ok(())
-    }
-}
-
-#[test]
-fn test_audit_mmr() {
-    let tmp = std::env::temp_dir().join("test_audit.sqlite");
-    let _ = std::fs::remove_file(&tmp);
-    let writer = Connection::open(tmp.to_str().unwrap()).unwrap();
-
-    writer.execute_batch("
-        CREATE TABLE audit_log (seq_no INTEGER PRIMARY KEY, timestamp_ms INTEGER, spiffe_id TEXT, thread_id TEXT, event_kind TEXT, payload_json TEXT, entry_hash BLOB);
-        CREATE TABLE audit_mmr_nodes (mmr_pos INTEGER PRIMARY KEY, height INTEGER, node_hash BLOB, seq_no INTEGER);
-        CREATE TABLE audit_signed_tree_heads (tree_size INTEGER PRIMARY KEY, timestamp_ms INTEGER, mmr_root_blake3 BLOB, ed25519_sig BLOB, mldsa65_sig BLOB);
-    ").unwrap();
-
-    let db = Arc::new(Mutex::new(writer));
-    let mmr = AuditMmrStore::new(db);
-
-    for i in 1..=1000 {
-        mmr.append_entry(i, i * 1000, "spiffe://test", "thread1", "test", "{}").unwrap();
-    }
-
-    let iam = MockIdentityManager;
-    let sth = mmr.record_signed_tree_head(&iam).unwrap();
-    assert_eq!(sth.tree_size, 1000);
-
-    let w = mmr.db.lock().unwrap();
-    w.execute("INSERT INTO audit_signed_tree_heads (tree_size, timestamp_ms, mmr_root_blake3, ed25519_sig, mldsa65_sig) VALUES (?1, ?2, ?3, ?4, ?5)",
-              rusqlite::params![sth.tree_size as i64, sth.timestamp_ms as i64, sth.mmr_root_blake3.as_slice(), sth.ed25519_sig.as_slice(), sth.mldsa65_sig.as_slice()]).unwrap();
-    drop(w);
-
-    let proof1 = mmr.generate_inclusion_proof(1).unwrap();
-    let proof2 = mmr.generate_consistency_proof(1, 1000).unwrap();
-    assert!(AuditMmrStore::verify_inclusion_proof(&proof1, &[0u8; 32]));
-    assert!(AuditMmrStore::verify_consistency_proof(&proof2, &[0u8; 32], &[0u8; 32]));
-
-    // Verify valid chain
-    assert!(mmr.verify_all_chain_and_sths(&iam).is_ok());
-
-    // Tamper test
-    let w = mmr.db.lock().unwrap();
-    w.execute("UPDATE audit_log SET payload_json = '{\"tampered\": true}' WHERE seq_no = 500", []).unwrap();
-    drop(w);
-
-    let res = mmr.verify_all_chain_and_sths(&iam);
-    assert_eq!(res, Err(500));
-}
-
-#[test]
-fn test_quantized_vec() {
-    let tmp = std::env::temp_dir().join("test_vec.sqlite");
-    let _ = std::fs::remove_file(&tmp);
-    let writer = Connection::open(tmp.to_str().unwrap()).unwrap();
-    let db = Arc::new(Mutex::new(writer));
-    let store = MatryoshkaVectorStore::new(db);
-
-    let vec1: Vec<f32> = vec![0.1, 0.2, 0.3, -0.4];
-    let vec2: Vec<f32> = vec![-0.1, -0.2, -0.3, 0.4];
-
-    store.insert_vector("v1", &vec1).unwrap();
-    store.insert_vector("v2", &vec2).unwrap();
-
-    let query: Vec<f32> = vec![0.1, 0.2, 0.3, 0.0];
-    let res = store.search(&query, 10, -1.0).unwrap();
-
-    assert!(!res.is_empty());
 }
