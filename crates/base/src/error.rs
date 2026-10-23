@@ -1,5 +1,4 @@
 use thiserror::Error;
-use uuid::Uuid;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum PathValidationError {
@@ -11,28 +10,6 @@ pub enum PathValidationError {
     BackslashForbidden,
     #[error("path contains traversal attempt ('.' or '..')")]
     TraversalAttempt,
-}
-
-#[derive(Debug, Error, PartialEq)]
-pub enum StateReducerError {
-    #[error("message ID not found: {0}")]
-    MessageIdNotFound(Uuid),
-    #[error("empty compaction range")]
-    EmptyCompactionRange,
-    #[error("invalid tool use patch: {0}")]
-    InvalidToolUsePatch(String),
-}
-
-#[derive(Debug, Error, PartialEq)]
-pub enum ExtensionError {
-    #[error("unknown wire key: {0}")]
-    UnknownWireKey(String),
-    #[error("codec tag mismatch: expected {expected}, actual {actual}")]
-    CodecTagMismatch { expected: u8, actual: u8 },
-    #[error("serialization failed: {0}")]
-    SerializationFailed(String),
-    #[error("deserialization failed: {0}")]
-    DeserializationFailed(String),
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -83,10 +60,6 @@ pub enum ConfigValidationError {
 pub enum BaseError {
     #[error("path validation error: {0}")]
     Path(#[from] PathValidationError),
-    #[error("state reducer error: {0}")]
-    StateReducer(#[from] StateReducerError),
-    #[error("extension error: {0}")]
-    Extension(#[from] ExtensionError),
     #[error("config validation error: {0}")]
     Config(#[from] ConfigValidationError),
 }
