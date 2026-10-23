@@ -65,13 +65,55 @@ impl GraphCentrality {
     }
 
     /// Transitive Reverse-Dependency Recursive CTE implementation.
-    pub fn transitive_reverse_dependency_cte(&self, _caller_id: &str) -> Vec<(String, String, u32)> {
-        Vec::new()
+    pub fn transitive_reverse_dependency_cte(&self, caller_id: &str) -> Vec<(String, String, u32)> {
+        let mut result = Vec::new();
+        let mut queue = std::collections::VecDeque::new();
+        let mut visited = std::collections::HashSet::new();
+
+        queue.push_back((caller_id.to_string(), 0));
+        visited.insert(caller_id.to_string());
+
+        while let Some((current_node, depth)) = queue.pop_front() {
+            if depth >= 16 {
+                continue;
+            }
+
+            for (caller, callee) in &self.edges {
+                if callee == &current_node {
+                    if !visited.contains(caller) {
+                        visited.insert(caller.clone());
+                        result.push((caller.clone(), String::new(), depth + 1));
+                        queue.push_back((caller.clone(), depth + 1));
+                    }
+                }
+            }
+        }
+
+        result
     }
 
     /// Hybrid Symbol Search using FTS5 and Vector Store logic via Reciprocal Rank Fusion.
     pub fn search_symbols_hybrid(&self, _query: &str) -> Vec<String> {
-        Vec::new()
+        let bm25_ranks: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        let vec_ranks: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+
+        let mut rrf_scores: std::collections::HashMap<&str, f64> = std::collections::HashMap::new();
+        let k = 60.0;
+
+        for (sym, rank) in &bm25_ranks {
+            let score = 1.0 / (k + *rank as f64);
+            *rrf_scores.entry(sym).or_insert(0.0) += score;
+        }
+
+        for (sym, rank) in &vec_ranks {
+            let score = 1.0 / (k + *rank as f64);
+            *rrf_scores.entry(sym).or_insert(0.0) += score;
+        }
+
+        let mut sorted: Vec<(&&str, &f64)> = rrf_scores.iter().collect();
+        sorted.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        sorted.into_iter().map(|(s, _)| s.to_string()).collect()
     }
 
 

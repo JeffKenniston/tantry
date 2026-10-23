@@ -17,18 +17,44 @@ fn test_indexer() {
 #[test]
 fn test_scope_graph_resolution() {
     let mut graph = ScopeGraph::new();
+
+    // Add two definitions with same name but different impl blocks/modules
+    let sym1_id = ScopeGraph::compute_symbol_id("/src/mod_a.rs", "ImplA::method", &ScopeKind::Function);
     graph.definitions.insert(
-        "sym1".to_string(),
+        sym1_id.clone(),
         SymbolDef {
-            symbol_id: "sym1".to_string(),
+            symbol_id: sym1_id.clone(),
             kind: ScopeKind::Function,
             signature_blake3: [0u8; 32],
             body_blake3: [1u8; 32],
-            file_path: "/src/main.rs".to_string(),
-            scope_qualified_name: "main".to_string(),
+            file_path: "/src/mod_a.rs".to_string(),
+            scope_qualified_name: "ImplA::method".to_string(),
         }
     );
-    assert_eq!(graph.definitions.len(), 1);
+
+    let sym2_id = ScopeGraph::compute_symbol_id("/src/mod_b.rs", "ImplB::method", &ScopeKind::Function);
+    graph.definitions.insert(
+        sym2_id.clone(),
+        SymbolDef {
+            symbol_id: sym2_id.clone(),
+            kind: ScopeKind::Function,
+            signature_blake3: [0u8; 32],
+            body_blake3: [2u8; 32],
+            file_path: "/src/mod_b.rs".to_string(),
+            scope_qualified_name: "ImplB::method".to_string(),
+        }
+    );
+
+    graph.references.push(repo::scope_graph::SymbolRef {
+        reference_id: "ref1".to_string(),
+        file_path: "/src/mod_b.rs".to_string(),
+        name: "method".to_string(),
+        scope_id: "scope1".to_string(),
+    });
+
+    graph.pass_3_reference_resolution().unwrap();
+
+    assert_eq!(graph.resolved_references.get("ref1"), Some(&sym2_id));
 }
 
 #[test]
