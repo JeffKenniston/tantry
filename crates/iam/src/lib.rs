@@ -18,10 +18,35 @@ pub use tunnel_grant::*;
 
 pub trait IdentityManager: Send + Sync {
     fn current_svid(&self) -> Option<WorkloadSvid> { None }
-    fn mint_subagent_svid(&self, _parent_svid: &WorkloadSvid, _subagent_name: &str, _child_task_id: &str, _requested_ttl: i64) -> Result<WorkloadSvid, IamError> { Err(IamError::NotImplemented) }
-    fn mint_jwt_svid(&self, _audience: &[String], _ttl_secs: i64) -> Result<String, IamError> { Err(IamError::NotImplemented) }
+    fn mint_subagent_svid(&self, parent_svid: &WorkloadSvid, subagent_name: &str, child_task_id: &str, requested_ttl: i64) -> Result<WorkloadSvid, IamError> {
+        let child_spiffe = parent_svid.spiffe_id.derive_subagent(subagent_name, child_task_id)?;
+        let mut new_svid = parent_svid.clone();
+        new_svid.spiffe_id = child_spiffe;
+        let requested_exp = chrono::Utc::now() + chrono::Duration::seconds(requested_ttl);
+        new_svid.expires_at = if requested_exp < parent_svid.expires_at { requested_exp } else { parent_svid.expires_at };
+        Ok(new_svid)
+    }
+    fn mint_jwt_svid(&self, audience: &[String], ttl_secs: i64) -> Result<String, IamError> {
+        use base64::Engine;
+        let svid = self.current_svid().ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
+        let now = chrono::Utc::now().timestamp();
+        let exp = now + ttl_secs;
+        let claims = JwtSvidClaims {
+            iss: svid.spiffe_id.uri().to_string(),
+            sub: svid.spiffe_id.uri().to_string(),
+            aud: audience.to_vec(),
+            exp,
+            iat: now,
+            jti: uuid::Uuid::now_v7().to_string(),
+            pq_pk_b64: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&svid.mldsa65_verifying_key_bytes),
+        };
+        crate::svid::mint_hybrid_jwt_svid(&svid, &claims)
+    }
     fn verify_jwt_svid(&self, _token: &str, _expected_audience: &str) -> Result<(), IamError> { Err(IamError::NotImplemented) }
-    fn mint_dpop_proof(&self, _htm: &str, _htu: &str, _access_token: Option<&str>) -> Result<String, IamError> { Err(IamError::NotImplemented) }
+    fn mint_dpop_proof(&self, htm: &str, htu: &str, access_token: Option<&str>) -> Result<String, IamError> {
+        let svid = self.current_svid().ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
+        crate::dpop::mint_dpop_proof(&svid, htm, htu, access_token)
+    }
     fn verify_dpop_proof(&self, _proof: &str, _htm: &str, _htu: &str, _access_token: Option<&str>) -> Result<(), IamError> { Err(IamError::NotImplemented) }
     fn request_scoped_tunnel_token(&self, _service_name: &str, _ttl_secs: i64) -> Result<ScopedTunnelGrant, IamError> { Err(IamError::NotImplemented) }
     fn verify_scoped_tunnel_token(&self, _token: &str) -> Result<ScopedTunnelGrant, IamError> { Err(IamError::NotImplemented) }

@@ -69,11 +69,13 @@ impl crate::IdentityManager for SpireSocketIdentityManager {
         &self.key_hierarchy
     }
 
-    fn sign_audit_sth(&self, _tree_size: u64, _timestamp_ms: i64, _mmr_root_blake3: &[u8; 32]) -> Result<crate::ca::AuditSthSignature, IamError> {
-        Err(IamError::NotImplemented)
+    fn sign_audit_sth(&self, tree_size: u64, timestamp_ms: i64, mmr_root_blake3: &[u8; 32]) -> Result<crate::ca::AuditSthSignature, IamError> {
+        let svid = self.current_svid().ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
+        crate::ca::sign_audit_sth(tree_size, timestamp_ms, *mmr_root_blake3, svid.ed25519_pkcs8_der.as_ref(), svid.mldsa65_signing_key_bytes.as_ref())
     }
 
-    fn verify_audit_sth(&self, _sth: &crate::ca::AuditSthSignature) -> Result<(), IamError> {
-        Err(IamError::NotImplemented)
+    fn verify_audit_sth(&self, sth: &crate::ca::AuditSthSignature) -> Result<(), IamError> {
+        let svid = self.current_svid().ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
+        crate::ca::verify_audit_sth(sth, &svid.ed25519_public_key, &svid.mldsa65_verifying_key_bytes)
     }
 }
