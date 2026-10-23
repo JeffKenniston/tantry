@@ -31,3 +31,6 @@ pub struct FileMutationAnalysis {
     /// The maximum cyclomatic complexity computed.
     pub cyclomatic_complexity: u32,
 }
+pub mod scope_graph;
+pub mod graph;
+pub mod repomap;
