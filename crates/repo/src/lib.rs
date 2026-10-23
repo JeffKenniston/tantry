@@ -34,3 +34,4 @@ pub struct FileMutationAnalysis {
 pub mod scope_graph;
 pub mod graph;
 pub mod repomap;
+pub mod engine;
