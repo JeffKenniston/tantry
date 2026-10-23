@@ -10,18 +10,26 @@ use std::sync::Arc;
 use crate::error::DataError;
 use iam::IdentityManager;
 
+/// The boolean result of a full cryptographic consistency verification across all ledgers.
 pub struct IntegrityReport {
+    /// True if all hashes, signatures, and AEAD tags verified successfully.
     pub is_valid: bool,
 }
 
+/// A high-level facade providing unified access to the task ledger, interaction chain, audit MMR, and vector store.
 pub struct DataStoreManager {
+    /// The underlying store managing budgets and bandit matrices.
     pub task_ledger: Arc<task_ledger::TaskLedgerStore>,
+    /// The underlying store managing time-travel agent states.
     pub interaction_chain: Arc<interaction_chain::InteractionChainStore>,
+    /// The underlying store managing the tamper-evident RFC 6962 audit log.
     pub audit_mmr: Arc<audit_mmr::AuditMmrStore>,
+    /// The underlying store managing quantized Matryoshka embeddings.
     pub vector_index: Arc<vector_index::MatryoshkaVectorStore>,
 }
 
 impl DataStoreManager {
+    /// Validates the full cryptosystem: verifying the audit MMR and decrypting all valid (unshredded) checkpoints and messages to prove AEAD authenticity.
     pub fn verify_all_integrity(&self, iam: &dyn IdentityManager) -> Result<IntegrityReport, DataError> {
         self.audit_mmr.verify_all_chain_and_sths(iam).map_err(|e| DataError::TamperedAuditEntry(e))?;
 

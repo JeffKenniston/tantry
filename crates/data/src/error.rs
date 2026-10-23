@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+/// Standard error enumeration for all persistence, cryptographic, and serialization failures in the data crate.
 pub enum DataError {
     #[error("SQLite error: {0}")]
     Sqlite(#[from] rusqlite::Error),

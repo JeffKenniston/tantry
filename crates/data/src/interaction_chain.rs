@@ -5,14 +5,21 @@ use base::ast::Message;
 use std::sync::{Arc, Mutex};
 use rusqlite::{params, Connection};
 
+/// Provides append-only, time-travel-capable storage for agent interaction checkpoints and messages.
 pub struct InteractionChainStore {
+    /// db
     pub db: Arc<Mutex<Connection>>,
 }
 
+/// Represents a fully hydrated agent state constructed by replaying deltas from genesis to a target checkpoint.
 pub struct ReconstructedCheckpoint {
+    /// The fully hydrated TantryState at this checkpoint.
     pub state: TantryState,
+    /// The sequential logical step number of this checkpoint.
     pub step_index: u64,
+    /// The computed BLAKE3 root hash of the virtual filesystem tree at this state.
     pub vfs_root_blake3: [u8; 32],
+    /// The verifiable digest of the checkpoint row combining previous links, state deltas, and AAD.
     pub checkpoint_blake3: [u8; 32],
 }
 
@@ -30,10 +37,12 @@ struct RawCheckpointRow {
 }
 
 impl InteractionChainStore {
+    /// Initializes a new InteractionChainStore wrapping the provided database connection.
     pub fn new(db: Arc<Mutex<Connection>>) -> Self {
         Self { db }
     }
 
+    /// Persists a new state delta checkpoint, strictly enforcing append-only semantics and generating a structural digest.
     pub fn commit_checkpoint(
         &self,
         thread_id: &str,
@@ -85,6 +94,7 @@ impl InteractionChainStore {
         Ok(checkpoint_blake3)
     }
 
+    /// Time-travels a thread's state by walking backward to genesis and replaying all deltas in forward chronological order.
     pub fn reconstruct_state_at_checkpoint(
         &self,
         target_checkpoint_id: &str,
@@ -195,6 +205,7 @@ impl InteractionChainStore {
         })
     }
 
+    /// Queries the most recent checkpoint ID and step index for a given thread.
     pub fn get_latest_checkpoint_for_thread(&self, thread_id: &str) -> Result<Option<(String, i64)>, DataError> {
         let conn = self.db.lock().unwrap();
         let mut stmt = conn.prepare("SELECT checkpoint_id, step_index FROM interaction_checkpoints WHERE thread_id = ?1 ORDER BY step_index DESC LIMIT 1")?;
@@ -207,6 +218,7 @@ impl InteractionChainStore {
         }
     }
 
+    /// Retrieves the unique checkpoint ID corresponding to an exact logical step index within a thread.
     pub fn get_checkpoint_id_by_step(&self, thread_id: &str, step_index: i64) -> Result<Option<String>, DataError> {
         let conn = self.db.lock().unwrap();
         let mut stmt = conn.prepare("SELECT checkpoint_id FROM interaction_checkpoints WHERE thread_id = ?1 AND step_index = ?2")?;
@@ -219,6 +231,7 @@ impl InteractionChainStore {
         }
     }
 
+    /// Retrieves the full sequential history of plaintext archived messages for a thread.
     pub fn list_archived_messages(&self, thread_id: &str) -> Result<Vec<Message>, DataError> {
         let conn = self.db.lock().unwrap();
         let mut stmt = conn.prepare("SELECT message_json FROM archived_messages WHERE thread_id = ?1 ORDER BY archived_at_ms ASC")?;
