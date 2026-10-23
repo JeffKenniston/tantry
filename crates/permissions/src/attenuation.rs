@@ -51,7 +51,7 @@ impl PermissionLattice {
             let existing = effective_interrupt
                 .get(tool)
                 .copied()
-                .unwrap_or(PermissionMode::Allow); // If not present, default is allow? Wait, actually if not present, maybe it's not interrupted.
+                .unwrap_or(PermissionMode::Allow);
             effective_interrupt.insert(tool.clone(), existing.join(*mode));
         }
 

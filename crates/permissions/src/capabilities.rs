@@ -128,6 +128,7 @@ impl EnvCapability {
     pub fn set_parent(&mut self, p: Arc<EnvCapability>) {
         self.parent = Some(p);
     }
+
     pub fn new_with_parent(
         allow_globs: Vec<String>,
         exact_match_allow: Vec<String>,
@@ -164,10 +165,7 @@ impl EnvCapability {
 
     fn is_allowed(&self, key: &str) -> bool {
         if self.secret_deny_globset.is_match(key) {
-            // Overridden by exact_match?
             if self.exact_match_allow.iter().any(|exact| exact == key) {
-                // If it has a parent, the parent MUST ALSO exact match allow it, OR allow it normally without denying it.
-                // Actually, if parent denies it, we can't allow it. Let's ask parent.
                 return self
                     .parent
                     .as_ref()

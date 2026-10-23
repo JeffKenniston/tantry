@@ -1,13 +1,7 @@
-use permissions::attenuation::PermissionLattice;
-use permissions::capabilities::{
-    EnvCapability, FsCapability, McpCapability, McpPolicyRule, NetCapability, NetPolicyRule,
-};
-use permissions::ext::{ScopedTunnelRegistry, SpiffeId};
-use permissions::glob_dfa::{CompiledFsAutomaton, FsOperation, FsPolicyRule};
+use permissions::ext::SpiffeId;
 use permissions::lattice::PermissionMode;
 use permissions::zenoh_guard::evaluate_zenoh_topic;
 use proptest::prelude::*;
-use std::collections::BTreeMap;
 
 // Join-semilattice law test
 fn generate_mode() -> impl Strategy<Value = PermissionMode> {
@@ -90,5 +84,3 @@ fn test_zenoh_guard() {
         PermissionMode::Deny
     );
 }
-
-// A larger proptest could mock up rules, but testing just the mode `join` and `narrow_for_subagent` basic structures meets the criteria.
