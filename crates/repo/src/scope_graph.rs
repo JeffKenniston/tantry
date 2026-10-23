@@ -63,6 +63,27 @@ pub struct SymbolRef {
     pub scope_id: String,
 }
 
+
+/// A vertex representing a specific scope.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScopeVertex {
+    /// The unique identifier for this scope.
+    pub scope_id: String,
+    /// The kind of scope.
+    pub kind: ScopeKind,
+    /// The file path where this scope is defined.
+    pub file_path: PosixPath,
+}
+
+/// A directed edge representing a parent-child scope relationship.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParentEdge {
+    /// The ID of the child scope.
+    pub child_scope_id: String,
+    /// The ID of the parent scope.
+    pub parent_scope_id: String,
+}
+
 /// An import edge connecting a file to a symbol definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportEdge {
@@ -86,6 +107,10 @@ pub struct ScopeGraph {
     pub imports: Vec<ImportEdge>,
     /// Map of resolved references (reference_id -> symbol_id).
     pub resolved_references: HashMap<String, String>,
+    /// List of scope vertices.
+    pub scopes: Vec<ScopeVertex>,
+    /// List of parent edges.
+    pub parent_edges: Vec<ParentEdge>,
 }
 
 impl ScopeGraph {
@@ -96,6 +121,8 @@ impl ScopeGraph {
             references: Vec::new(),
             imports: Vec::new(),
             resolved_references: HashMap::new(),
+            scopes: Vec::new(),
+            parent_edges: Vec::new(),
         }
     }
 

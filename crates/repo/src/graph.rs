@@ -111,19 +111,16 @@ impl GraphCentrality {
     }
 
     /// Hybrid Symbol Search using FTS5 and Vector Store logic via Reciprocal Rank Fusion.
-    pub fn search_symbols_hybrid(&self, _query: &str) -> Vec<String> {
-        let bm25_ranks: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-        let vec_ranks: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-
+    pub fn search_symbols_hybrid(&self, bm25_ranks: &std::collections::HashMap<String, usize>, vec_ranks: &std::collections::HashMap<String, usize>) -> Vec<String> {
         let mut rrf_scores: std::collections::HashMap<&str, f64> = std::collections::HashMap::new();
         let k = 60.0;
 
-        for (sym, rank) in &bm25_ranks {
+        for (sym, rank) in bm25_ranks {
             let score = 1.0 / (k + *rank as f64);
             *rrf_scores.entry(sym).or_insert(0.0) += score;
         }
 
-        for (sym, rank) in &vec_ranks {
+        for (sym, rank) in vec_ranks {
             let score = 1.0 / (k + *rank as f64);
             *rrf_scores.entry(sym).or_insert(0.0) += score;
         }
@@ -157,6 +154,7 @@ impl GraphCentrality {
         target_symbol: &str,
         affected_files: Vec<PosixPath>,
         signature_mutated: bool,
+        public_trait_impls: usize,
     ) -> BlastRadiusReport {
         let katz_map = self.compute_katz_centrality_iterative();
         let katz = *katz_map.get(target_symbol).unwrap_or(&1.0);
@@ -165,7 +163,7 @@ impl GraphCentrality {
         let reverse_dependency_count = rev_deps.len();
         let max_depth_reached = rev_deps.iter().map(|(_, _, d)| *d).max().unwrap_or(0) as usize;
 
-        let risk_score = self.compute_risk_score(target_symbol, katz, affected_files.len(), reverse_dependency_count, signature_mutated);
+        let risk_score = self.compute_risk_score(target_symbol, katz, affected_files.len(), public_trait_impls, signature_mutated);
 
         BlastRadiusReport {
             target_symbol: target_symbol.to_string(),
