@@ -2,15 +2,19 @@ use std::sync::{Arc, Mutex};
 use rusqlite::{params, Connection};
 use crate::error::DataError;
 
+/// Implements a two-stage vector database using binary quantization for coarse filtering and Int8 RaBitQ for exact rescoring.
 pub struct MatryoshkaVectorStore {
+    /// db
     pub db: Arc<Mutex<Connection>>,
 }
 
 impl MatryoshkaVectorStore {
+    /// Initializes a new MatryoshkaVectorStore wrapping the provided database connection.
     pub fn new(db: Arc<Mutex<Connection>>) -> Self {
         Self { db }
     }
 
+    /// Normalizes, quantizes (1-bit and Int8), and persists a dense embedding vector into the store.
     pub fn insert_vector(&self, id: &str, vector: &[f32]) -> Result<(), DataError> {
         let conn = self.db.lock().unwrap();
 
@@ -59,6 +63,7 @@ impl MatryoshkaVectorStore {
         Ok(())
     }
 
+    /// Executes a two-stage asymmetric search, scanning binary signs via Hamming distance before rescoring top candidates using RaBitQ cosine similarity.
     pub fn search(&self, query: &[f32], top_k: usize, threshold: f32) -> Result<Vec<(String, f32)>, DataError> {
         let conn = self.db.lock().unwrap();
 

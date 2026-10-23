@@ -2,12 +2,15 @@ use std::sync::{Arc, Mutex};
 use rusqlite::{Connection, OpenFlags};
 use crate::error::DataError;
 
+/// A thread-safe, writer-first initialization handle for SQLite databases ensuring WAL mode and initial schemas are set before readers are allowed.
 pub struct DbHandle {
+    /// The exclusive read-write database connection protected by a Mutex to enforce the single-writer principle.
     pub writer: Arc<Mutex<Connection>>,
     path: String,
 }
 
 impl DbHandle {
+    /// Creates a new DbHandle, opening the writer connection first, applying PRAGMAs (WAL, NORMAL sync), executing DDL, and checkpointing.
     pub fn new(path: &str, ddl: &str) -> Result<Self, DataError> {
         let writer = Connection::open(path)?;
 
@@ -25,6 +28,7 @@ impl DbHandle {
         })
     }
 
+    /// Opens a new read-only connection from the pool without mutex locks, safe to call concurrently across threads.
     pub fn get_reader(&self) -> Result<Connection, DataError> {
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let conn = Connection::open_with_flags(&self.path, flags)?;

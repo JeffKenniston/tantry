@@ -9,6 +9,7 @@ use iam::key_hierarchy::KeyHierarchy;
 use rusqlite::Connection;
 use core::convert::TryInto;
 
+/// Computes the canonical 32-byte BLAKE3 hash used as Additional Authenticated Data (AAD) to cryptographically bind rows to their thread and epoch.
 pub fn compute_canonical_aad(
     table_name: &str,
     primary_key: &str,
@@ -26,6 +27,7 @@ pub fn compute_canonical_aad(
 
 static ATOMIC_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Generates a 24-byte cryptographically secure nonce using a combination of timestamp, atomic counter, and OS randomness to prevent VM snapshot vulnerabilities.
 pub fn generate_xchacha20_nonce() -> [u8; 24] {
     let mut nonce = [0u8; 24];
     let timestamp_ms = SystemTime::now()
@@ -43,6 +45,7 @@ pub fn generate_xchacha20_nonce() -> [u8; 24] {
     nonce
 }
 
+/// Compresses plaintext using zstd and encrypts it into a canonical envelope using XChaCha20-Poly1305 and the provided DEK/AAD.
 pub fn encrypt_envelope_xchacha20(
     plaintext: &[u8],
     dek: &[u8; 32],
@@ -72,6 +75,7 @@ pub fn encrypt_envelope_xchacha20(
     Ok(wire)
 }
 
+/// Authenticates and decrypts a wire-format envelope (supporting XChaCha20-Poly1305 or AES-GCM-SIV) and decompresses the zstd payload.
 pub fn decrypt_envelope(
     wire: &[u8],
     dek: &[u8; 32],
@@ -123,6 +127,7 @@ pub fn decrypt_envelope(
     Ok(plaintext)
 }
 
+/// Retrieves the epoch and thread salts for a given thread and epoch, or securely provisions them with CSPRNG if they do not exist.
 pub fn get_or_provision_key_epoch(
     conn: &Connection,
     thread_id: &str,
@@ -171,6 +176,7 @@ pub fn get_or_provision_key_epoch(
     Ok((epoch_salt, thread_salt))
 }
 
+/// Executes the two-phase cryptographic shredding of a thread's keys by zeroing and nullifying the thread_salt in SQLite and memory.
 pub fn crypto_shred_thread(
     conn: &mut Connection,
     thread_id: &str,
