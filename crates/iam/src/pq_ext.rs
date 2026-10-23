@@ -2,13 +2,18 @@ use crate::error::IamError;
 use rcgen::CustomExtension;
 use serde::{Deserialize, Serialize};
 
+/// Custom X.509v3 extension payload representing the ML-DSA-65 properties.
 #[derive(Serialize, Deserialize)]
 pub struct PqExtensionPayload {
+    /// 1952-byte public key for ML-DSA-65.
     pub subject_mldsa65_pk: Vec<u8>,
+    /// 3309-byte issuer signature using ML-DSA-65.
     pub issuer_mldsa65_sig: Vec<u8>,
+    /// 32-byte BLAKE3 Pre-TBS digest.
     pub pre_tbs_blake3: [u8; 32],
 }
 
+/// Computes the 32-byte BLAKE3 Pre-TBSCertificate digest.
 pub fn compute_pre_tbs_pq_digest(
     serial_be: &[u8],
     issuer_dn: &[u8],
@@ -32,6 +37,7 @@ pub fn compute_pre_tbs_pq_digest(
     hasher.finalize().into()
 }
 
+/// Generates a CustomExtension holding the ML-DSA-65 signed Pre-TBS properties.
 pub fn generate_pq_extension(
     subject_mldsa65_pk: Vec<u8>,
     issuer_mldsa65_signing_key_bytes: &[u8],
