@@ -119,8 +119,10 @@ impl Parser {
             Some(tree_sitter_rust::LANGUAGE.into())
         } else if path.ends_with(".py") {
             Some(tree_sitter_python::LANGUAGE.into())
-        } else if path.ends_with(".ts") || path.ends_with(".tsx") {
+        } else if path.ends_with(".ts") {
             Some(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
+        } else if path.ends_with(".tsx") {
+            Some(tree_sitter_typescript::LANGUAGE_TSX.into())
         } else if path.ends_with(".go") {
             Some(tree_sitter_go::LANGUAGE.into())
         } else if path.ends_with(".c") || path.ends_with(".h") {
