@@ -2,6 +2,7 @@ use base::path::PosixPath;
 use dashmap::DashMap;
 use tree_sitter::{InputEdit, Language, Parser as TsParser, Tree};
 
+/// An incremental `tree-sitter` parser for parsing syntax trees.
 pub struct Parser {
     cache: DashMap<(PosixPath, [u8; 32]), Tree>,
 }
@@ -13,12 +14,15 @@ impl Default for Parser {
 }
 
 impl Parser {
+    /// Creates a new incremental `Parser` with an empty cache.
     pub fn new() -> Self {
         Self {
             cache: DashMap::new(),
         }
     }
 
+    /// Parses the source code using the language determined by the file path.
+    /// Returns `Some(Tree)` if successful, or `None` if the language is unsupported.
     pub fn parse(&self, path: &str, source: &str, hash: [u8; 32]) -> Option<Tree> {
         let key = (path.to_string(), hash);
         if let Some(cached_tree) = self.cache.get(&key) {
@@ -34,6 +38,8 @@ impl Parser {
         Some(tree)
     }
 
+    /// Edits an existing syntax tree (cached by `old_hash`) according to the `InputEdit`,
+    /// then reparses incrementally, yielding a new cached tree (associated with `new_hash`).
     pub fn edit_and_reparse(
         &self,
         path: &str,
