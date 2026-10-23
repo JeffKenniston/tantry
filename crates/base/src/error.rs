@@ -2,6 +2,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 #[derive(Debug, Error, PartialEq)]
+/// PathValidationError enum
 pub enum PathValidationError {
     #[error("path is empty")]
     EmptyPath,
@@ -14,6 +15,7 @@ pub enum PathValidationError {
 }
 
 #[derive(Debug, Error, PartialEq)]
+/// StateReducerError enum
 pub enum StateReducerError {
     #[error("message ID not found: {0}")]
     MessageIdNotFound(Uuid),
@@ -24,6 +26,7 @@ pub enum StateReducerError {
 }
 
 #[derive(Debug, Error, PartialEq)]
+/// ExtensionError enum
 pub enum ExtensionError {
     #[error("unknown wire key: {0}")]
     UnknownWireKey(String),
@@ -36,6 +39,7 @@ pub enum ExtensionError {
 }
 
 #[derive(Debug, Error, PartialEq)]
+/// ConfigValidationError enum
 pub enum ConfigValidationError {
     #[error("invalid trust domain: {0}")]
     InvalidTrustDomain(String),
@@ -80,6 +84,7 @@ pub enum ConfigValidationError {
 }
 
 #[derive(Debug, Error, PartialEq)]
+/// BaseError enum
 pub enum BaseError {
     #[error("path validation error: {0}")]
     Path(#[from] PathValidationError),

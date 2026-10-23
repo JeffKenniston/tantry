@@ -1,11 +1,13 @@
 use crate::error::PathValidationError;
 use crate::path::{validate_and_normalize_path, PosixPath};
 
+/// RuntimePlatform enum
 pub enum RuntimePlatform {
     LinuxStandard,
     AndroidTermux { prefix: PosixPath },
 }
 
+/// interpolate_env_vars fn
 pub fn interpolate_env_vars<F: Fn(&str) -> Option<String>>(
     input: &str,
     env_lookup: F,
@@ -58,6 +60,7 @@ pub fn interpolate_env_vars<F: Fn(&str) -> Option<String>>(
 }
 
 impl RuntimePlatform {
+    /// detect_from_env fn
     pub fn detect_from_env<F>(env_lookup: F, is_android_target: bool) -> Self
     where
         F: Fn(&str) -> Option<String>,
@@ -77,6 +80,7 @@ impl RuntimePlatform {
         }
     }
 
+    /// rebase_path fn
     pub fn rebase_path(
         &self,
         path: &str,
@@ -95,17 +99,13 @@ impl RuntimePlatform {
                     return Ok(normalized);
                 }
 
-                if normalized.starts_with("/var/lib/tantry") {
-                    let suffix = &normalized["/var/lib/tantry".len()..];
+                if let Some(suffix) = normalized.strip_prefix("/var/lib/tantry") {
                     Ok(format!("{}/var/lib/tantry{}", prefix, suffix))
-                } else if normalized.starts_with("/run/spire") {
-                    let suffix = &normalized["/run/spire".len()..];
+                } else if let Some(suffix) = normalized.strip_prefix("/run/spire") {
                     Ok(format!("{}/var/run/spire{}", prefix, suffix))
-                } else if normalized.starts_with("/var/run/tantry") {
-                    let suffix = &normalized["/var/run/tantry".len()..];
+                } else if let Some(suffix) = normalized.strip_prefix("/var/run/tantry") {
                     Ok(format!("{}/var/run/tantry{}", prefix, suffix))
-                } else if normalized.starts_with("/usr/bin/") {
-                    let suffix = &normalized["/usr/bin/".len()..];
+                } else if let Some(suffix) = normalized.strip_prefix("/usr/bin/") {
                     Ok(format!("{}/bin/{}", prefix, suffix)) // termux binaries are in $PREFIX/bin, often overriding /usr/bin defaults
                 } else {
                     Ok(normalized)
@@ -114,6 +114,7 @@ impl RuntimePlatform {
         }
     }
 
+    /// effective_max_workers fn
     pub fn effective_max_workers(&self, configured: usize) -> usize {
         match self {
             RuntimePlatform::LinuxStandard => configured.max(1),

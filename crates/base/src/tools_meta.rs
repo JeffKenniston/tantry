@@ -4,31 +4,55 @@ use crate::vfs_tree::VfsTree;
 use crate::ast::FileData;
 use std::sync::Arc;
 
+/// TOOL_WRITE_TODOS const
 pub const TOOL_WRITE_TODOS: &str = "write_todos";
+/// TOOL_READ_TODOS const
 pub const TOOL_READ_TODOS: &str = "read_todos";
+/// TOOL_LS const
 pub const TOOL_LS: &str = "ls";
+/// TOOL_READ_FILE const
 pub const TOOL_READ_FILE: &str = "read_file";
+/// TOOL_WRITE_FILE const
 pub const TOOL_WRITE_FILE: &str = "write_file";
+/// TOOL_EDIT_FILE const
 pub const TOOL_EDIT_FILE: &str = "edit_file";
+/// TOOL_DELETE const
 pub const TOOL_DELETE: &str = "delete";
+/// TOOL_GLOB const
 pub const TOOL_GLOB: &str = "glob";
+/// TOOL_GREP const
 pub const TOOL_GREP: &str = "grep";
+/// TOOL_EXECUTE const
 pub const TOOL_EXECUTE: &str = "execute";
+/// TOOL_AST_BLAST_RADIUS const
 pub const TOOL_AST_BLAST_RADIUS: &str = "ast_blast_radius";
+/// TOOL_REPO_MAP const
 pub const TOOL_REPO_MAP: &str = "repo_map";
+/// TOOL_EVAL const
 pub const TOOL_EVAL: &str = "eval";
+/// TOOL_BROWSER const
 pub const TOOL_BROWSER: &str = "browser";
+/// TOOL_COMPUTER const
 pub const TOOL_COMPUTER: &str = "computer";
+/// TOOL_EPHEMERAL_TUNNEL const
 pub const TOOL_EPHEMERAL_TUNNEL: &str = "ephemeral_tunnel";
+/// TOOL_TASK const
 pub const TOOL_TASK: &str = "task";
+/// TOOL_LAUNCH_ASYNC_TASK const
 pub const TOOL_LAUNCH_ASYNC_TASK: &str = "launch_async_task";
+/// TOOL_CHECK_ASYNC_TASK const
 pub const TOOL_CHECK_ASYNC_TASK: &str = "check_async_task";
+/// TOOL_UPDATE_ASYNC_TASK const
 pub const TOOL_UPDATE_ASYNC_TASK: &str = "update_async_task";
+/// TOOL_CANCEL_ASYNC_TASK const
 pub const TOOL_CANCEL_ASYNC_TASK: &str = "cancel_async_task";
+/// TOOL_LIST_ASYNC_TASKS const
 pub const TOOL_LIST_ASYNC_TASKS: &str = "list_async_tasks";
+/// TOOL_UPDATE_MEMORY const
 pub const TOOL_UPDATE_MEMORY: &str = "update_memory";
 
 #[derive(Debug, Clone, PartialEq)]
+/// ToolAccessFootprint struct
 pub struct ToolAccessFootprint {
     pub reads: Vec<PosixPath>,
     pub writes: Vec<PosixPath>,
@@ -37,6 +61,7 @@ pub struct ToolAccessFootprint {
 }
 
 impl ToolAccessFootprint {
+    /// for_tool fn
     pub fn for_tool(name: &str, path_arg: Option<PosixPath>) -> Self {
         match name {
             TOOL_WRITE_TODOS => Self {
@@ -109,6 +134,7 @@ impl ToolAccessFootprint {
     }
 }
 
+/// maybe_offload_tool_output fn
 pub fn maybe_offload_tool_output(
     tool_use_id: &str,
     raw_output: &str,
@@ -158,18 +184,18 @@ pub fn maybe_offload_tool_output(
 
     summary.push_str("--- First 15 lines ---\n");
     summary.push_str(&first_15.join("\n"));
-    summary.push_str("\n");
+    summary.push('\n');
 
     if !last_15.is_empty() {
         summary.push_str("--- Last 15 lines ---\n");
         summary.push_str(&last_15.join("\n"));
-        summary.push_str("\n");
+        summary.push('\n');
     }
 
     if !diagnostics.is_empty() {
         summary.push_str("--- Highest-priority diagnostics ---\n");
         summary.push_str(&diagnostics.join("\n"));
-        summary.push_str("\n");
+        summary.push('\n');
     }
 
     summary

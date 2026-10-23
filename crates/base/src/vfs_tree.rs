@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
+/// MerkleDirNode struct
 pub struct MerkleDirNode {
     pub segment: String,
     pub subtree_blake3: [u8; 32],
@@ -27,6 +28,7 @@ impl Default for MerkleDirNode {
 }
 
 impl MerkleDirNode {
+    /// new fn
     pub fn new(segment: String) -> Self {
         let mut node = Self {
             segment,
@@ -36,6 +38,7 @@ impl MerkleDirNode {
         node
     }
 
+    /// recompute_hash fn
     pub fn recompute_hash(&mut self) {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"tantry:merkle_dir:v3:");
@@ -62,6 +65,7 @@ impl MerkleDirNode {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// VfsTree struct
 pub struct VfsTree {
     pub root: Arc<MerkleDirNode>,
 }
@@ -73,6 +77,7 @@ impl Default for VfsTree {
 }
 
 impl VfsTree {
+    /// new fn
     pub fn new() -> Self {
         let mut root = MerkleDirNode::new("".to_string());
         root.recompute_hash();
@@ -81,18 +86,22 @@ impl VfsTree {
         }
     }
 
+    /// root_hash fn
     pub fn root_hash(&self) -> [u8; 32] {
         self.root.subtree_blake3
     }
 
+    /// len fn
     pub fn len(&self) -> usize {
         self.root.file_count
     }
 
+    /// is_empty fn
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// get fn
     pub fn get(&self, normalized_path: &str) -> Option<&Arc<FileData>> {
         let path = normalized_path.strip_prefix('/').unwrap_or(normalized_path);
         if path.is_empty() {
@@ -114,6 +123,7 @@ impl VfsTree {
         }
         None
     }
+    /// insert fn
     pub fn insert(
         &mut self,
         normalized_path: PosixPath,
@@ -169,6 +179,7 @@ impl VfsTree {
     }
 
 
+    /// remove fn
     pub fn remove(&mut self, normalized_path: &str) -> Option<Arc<FileData>> {
         let path = normalized_path.strip_prefix('/').unwrap_or(normalized_path);
         if path.is_empty() {
@@ -222,11 +233,13 @@ impl VfsTree {
         removed
     }
 
+/// diff fn
 pub fn diff(&self, after: &Self) -> Vec<FileDelta> {
         let (deltas, _) = self.diff_with_stats(after);
         deltas
     }
 
+    /// diff_with_stats fn
     pub fn diff_with_stats(&self, after: &Self) -> (Vec<FileDelta>, usize) {
         let mut deltas = Vec::new();
         let mut visited = 0;

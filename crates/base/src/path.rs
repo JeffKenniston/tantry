@@ -1,7 +1,9 @@
 use crate::error::PathValidationError;
 
+/// PosixPath type
 pub type PosixPath = String;
 
+/// validate_and_normalize_path fn
 pub fn validate_and_normalize_path(raw: &str) -> Result<PosixPath, PathValidationError> {
     if raw.is_empty() {
         return Err(PathValidationError::EmptyPath);

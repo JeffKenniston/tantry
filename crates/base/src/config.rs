@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 #[derive(Debug, Deserialize)]
+/// SystemConfig struct
 pub struct SystemConfig {
     #[serde(default = "default_trust_domain")]
     pub trust_domain: String,
@@ -25,6 +26,7 @@ pub struct SystemConfig {
 }
 
 #[derive(Debug, Deserialize)]
+/// CognitiveConfig struct
 pub struct CognitiveConfig {
     #[serde(default = "default_cognitive_provider")]
     pub default_provider: String,
@@ -39,6 +41,7 @@ pub struct CognitiveConfig {
 }
 
 #[derive(Debug, Deserialize)]
+/// ModelTiersConfig struct
 pub struct ModelTiersConfig {
     #[serde(default = "default_frontier_deep")]
     pub frontier_deep: String,
@@ -62,6 +65,7 @@ impl Default for ModelTiersConfig {
 }
 
 #[derive(Debug, Deserialize)]
+/// BillingConfig struct
 pub struct BillingConfig {
     #[serde(default = "default_webhook_url")]
     pub webhook_url: String,
@@ -85,6 +89,7 @@ impl Default for BillingConfig {
 }
 
 #[derive(Debug, Deserialize)]
+/// WasmSandboxConfig struct
 pub struct WasmSandboxConfig {
     #[serde(default = "default_wasm_max_memory_bytes")]
     pub max_memory_bytes: usize,
@@ -108,6 +113,7 @@ impl Default for WasmSandboxConfig {
 }
 
 #[derive(Debug, Deserialize)]
+/// FirecrackerSandboxConfig struct
 pub struct FirecrackerSandboxConfig {
     #[serde(default = "default_firecracker_jailer_binary")]
     pub jailer_binary: String,
@@ -140,6 +146,7 @@ impl Default for FirecrackerSandboxConfig {
 }
 
 #[derive(Debug, Deserialize)]
+/// TermuxProotSandboxConfig struct
 pub struct TermuxProotSandboxConfig {
     #[serde(default = "default_termux_proot_binary")]
     pub proot_binary: String,
@@ -163,6 +170,7 @@ impl Default for TermuxProotSandboxConfig {
 }
 
 #[derive(Debug, Deserialize)]
+/// SandboxesConfig struct
 pub struct SandboxesConfig {
     #[serde(default = "default_preferred_isolation_mode")]
     pub preferred_isolation_mode: String,
@@ -189,6 +197,7 @@ impl Default for SandboxesConfig {
 }
 
 #[derive(Debug, Deserialize)]
+/// TransportConfig struct
 pub struct TransportConfig {
     #[serde(default = "default_zenoh_listen_endpoints")]
     pub zenoh_listen_endpoints: Vec<String>,
@@ -212,6 +221,7 @@ impl Default for TransportConfig {
 }
 
 #[derive(Debug, Deserialize)]
+/// TantryConfig struct
 pub struct TantryConfig {
     #[serde(default = "default_system_config")]
     pub system: SystemConfig,
@@ -297,6 +307,7 @@ fn default_cognitive_config() -> CognitiveConfig {
 }
 
 impl TantryConfig {
+    /// parse_and_validate fn
     pub fn parse_and_validate<F>(
         toml_str: &str,
         env_lookup: F,
@@ -382,6 +393,7 @@ impl TantryConfig {
         }
         config.sandboxes.max_workers = platform.effective_max_workers(config.sandboxes.max_workers);
 
+        #[allow(clippy::manual_is_multiple_of)]
         if config.sandboxes.wasm.max_memory_bytes % 65536 != 0 || config.sandboxes.wasm.max_memory_bytes < 16777216 {
             return Err(ConfigValidationError::InvalidWasmMemoryBytes(config.sandboxes.wasm.max_memory_bytes).into());
         }
