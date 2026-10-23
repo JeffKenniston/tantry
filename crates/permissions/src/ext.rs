@@ -14,14 +14,3 @@ impl SpiffeId {
         &self.uri
     }
 }
-
-#[derive(Debug, Clone)]
-pub struct ScopedTunnelRegistry {
-    // Just a stub for the registry
-}
-
-impl ScopedTunnelRegistry {
-    pub fn is_service_active(&self, _host: &str, _now_ms: i64) -> bool {
-        false // Default stub implementation
-    }
-}
