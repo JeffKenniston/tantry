@@ -60,8 +60,8 @@ fn test_scope_graph_resolution() {
 #[test]
 fn test_risk_score_variance() {
     let centrality = GraphCentrality::new();
-    let report_sig_mut = centrality.ast_blast_radius("sym1", vec!["/src/main.rs".to_string()], true);
-    let report_body_only = centrality.ast_blast_radius("sym1", vec!["/src/main.rs".to_string()], false);
+    let report_sig_mut = centrality.ast_blast_radius("sym1", vec!["/src/main.rs".to_string()], true, 0);
+    let report_body_only = centrality.ast_blast_radius("sym1", vec!["/src/main.rs".to_string()], false, 0);
 
     assert!(report_sig_mut.risk_score > report_body_only.risk_score);
 }

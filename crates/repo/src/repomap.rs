@@ -50,6 +50,18 @@ impl StateSlot for SkeletonRepoMapSlot {
     }
 }
 
+
+/// A symbol in the RepoMap.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RepomapSymbol {
+    /// The symbol ID.
+    pub symbol_id: String,
+    /// The file path where the symbol is located.
+    pub file_path: String,
+    /// The formatted declaration.
+    pub declaration: String,
+}
+
 impl SkeletonRepoMapSlot {
     /// Ranks workspace files and symbols, elides function bodies, and packs declarations.
     pub fn build_skeleton_repomap(
