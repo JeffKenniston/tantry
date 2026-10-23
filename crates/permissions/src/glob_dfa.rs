@@ -3,6 +3,7 @@ use crate::lattice::PermissionMode;
 use bitflags::bitflags;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,12 +29,21 @@ pub struct CompiledFsAutomaton {
     pub default_mode: PermissionMode,
     pub rules: Vec<FsPolicyRule>,
     glob_set: GlobSet,
+    parent: Option<Arc<CompiledFsAutomaton>>,
 }
 
 impl CompiledFsAutomaton {
     pub fn new(
         default_mode: PermissionMode,
         rules: Vec<FsPolicyRule>,
+    ) -> Result<Self, globset::Error> {
+        Self::new_with_parent(default_mode, rules, None)
+    }
+
+    pub fn new_with_parent(
+        default_mode: PermissionMode,
+        rules: Vec<FsPolicyRule>,
+        parent: Option<Arc<CompiledFsAutomaton>>,
     ) -> Result<Self, globset::Error> {
         let mut builder = GlobSetBuilder::new();
         for rule in &rules {
@@ -46,7 +56,12 @@ impl CompiledFsAutomaton {
             default_mode,
             rules,
             glob_set,
+            parent,
         })
+    }
+
+    pub fn set_parent(&mut self, p: Arc<CompiledFsAutomaton>) {
+        self.parent = Some(p);
     }
 
     pub fn evaluate(&self, svid: &SpiffeId, op: FsOperation, raw_path: &str) -> PermissionMode {
@@ -56,32 +71,38 @@ impl CompiledFsAutomaton {
         };
 
         let matches = self.glob_set.matches(&normalized_path);
-        if matches.is_empty() {
-            return self.default_mode;
-        }
+        let my_mode = if matches.is_empty() {
+            self.default_mode
+        } else {
+            let mut final_mode: Option<PermissionMode> = None;
 
-        let mut final_mode: Option<PermissionMode> = None;
+            for rule_idx in matches {
+                let rule = &self.rules[rule_idx];
+                if !rule.operations.contains(op) {
+                    continue;
+                }
 
-        for rule_idx in matches {
-            let rule = &self.rules[rule_idx];
-            if !rule.operations.contains(op) {
-                continue;
+                let prefix_matches = match &rule.required_spiffe_prefix {
+                    Some(pfx) => svid.uri().starts_with(pfx),
+                    None => true,
+                };
+
+                if prefix_matches {
+                    let m = rule.mode;
+                    final_mode = Some(match final_mode {
+                        None => m,
+                        Some(existing) => existing.join(m),
+                    });
+                }
             }
+            final_mode.unwrap_or(self.default_mode)
+        };
 
-            let prefix_matches = match &rule.required_spiffe_prefix {
-                Some(pfx) => svid.uri().starts_with(pfx),
-                None => true,
-            };
-
-            if prefix_matches {
-                let m = rule.mode;
-                final_mode = Some(match final_mode {
-                    None => m,
-                    Some(existing) => existing.join(m),
-                });
-            }
+        if let Some(p) = &self.parent {
+            let parent_mode = p.evaluate(svid, op, raw_path);
+            my_mode.join(parent_mode)
+        } else {
+            my_mode
         }
-
-        final_mode.unwrap_or(self.default_mode)
     }
 }
