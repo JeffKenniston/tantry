@@ -13,10 +13,11 @@ pub struct SpireSocketIdentityManager {
     active_svid: Arc<RwLock<Option<WorkloadSvid>>>,
     historical_svids: Arc<RwLock<VecDeque<WorkloadSvid>>>,
     rotation_watcher: watch::Receiver<()>,
+    key_hierarchy: Arc<crate::key_hierarchy::KeyHierarchy>,
 }
 
 impl SpireSocketIdentityManager {
-    pub async fn connect(socket_path: PathBuf) -> Result<Self, IamError> {
+    pub async fn connect(socket_path: PathBuf, key_hierarchy: Arc<crate::key_hierarchy::KeyHierarchy>) -> Result<Self, IamError> {
         let _stream = tokio::time::timeout(
             Duration::from_millis(500),
             UnixStream::connect(&socket_path),
@@ -54,10 +55,25 @@ impl SpireSocketIdentityManager {
             active_svid,
             historical_svids,
             rotation_watcher: rx,
+            key_hierarchy,
         })
     }
+}
 
-    pub async fn get_current_svid(&self) -> Option<WorkloadSvid> {
-         None
+impl crate::IdentityManager for SpireSocketIdentityManager {
+    fn current_svid(&self) -> Option<WorkloadSvid> {
+         self.active_svid.try_read().ok().and_then(|guard| guard.clone())
+    }
+
+    fn key_hierarchy(&self) -> &crate::key_hierarchy::KeyHierarchy {
+        &self.key_hierarchy
+    }
+
+    fn sign_audit_sth(&self, _tree_size: u64, _timestamp_ms: i64, _mmr_root_blake3: &[u8; 32]) -> Result<crate::ca::AuditSthSignature, IamError> {
+        Err(IamError::NotImplemented)
+    }
+
+    fn verify_audit_sth(&self, _sth: &crate::ca::AuditSthSignature) -> Result<(), IamError> {
+        Err(IamError::NotImplemented)
     }
 }
