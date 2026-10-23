@@ -50,10 +50,42 @@ impl StateSlot for SkeletonRepoMapSlot {
     }
 }
 
-    impl SkeletonRepoMapSlot {
-        /// Ranks workspace files and symbols, elides function bodies, and packs declarations.
-        pub fn build_skeleton_repomap(&mut self, _files: &[&str], _symbols: &[&str], _centrality: &std::collections::HashMap<String, f32>, _user_prompt_hits: &[&str]) {
-            // Implementation budget bounded by max_tokens
-            // ...
+impl SkeletonRepoMapSlot {
+    /// Ranks workspace files and symbols, elides function bodies, and packs declarations.
+    pub fn build_skeleton_repomap(
+        &mut self,
+        _files: &[&str],
+        symbols: &[&str],
+        centrality: &std::collections::HashMap<String, f32>,
+        user_prompt_hits: &[&str],
+    ) {
+        let mut ranked_symbols: Vec<(&str, f32)> = symbols
+            .iter()
+            .map(|&sym| {
+                let mut score = *centrality.get(sym).unwrap_or(&1.0);
+                if user_prompt_hits.iter().any(|&hit| sym.contains(hit)) {
+                    score *= 3.0;
+                }
+                (sym, score)
+            })
+            .collect();
+
+        ranked_symbols.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut result = String::new();
+        let mut current_tokens = 0;
+
+        for (sym, _) in ranked_symbols {
+            let decl = format!("{} {{ ... }}
+", sym);
+            let tokens = (decl.len() as f64 / 4.0).ceil() as u64;
+            if current_tokens + tokens > self.max_tokens {
+                break;
+            }
+            result.push_str(&decl);
+            current_tokens += tokens;
         }
+
+        self.payload = result.into_bytes();
     }
+}

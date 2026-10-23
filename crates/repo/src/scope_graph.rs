@@ -37,23 +37,55 @@ pub struct SymbolDef {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShadowPriority {
     /// Highest priority: inner local block.
-    InnerLocalBlock,
+    InnerLocalBlock = 6,
     /// Receiver impl or class scope.
-    ReceiverImplOrClassScope,
+    ReceiverImplOrClassScope = 5,
     /// Explicit named import.
-    ExplicitNamedImport,
+    ExplicitNamedImport = 4,
     /// Definition in the same module.
-    SameModuleDefinition,
+    SameModuleDefinition = 3,
     /// Wildcard import.
-    WildcardImport,
+    WildcardImport = 2,
     /// Lowest priority: Prelude.
-    Prelude,
+    Prelude = 1,
+}
+
+/// A reference to a symbol.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SymbolRef {
+    /// The unique identifier for the reference.
+    pub reference_id: String,
+    /// The file path where this reference occurs.
+    pub file_path: PosixPath,
+    /// The name of the symbol being referenced.
+    pub name: String,
+    /// The scope identifier where this reference occurs.
+    pub scope_id: String,
+}
+
+/// An import edge connecting a file to a symbol definition.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportEdge {
+    /// The file path containing the import.
+    pub file_path: PosixPath,
+    /// The imported name.
+    pub import_name: String,
+    /// The resolved target symbol ID (if any).
+    pub target_symbol_id: Option<String>,
+    /// Whether this is a wildcard import.
+    pub is_wildcard: bool,
 }
 
 /// A 3-Pass Lexical Scope-Graph for cross-file symbol resolution.
 pub struct ScopeGraph {
     /// Map of symbol ID to symbol definitions.
     pub definitions: HashMap<String, SymbolDef>,
+    /// List of symbol references to resolve.
+    pub references: Vec<SymbolRef>,
+    /// List of import edges.
+    pub imports: Vec<ImportEdge>,
+    /// Map of resolved references (reference_id -> symbol_id).
+    pub resolved_references: HashMap<String, String>,
 }
 
 impl ScopeGraph {
@@ -61,21 +93,103 @@ impl ScopeGraph {
     pub fn new() -> Self {
         Self {
             definitions: HashMap::new(),
+            references: Vec::new(),
+            imports: Vec::new(),
+            resolved_references: HashMap::new(),
         }
+    }
+
+    /// Computes a unique symbol ID using BLAKE3.
+    pub fn compute_symbol_id(file_path: &str, scope_qualified_name: &str, kind: &ScopeKind) -> String {
+        let kind_str = match kind {
+            ScopeKind::Module => "Module",
+            ScopeKind::StructOrClass => "StructOrClass",
+            ScopeKind::ImplOrInterface => "ImplOrInterface",
+            ScopeKind::Function => "Function",
+            ScopeKind::Block => "Block",
+        };
+        let input = format!("{}::{}::{}", file_path, scope_qualified_name, kind_str);
+        blake3::hash(input.as_bytes()).to_hex().to_string()
     }
 
     /// Pass 1: Local Scope & Definition Extraction
     pub fn pass_1_local_scope_extraction(&mut self) -> Result<(), base::error::ExtensionError> {
+        let mut updates = Vec::new();
+        for (id, def) in &self.definitions {
+            let expected_id = Self::compute_symbol_id(&def.file_path, &def.scope_qualified_name, &def.kind);
+            if *id != expected_id {
+                updates.push((id.clone(), expected_id));
+            }
+        }
+        for (old_id, new_id) in updates {
+            if let Some(mut def) = self.definitions.remove(&old_id) {
+                def.symbol_id = new_id.clone();
+                self.definitions.insert(new_id, def);
+            }
+        }
         Ok(())
     }
 
     /// Pass 2: Import & Export Edge Wiring
     pub fn pass_2_import_edge_wiring(&mut self) -> Result<(), base::error::ExtensionError> {
+        for import in self.imports.iter_mut() {
+            if import.target_symbol_id.is_none() {
+                for def in self.definitions.values() {
+                    if def.scope_qualified_name.ends_with(&import.import_name) {
+                        import.target_symbol_id = Some(def.symbol_id.clone());
+                        break;
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
     /// Pass 3: Priority-Shadowed Reference Resolution
     pub fn pass_3_reference_resolution(&mut self) -> Result<(), base::error::ExtensionError> {
+        for pref in &self.references {
+            let mut best_match = None;
+            let mut best_priority = 0;
+
+            for def in self.definitions.values() {
+                if def.scope_qualified_name.ends_with(&pref.name) {
+                    let mut priority = 0;
+
+                    if def.file_path == pref.file_path {
+                        if def.kind == ScopeKind::Block {
+                            priority = ShadowPriority::InnerLocalBlock as u8;
+                        } else if def.kind == ScopeKind::ImplOrInterface {
+                            priority = ShadowPriority::ReceiverImplOrClassScope as u8;
+                        } else {
+                            priority = ShadowPriority::SameModuleDefinition as u8;
+                        }
+                    } else {
+                        for imp in &self.imports {
+                            if imp.file_path == pref.file_path && imp.target_symbol_id.as_ref() == Some(&def.symbol_id) {
+                                if imp.is_wildcard {
+                                    priority = ShadowPriority::WildcardImport as u8;
+                                } else {
+                                    priority = ShadowPriority::ExplicitNamedImport as u8;
+                                }
+                            }
+                        }
+                    }
+
+                    if priority == 0 {
+                        priority = ShadowPriority::Prelude as u8;
+                    }
+
+                    if priority > best_priority {
+                        best_priority = priority;
+                        best_match = Some(def.symbol_id.clone());
+                    }
+                }
+            }
+
+            if let Some(sym_id) = best_match {
+                self.resolved_references.insert(pref.reference_id.clone(), sym_id);
+            }
+        }
         Ok(())
     }
 }
