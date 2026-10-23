@@ -1,6 +1,6 @@
 use base::path::PosixPath;
 use dashmap::DashMap;
-use tree_sitter::{InputEdit, Language, Parser as TsParser, Tree};
+use tree_sitter::{InputEdit, Language, Parser as TsParser, Point, Tree};
 
 /// An incremental `tree-sitter` parser for parsing syntax trees.
 pub struct Parser {
@@ -36,6 +36,52 @@ impl Parser {
         let tree = parser.parse(source, None)?;
         self.cache.insert(key, tree.clone());
         Some(tree)
+    }
+
+    /// Helper to convert a byte index to a Point by iterating over bytes, avoiding UTF-8 panics.
+    fn byte_to_point(source: &str, byte_index: usize) -> Point {
+        let bytes = source.as_bytes();
+        let limit = byte_index.min(bytes.len());
+        let mut row = 0;
+        let mut column = 0;
+        for &b in &bytes[..limit] {
+            if b == b'\n' {
+                row += 1;
+                column = 0;
+            } else {
+                column += 1;
+            }
+        }
+        Point::new(row, column)
+    }
+
+    /// Computes the `InputEdit` and calls `edit_and_reparse`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn edit_file(
+        &self,
+        path: &str,
+        old_hash: [u8; 32],
+        new_hash: [u8; 32],
+        old_source: &str,
+        new_source: &str,
+        start_byte: usize,
+        old_end_byte: usize,
+        new_end_byte: usize,
+    ) -> Option<Tree> {
+        let start_position = Self::byte_to_point(old_source, start_byte);
+        let old_end_position = Self::byte_to_point(old_source, old_end_byte);
+        let new_end_position = Self::byte_to_point(new_source, new_end_byte);
+
+        let edit = InputEdit {
+            start_byte,
+            old_end_byte,
+            new_end_byte,
+            start_position,
+            old_end_position,
+            new_end_position,
+        };
+
+        self.edit_and_reparse(path, old_hash, new_hash, new_source, &edit)
     }
 
     /// Edits an existing syntax tree (cached by `old_hash`) according to the `InputEdit`,
