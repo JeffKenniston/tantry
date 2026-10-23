@@ -5,6 +5,7 @@ use crate::vfs_tree::VfsTree;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+/// MessageDelta enum
 pub enum MessageDelta {
     Append(Vec<Message>),
     PatchById {
@@ -18,6 +19,7 @@ pub enum MessageDelta {
 }
 
 impl MessageDelta {
+    /// apply fn
     pub fn apply(
         messages: &mut Vec<Message>,
         delta: MessageDelta,
@@ -59,6 +61,7 @@ impl MessageDelta {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+/// FileDelta enum
 pub enum FileDelta {
     Upsert {
         path: PosixPath,
@@ -70,6 +73,7 @@ pub enum FileDelta {
 }
 
 impl FileDelta {
+    /// apply_batch fn
     pub fn apply_batch(
         tree: &mut VfsTree,
         deltas: &[FileDelta],
@@ -87,6 +91,7 @@ impl FileDelta {
         Ok(())
     }
 
+    /// diff_trees fn
     pub fn diff_trees(before: &VfsTree, after: &VfsTree) -> Vec<FileDelta> {
         before.diff(after)
     }

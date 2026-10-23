@@ -5,11 +5,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
+/// MessageId type
 pub type MessageId = Uuid;
+/// ToolCallId type
 pub type ToolCallId = String;
+/// TaskId type
 pub type TaskId = String;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Role enum
 pub enum Role {
     System,
     User,
@@ -18,6 +22,7 @@ pub enum Role {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// MediaKind enum
 pub enum MediaKind {
     Image,
     Video,
@@ -26,6 +31,7 @@ pub enum MediaKind {
 }
 
 impl MediaKind {
+    /// from_extension fn
     pub fn from_extension(ext: &str) -> Option<Self> {
         match ext.to_lowercase().as_str() {
             "jpg" | "jpeg" | "png" | "webp" | "gif" => Some(MediaKind::Image),
@@ -36,6 +42,7 @@ impl MediaKind {
         }
     }
 
+    /// from_mime fn
     pub fn from_mime(mime: &str) -> Option<Self> {
         let mime = mime.to_lowercase();
         if mime.starts_with("image/") {
@@ -53,12 +60,14 @@ impl MediaKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// CacheControl enum
 pub enum CacheControl {
     Ephemeral,
     Persistent { ttl_seconds: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// ExecuteArtifact struct
 pub struct ExecuteArtifact {
     pub exit_code: i32,
     pub timed_out: bool,
@@ -69,6 +78,7 @@ pub struct ExecuteArtifact {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// BlastRadiusReport struct
 pub struct BlastRadiusReport {
     pub target_symbol: String,
     pub affected_files: Vec<PosixPath>,
@@ -80,6 +90,7 @@ pub struct BlastRadiusReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// ToolArtifact enum
 pub enum ToolArtifact {
     Execute(ExecuteArtifact),
     BlastRadius(BlastRadiusReport),
@@ -88,6 +99,7 @@ pub enum ToolArtifact {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// ContentBlock enum
 pub enum ContentBlock {
     Text {
         text: String,
@@ -119,6 +131,7 @@ pub enum ContentBlock {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Message struct
 pub struct Message {
     pub id: MessageId,
     pub role: Role,
@@ -128,6 +141,7 @@ pub struct Message {
 }
 
 impl Message {
+    /// user fn
     pub fn user(text: String) -> Self {
         Self {
             id: Uuid::now_v7(),
@@ -141,6 +155,7 @@ impl Message {
         }
     }
 
+    /// system fn
     pub fn system(text: String, cache_control: Option<CacheControl>) -> Self {
         Self {
             id: Uuid::now_v7(),
@@ -154,6 +169,7 @@ impl Message {
         }
     }
 
+    /// assistant fn
     pub fn assistant(content: Vec<ContentBlock>) -> Self {
         Self {
             id: Uuid::now_v7(),
@@ -164,6 +180,7 @@ impl Message {
         }
     }
 
+    /// tool_result fn
     pub fn tool_result(
         tool_use_id: ToolCallId,
         is_error: bool,
@@ -187,6 +204,7 @@ impl Message {
         }
     }
 
+    /// assistant_text fn
     pub fn assistant_text(&self) -> Option<String> {
         if self.role != Role::Assistant {
             return None;
@@ -217,6 +235,7 @@ impl Message {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// TodoStatus enum
 pub enum TodoStatus {
     Pending,
     InProgress,
@@ -225,6 +244,7 @@ pub enum TodoStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// TodoItem struct
 pub struct TodoItem {
     pub id: String,
     pub content: String,
@@ -232,6 +252,7 @@ pub struct TodoItem {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// FileData struct
 pub struct FileData {
     pub content: Bytes,
     pub blake3_hash: [u8; 32],
@@ -242,6 +263,7 @@ pub struct FileData {
 }
 
 impl FileData {
+    /// new_utf8 fn
     pub fn new_utf8(text: String, now: DateTime<Utc>) -> Self {
         let content = Bytes::from(text.clone());
         let hash = blake3::hash(&content).into();
@@ -255,6 +277,7 @@ impl FileData {
         }
     }
 
+    /// new_binary fn
     pub fn new_binary(bytes: Bytes, mime_type: Option<String>, now: DateTime<Utc>) -> Self {
         let hash = blake3::hash(&bytes).into();
         let is_utf8 = std::str::from_utf8(&bytes).is_ok();
@@ -268,6 +291,7 @@ impl FileData {
         }
     }
 
+    /// as_str fn
     pub fn as_str(&self) -> Option<&str> {
         if self.is_utf8 {
             std::str::from_utf8(&self.content).ok()
@@ -278,6 +302,7 @@ impl FileData {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// SkillFrontmatter struct
 pub struct SkillFrontmatter {
     pub name: String,
     pub description: String,
@@ -288,6 +313,7 @@ pub struct SkillFrontmatter {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// AsyncTaskStatus enum
 pub enum AsyncTaskStatus {
     Pending,
     Running,
@@ -298,6 +324,7 @@ pub enum AsyncTaskStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// AsyncTaskHandle struct
 pub struct AsyncTaskHandle {
     pub task_id: TaskId,
     pub subagent_name: String,
@@ -310,6 +337,7 @@ pub struct AsyncTaskHandle {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// RubricOutcome enum
 pub enum RubricOutcome {
     Satisfied,
     Failed { feedback: String },
@@ -318,6 +346,7 @@ pub enum RubricOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// SubagentMode enum
 pub enum SubagentMode {
     Isolated,
     Fork,

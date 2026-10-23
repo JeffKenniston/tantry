@@ -29,9 +29,11 @@ impl Hasher for TypeIdHasher {
     }
 }
 
+/// FastTypeMap type
 pub type FastTypeMap<V> = HashMap<TypeId, V, BuildHasherDefault<TypeIdHasher>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// SlotVisibility enum
 pub enum SlotVisibility {
     Private,
     Shared,
@@ -39,11 +41,13 @@ pub enum SlotVisibility {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
+/// CodecTag enum
 pub enum CodecTag {
     RkyvAligned = 0x01,
     MessagePackNamed = 0x02,
 }
 
+/// StateSlot trait
 pub trait StateSlot: Any + Send + Sync + Clone + 'static {
     const WIRE_KEY: &'static str;
     const VISIBILITY: SlotVisibility;
@@ -55,6 +59,7 @@ pub trait StateSlot: Any + Send + Sync + Clone + 'static {
         Self: Sized;
 }
 
+/// ErasedSlot trait
 pub trait ErasedSlot: Any + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
@@ -67,6 +72,7 @@ pub trait ErasedSlot: Any + Send + Sync {
 }
 
 #[derive(Clone)]
+/// SlotHolder struct
 pub struct SlotHolder<T: StateSlot>(Arc<T>);
 
 impl<T: StateSlot> ErasedSlot for SlotHolder<T> {
@@ -100,6 +106,7 @@ impl<T: StateSlot> ErasedSlot for SlotHolder<T> {
     }
 }
 
+/// StateExtensionRegistry trait
 pub trait StateExtensionRegistry {
     fn decode_and_insert(
         &self,
@@ -111,6 +118,7 @@ pub trait StateExtensionRegistry {
 }
 
 // Default registry since it's referenced in specs.
+/// DefaultExtensionRegistry struct
 pub struct DefaultExtensionRegistry;
 
 impl StateExtensionRegistry for DefaultExtensionRegistry {
@@ -125,6 +133,8 @@ impl StateExtensionRegistry for DefaultExtensionRegistry {
     }
 }
 
+#[derive(Default)]
+/// StateExtensionMap struct
 pub struct StateExtensionMap {
     inner: FastTypeMap<Box<dyn ErasedSlot>>,
 }
@@ -139,13 +149,7 @@ impl Clone for StateExtensionMap {
     }
 }
 
-impl Default for StateExtensionMap {
-    fn default() -> Self {
-        Self {
-            inner: FastTypeMap::default(),
-        }
-    }
-}
+
 
 impl fmt::Debug for StateExtensionMap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -168,10 +172,12 @@ impl PartialEq for StateExtensionMap {
 }
 
 impl StateExtensionMap {
+    /// new fn
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// get fn
     pub fn get<T: StateSlot>(&self) -> Option<&T> {
         self.inner
             .get(&TypeId::of::<T>())
@@ -179,8 +185,10 @@ impl StateExtensionMap {
             .map(|h| &*h.0)
     }
 
+    /// get_mut fn
     pub fn get_mut<T: StateSlot>(&mut self) -> Option<&mut T> {
         if let Some(b) = self.inner.get_mut(&TypeId::of::<T>()) {
+            #[allow(clippy::collapsible_if)]
             if let Some(h) = b.as_any_mut().downcast_mut::<SlotHolder<T>>() {
                 return Some(Arc::make_mut(&mut h.0));
             }
@@ -188,15 +196,18 @@ impl StateExtensionMap {
         None
     }
 
+    /// insert fn
     pub fn insert<T: StateSlot>(&mut self, val: T) {
         self.inner
             .insert(TypeId::of::<T>(), Box::new(SlotHolder(Arc::new(val))));
     }
 
+    /// remove fn
     pub fn remove<T: StateSlot>(&mut self) {
         self.inner.remove(&TypeId::of::<T>());
     }
 
+    /// fork_shared_only fn
     pub fn fork_shared_only(&self) -> Self {
         let mut inner = FastTypeMap::default();
         for (k, v) in &self.inner {
@@ -207,6 +218,7 @@ impl StateExtensionMap {
         Self { inner }
     }
 
+    /// serialize_all fn
     pub fn serialize_all(&self) -> Result<BTreeMap<String, Vec<u8>>, ExtensionError> {
         let mut result = BTreeMap::new();
         for v in self.inner.values() {
@@ -217,6 +229,7 @@ impl StateExtensionMap {
         Ok(result)
     }
 
+    /// hydrate_all fn
     pub fn hydrate_all(
         &mut self,
         raw: &BTreeMap<String, Vec<u8>>,
@@ -237,11 +250,15 @@ impl StateExtensionMap {
 }
 
 
+#[derive(Default)]
+/// DefaultExtensionRegistryImpl struct
 pub struct DefaultExtensionRegistryImpl {
+    #[allow(clippy::type_complexity)]
     decoders: HashMap<String, (u8, Box<dyn Fn(&[u8]) -> Result<(TypeId, Box<dyn ErasedSlot>), ExtensionError>>)>,
 }
 
 impl DefaultExtensionRegistryImpl {
+    /// new fn
     pub fn new() -> Self {
         Self { decoders: HashMap::new() }
     }
@@ -271,6 +288,7 @@ impl StateExtensionRegistry for DefaultExtensionRegistryImpl {
     }
 }
 
+/// register_slot fn
 pub fn register_slot<T: StateSlot>(registry: &mut DefaultExtensionRegistryImpl) {
     registry.decoders.insert(
         T::WIRE_KEY.to_string(),

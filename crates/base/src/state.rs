@@ -11,6 +11,7 @@ use crate::typemap::StateExtensionMap;
 use crate::vfs_tree::VfsTree;
 
 #[derive(Debug, Clone, PartialEq)]
+/// TantryState struct
 pub struct TantryState {
     pub thread_id: String,
     pub step_index: u64,
@@ -28,6 +29,7 @@ pub struct TantryState {
 }
 
 impl TantryState {
+    /// fork_for_subagent fn
     pub fn fork_for_subagent(
         &self,
         mode: SubagentMode,
@@ -60,6 +62,7 @@ impl TantryState {
         }
     }
 
+    /// build_tool_use_edit_delta fn
     pub fn build_tool_use_edit_delta(
         &self,
         tool_use_id: &str,
@@ -78,6 +81,7 @@ impl TantryState {
                 let mut replacement = msg.clone();
                 for block in &mut replacement.content {
                     if let ContentBlock::ToolUse { id, input, .. } = block {
+                        #[allow(clippy::collapsible_if)]
                         if id == tool_use_id {
                             *input = modified_arguments.clone();
                         }

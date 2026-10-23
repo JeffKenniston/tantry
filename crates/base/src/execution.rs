@@ -2,6 +2,7 @@ use crate::ast::{CacheControl, ToolCallId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// ModelTier enum
 pub enum ModelTier {
     FrontierDeep,
     ReasoningPro,
@@ -10,6 +11,7 @@ pub enum ModelTier {
 }
 
 impl ModelTier {
+    /// as_str fn
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::FrontierDeep => "FrontierDeep",
@@ -19,6 +21,8 @@ impl ModelTier {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
+    /// from_str fn
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "FrontierDeep" => Some(Self::FrontierDeep),
@@ -31,6 +35,7 @@ impl ModelTier {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// TokenUsage struct
 pub struct TokenUsage {
     pub input_tokens: u64,
     pub cached_tokens: u64,
@@ -38,6 +43,7 @@ pub struct TokenUsage {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// ToolDefinition struct
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
@@ -45,6 +51,7 @@ pub struct ToolDefinition {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// ApprovalDecision enum
 pub enum ApprovalDecision {
     Approve {
         tool_use_id: ToolCallId,
@@ -60,12 +67,14 @@ pub enum ApprovalDecision {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// LoopDirective enum
 pub enum LoopDirective {
     ContinueTurn,
     FinishTurn,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// StreamEvent enum
 pub enum StreamEvent {
     ModelDelta {
         text_delta: String,
@@ -91,6 +100,7 @@ pub enum StreamEvent {
 }
 
 impl StreamEvent {
+    /// coalesce_in_place fn
     pub fn coalesce_in_place(&mut self, next: StreamEvent) -> Result<(), StreamEvent> {
         if let StreamEvent::ModelDelta {
             text_delta,
@@ -121,6 +131,7 @@ impl StreamEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// PromptBlock enum
 pub enum PromptBlock {
     Block1StaticSystem(String),
     Block2StaticTools {
