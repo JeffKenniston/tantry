@@ -58,7 +58,7 @@ pub fn evaluate_zenoh_topic(svid: &SpiffeId, key_expr: &str, is_publish: bool) -
         if key_expr.starts_with(&prefix) || key_expr == format!("tantry/{}", td) {
             return PermissionMode::Allow;
         }
-        return PermissionMode::Deny;
+        PermissionMode::Deny
     } else {
         if is_publish {
             let events_path = format!("tantry/{}/subagents/{}/tasks/{}/events", td, sub_s, child_tid);
@@ -66,13 +66,13 @@ pub fn evaluate_zenoh_topic(svid: &SpiffeId, key_expr: &str, is_publish: bool) -
             if key_expr == events_path || key_expr == state_path {
                 return PermissionMode::Allow;
             }
-            return PermissionMode::Deny;
+            PermissionMode::Deny
         } else {
             let cmd_path = format!("tantry/{}/subagents/{}/tasks/{}/cmd", td, sub_s, child_tid);
             if key_expr == cmd_path {
                 return PermissionMode::Allow;
             }
-            return PermissionMode::Deny;
+            PermissionMode::Deny
         }
     }
 }
