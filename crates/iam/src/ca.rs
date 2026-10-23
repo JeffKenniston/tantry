@@ -281,3 +281,21 @@ pub fn verify_audit_sth(
 
     Ok(())
 }
+
+impl crate::IdentityManager for SovereignCaIdentityManager {
+    fn key_hierarchy(&self) -> &crate::key_hierarchy::KeyHierarchy {
+        &self.key_hierarchy
+    }
+
+    fn sign_audit_sth(&self, tree_size: u64, timestamp_ms: i64, mmr_root_blake3: &[u8; 32]) -> Result<AuditSthSignature, IamError> {
+        sign_audit_sth(tree_size, timestamp_ms, *mmr_root_blake3, &self.ed25519_pkcs8_der, &self.mldsa65_signing_key_bytes)
+    }
+
+    fn verify_audit_sth(&self, sth: &AuditSthSignature) -> Result<(), IamError> {
+        verify_audit_sth(sth, &self.ed25519_public_key, &self.mldsa65_verifying_key_bytes)
+    }
+
+    fn current_svid(&self) -> Option<crate::svid::WorkloadSvid> {
+        None
+    }
+}
