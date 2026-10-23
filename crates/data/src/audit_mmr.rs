@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 use crate::error::DataError;
 use iam::{IdentityManager, AuditSthSignature};
 
@@ -27,7 +27,7 @@ impl AuditMmrStore {
             [0u8; 32]
         } else {
             let mut stmt = conn.prepare("SELECT entry_hash FROM audit_log WHERE seq_no = ?1")?;
-            let mut rows = stmt.query(params![(seq_no - 1) as i64])?;
+            let mut rows = stmt.query(rusqlite::params![(seq_no - 1) as i64])?;
             if let Some(row) = rows.next()? {
                 let bytes: Vec<u8> = row.get(0)?;
                 let mut h = [0u8; 32];
@@ -51,7 +51,7 @@ impl AuditMmrStore {
         conn.execute(
             "INSERT INTO audit_log (seq_no, timestamp_ms, spiffe_id, thread_id, event_kind, payload_json, entry_hash)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
+            rusqlite::params![
                 seq_no as i64,
                 timestamp_ms as i64,
                 spiffe_id,
@@ -68,77 +68,83 @@ impl AuditMmrStore {
         h.update(&current_hash);
         m_leaf.copy_from_slice(h.finalize().as_bytes());
 
-        let mut next_pos: i64 = conn.query_row("SELECT COALESCE(MAX(mmr_pos), 0) + 1 FROM audit_mmr_nodes", [], |row| row.get(0))?;
+        let i = seq_no - 1;
+        let leaf_pos = 2 * i - (i.count_ones() as u64) + 1;
 
         conn.execute(
-            "INSERT INTO audit_mmr_nodes (mmr_pos, height, node_hash, seq_no) VALUES (?1, ?2, ?3, ?4)",
-            params![next_pos, 0, m_leaf.as_slice(), seq_no as i64]
+            "INSERT INTO audit_mmr_nodes (mmr_pos, height, node_hash, seq_no) VALUES (?1, 0, ?2, ?3)",
+            rusqlite::params![leaf_pos as i64, m_leaf.as_slice(), seq_no as i64]
         )?;
 
-        let mut current_height = 0;
-        let mut current_pos = next_pos;
+        let mut current_pos = leaf_pos;
         let mut current_hash_node = m_leaf;
 
-        loop {
-            let prev_peak_query = "SELECT mmr_pos, height, node_hash FROM audit_mmr_nodes WHERE mmr_pos < ?1 AND height = ?2 ORDER BY mmr_pos DESC LIMIT 1";
-            let mut stmt = conn.prepare(prev_peak_query)?;
-            let mut rows = stmt.query(params![current_pos, current_height])?;
+        for h_idx in 0..i.trailing_ones() {
+            let left_pos = current_pos - (1 << (h_idx + 1)) + 1;
+
+            let mut stmt = conn.prepare("SELECT node_hash FROM audit_mmr_nodes WHERE mmr_pos = ?1")?;
+            let mut rows = stmt.query(rusqlite::params![left_pos as i64])?;
             if let Some(row) = rows.next()? {
-                let left_pos: i64 = row.get(0)?;
-                let left_height: i64 = row.get(1)?;
-                let left_hash: Vec<u8> = row.get(2)?;
+                let left_hash: Vec<u8> = row.get(0)?;
+                let mut parent_h = blake3::Hasher::new();
+                parent_h.update(&[0x01]);
+                parent_h.update(&left_hash);
+                parent_h.update(&current_hash_node);
+                current_hash_node.copy_from_slice(parent_h.finalize().as_bytes());
 
-                let parent_query = "SELECT 1 FROM audit_mmr_nodes WHERE mmr_pos > ?1 AND height > ?2 LIMIT 1";
-                let mut p_stmt = conn.prepare(parent_query)?;
-                if p_stmt.exists(params![left_pos, left_height])? {
-                    break;
-                }
-
-                if left_height == current_height {
-                    let mut parent_h = blake3::Hasher::new();
-                    parent_h.update(&[0x01]);
-                    parent_h.update(&left_hash);
-                    parent_h.update(&current_hash_node);
-                    current_hash_node.copy_from_slice(parent_h.finalize().as_bytes());
-                    current_height += 1;
-                    next_pos += 1;
-                    current_pos = next_pos;
-
-                    conn.execute(
-                        "INSERT INTO audit_mmr_nodes (mmr_pos, height, node_hash, seq_no) VALUES (?1, ?2, ?3, NULL)",
-                        params![current_pos, current_height, current_hash_node.as_slice()]
-                    )?;
-                    continue;
-                }
+                current_pos += 1;
+                conn.execute(
+                    "INSERT INTO audit_mmr_nodes (mmr_pos, height, node_hash, seq_no) VALUES (?1, ?2, ?3, NULL)",
+                    rusqlite::params![current_pos as i64, h_idx + 1, current_hash_node.as_slice()]
+                )?;
+            } else {
+                return Err(DataError::Serialization(format!("Missing left peak for MMR merge at pos {}", left_pos)));
             }
-            break;
         }
 
         Ok(())
     }
 
-    pub fn compute_mmr_root(&self, _tree_size: u64) -> Result<[u8; 32], DataError> {
-        let conn = self.db.lock().unwrap();
-        let mut stmt = conn.prepare("
-            SELECT mmr_pos, height, node_hash FROM audit_mmr_nodes n1
-            WHERE NOT EXISTS (
-                SELECT 1 FROM audit_mmr_nodes n2
-                WHERE n2.mmr_pos > n1.mmr_pos AND n2.height > n1.height
-            )
-            ORDER BY mmr_pos ASC
-        ")?;
-
-        let mut rows = stmt.query([])?;
-        let mut peaks = Vec::new();
-        while let Some(row) = rows.next()? {
-            let hash: Vec<u8> = row.get(2)?;
-            let mut h = [0u8; 32];
-            h.copy_from_slice(&hash);
-            peaks.push(h);
+    pub fn compute_mmr_root(&self, tree_size: u64) -> Result<[u8; 32], DataError> {
+        if tree_size == 0 {
+            return Ok([0u8; 32]);
         }
 
-        if peaks.is_empty() {
-            return Ok([0u8; 32]);
+        let conn = self.db.lock().unwrap();
+
+        let mut size = 2 * tree_size - (tree_size.count_ones() as u64);
+        let mut peak_positions = Vec::new();
+        let mut current_pos = 0;
+
+        let mut height = 0;
+        while (1 << height) - 1 <= size {
+            height += 1;
+        }
+        height -= 1;
+
+        while size > 0 {
+            while (1 << (height + 1)) - 1 > size {
+                if height == 0 { break; }
+                height -= 1;
+            }
+            let peak_size = (1 << (height + 1)) - 1;
+            current_pos += peak_size;
+            peak_positions.push(current_pos);
+            size -= peak_size;
+        }
+
+        let mut peaks = Vec::new();
+        let mut stmt = conn.prepare("SELECT node_hash FROM audit_mmr_nodes WHERE mmr_pos = ?1")?;
+        for pos in peak_positions.into_iter().rev() {
+            let mut rows = stmt.query(rusqlite::params![pos as i64])?;
+            if let Some(row) = rows.next()? {
+                let hash: Vec<u8> = row.get(0)?;
+                let mut h = [0u8; 32];
+                h.copy_from_slice(&hash);
+                peaks.push(h);
+            } else {
+                return Err(DataError::Serialization(format!("Missing peak at pos {}", pos)));
+            }
         }
 
         let mut acc = peaks.pop().unwrap();
@@ -154,31 +160,35 @@ impl AuditMmrStore {
     }
 
     pub fn mountain_audit_path(&self, seq_no: u64) -> Result<Vec<[u8; 32]>, DataError> {
-        let conn = self.db.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT mmr_pos FROM audit_mmr_nodes WHERE seq_no = ?1")?;
-        let mut rows = stmt.query(params![seq_no as i64])?;
-        let leaf_pos: i64 = if let Some(row) = rows.next()? {
-            row.get(0)?
-        } else {
-            return Err(DataError::Serialization(format!("seq_no {} not found", seq_no)));
+        let tree_size: u64 = {
+            let conn = self.db.lock().unwrap();
+            conn.query_row("SELECT COALESCE(MAX(seq_no), 0) FROM audit_log", [], |r| { let s: i64 = r.get(0)?; Ok(s as u64) }).unwrap_or(0)
         };
+
+        if seq_no > tree_size || seq_no == 0 {
+            return Err(DataError::Serialization(format!("seq_no {} out of bounds", seq_no)));
+        }
+
+        let conn = self.db.lock().unwrap();
+        let leaf_pos = 2 * (seq_no - 1) - ((seq_no - 1).count_ones() as u64) + 1;
 
         let mut proof = Vec::new();
         let mut current_pos = leaf_pos;
 
+        let mut q_parent = conn.prepare("SELECT mmr_pos, height FROM audit_mmr_nodes WHERE mmr_pos > ?1 ORDER BY mmr_pos ASC LIMIT 1")?;
+        let mut q_sibling = conn.prepare("
+            SELECT node_hash FROM audit_mmr_nodes
+            WHERE mmr_pos < ?1 AND height = ?2 AND mmr_pos != ?3
+            ORDER BY mmr_pos DESC LIMIT 1
+        ")?;
+
         loop {
-            let mut q_parent = conn.prepare("SELECT mmr_pos, height FROM audit_mmr_nodes WHERE mmr_pos > ?1 ORDER BY mmr_pos ASC LIMIT 1")?;
-            let mut rows_parent = q_parent.query(params![current_pos])?;
+            let mut rows_parent = q_parent.query(rusqlite::params![current_pos as i64])?;
             if let Some(p_row) = rows_parent.next()? {
                 let p_pos: i64 = p_row.get(0)?;
                 let p_height: i64 = p_row.get(1)?;
 
-                let mut q_sibling = conn.prepare("
-                    SELECT node_hash FROM audit_mmr_nodes
-                    WHERE mmr_pos < ?1 AND height = ?2 AND mmr_pos != ?3
-                    ORDER BY mmr_pos DESC LIMIT 1
-                ")?;
-                let mut rows_sibling = q_sibling.query(params![p_pos, p_height - 1, current_pos])?;
+                let mut rows_sibling = q_sibling.query(rusqlite::params![p_pos, p_height - 1, current_pos as i64])?;
                 if let Some(s_row) = rows_sibling.next()? {
                     let s_hash: Vec<u8> = s_row.get(0)?;
                     let mut h = [0u8; 32];
@@ -186,33 +196,43 @@ impl AuditMmrStore {
                     proof.push(h);
                 }
 
-                current_pos = p_pos;
+                current_pos = p_pos as u64;
             } else {
                 break;
             }
         }
 
-        let mut stmt = conn.prepare("
-            SELECT mmr_pos, node_hash FROM audit_mmr_nodes n1
-            WHERE NOT EXISTS (
-                SELECT 1 FROM audit_mmr_nodes n2
-                WHERE n2.mmr_pos > n1.mmr_pos AND n2.height > n1.height
-            )
-            ORDER BY mmr_pos ASC
-        ")?;
-        let mut rows = stmt.query([])?;
-        let mut peaks = Vec::new();
-        while let Some(row) = rows.next()? {
-            let pos: i64 = row.get(0)?;
-            let hash: Vec<u8> = row.get(1)?;
-            let mut h = [0u8; 32];
-            h.copy_from_slice(&hash);
-            peaks.push((pos, h));
+        drop(q_parent);
+        drop(q_sibling);
+
+        let mut size = 2 * tree_size - (tree_size.count_ones() as u64);
+        let mut peak_positions = Vec::new();
+        let mut pos_acc = 0;
+        let mut height = 0;
+        while (1 << height) - 1 <= size { height += 1; }
+        height -= 1;
+
+        while size > 0 {
+            while (1 << (height + 1)) - 1 > size {
+                if height == 0 { break; }
+                height -= 1;
+            }
+            let peak_size = (1 << (height + 1)) - 1;
+            pos_acc += peak_size;
+            peak_positions.push(pos_acc);
+            size -= peak_size;
         }
 
-        for (pos, hash) in peaks.into_iter().rev() {
+        let mut stmt = conn.prepare("SELECT node_hash FROM audit_mmr_nodes WHERE mmr_pos = ?1")?;
+        for pos in peak_positions.into_iter().rev() {
             if pos != current_pos {
-                proof.push(hash);
+                let mut rows = stmt.query(rusqlite::params![pos as i64])?;
+                if let Some(row) = rows.next()? {
+                    let hash: Vec<u8> = row.get(0)?;
+                    let mut h = [0u8; 32];
+                    h.copy_from_slice(&hash);
+                    proof.push(h);
+                }
             }
         }
 
@@ -281,8 +301,15 @@ impl AuditMmrStore {
             prev_hash = current_hash;
         }
 
+        drop(rows);
+        drop(stmt);
+        drop(conn);
+
+        let conn = self.db.lock().unwrap();
         let mut stmt = conn.prepare("SELECT tree_size, timestamp_ms, mmr_root_blake3, ed25519_sig, mldsa65_sig FROM audit_signed_tree_heads").map_err(|_| 0u64)?;
         let mut rows = stmt.query([]).map_err(|_| 0u64)?;
+
+        let mut to_verify = Vec::new();
 
         while let Some(row) = rows.next().map_err(|_| 0u64)? {
             let tree_size: i64 = row.get(0).map_err(|_| 0u64)?;
@@ -302,11 +329,19 @@ impl AuditMmrStore {
                 mldsa65_sig: ml,
             };
 
-            iam.verify_audit_sth(&sth).map_err(|_| tree_size as u64)?;
+            to_verify.push((sth, h));
+        }
 
-            let real_root = self.compute_mmr_root(tree_size as u64).map_err(|_| tree_size as u64)?;
+        drop(rows);
+        drop(stmt);
+        drop(conn);
+
+        for (sth, h) in to_verify {
+            iam.verify_audit_sth(&sth).map_err(|_| sth.tree_size)?;
+
+            let real_root = self.compute_mmr_root(sth.tree_size).map_err(|_| sth.tree_size)?;
             if real_root != h {
-                return Err(tree_size as u64);
+                return Err(sth.tree_size);
             }
         }
 
