@@ -3,7 +3,6 @@ use crate::lattice::PermissionMode;
 use bitflags::bitflags;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,21 +28,12 @@ pub struct CompiledFsAutomaton {
     pub default_mode: PermissionMode,
     pub rules: Vec<FsPolicyRule>,
     glob_set: GlobSet,
-    parent: Option<Arc<CompiledFsAutomaton>>,
 }
 
 impl CompiledFsAutomaton {
     pub fn new(
         default_mode: PermissionMode,
         rules: Vec<FsPolicyRule>,
-    ) -> Result<Self, globset::Error> {
-        Self::new_with_parent(default_mode, rules, None)
-    }
-
-    pub fn new_with_parent(
-        default_mode: PermissionMode,
-        rules: Vec<FsPolicyRule>,
-        parent: Option<Arc<CompiledFsAutomaton>>,
     ) -> Result<Self, globset::Error> {
         let mut builder = GlobSetBuilder::new();
         for rule in &rules {
@@ -56,12 +46,7 @@ impl CompiledFsAutomaton {
             default_mode,
             rules,
             glob_set,
-            parent,
         })
-    }
-
-    pub fn set_parent(&mut self, p: Arc<CompiledFsAutomaton>) {
-        self.parent = Some(p);
     }
 
     pub fn evaluate(&self, svid: &SpiffeId, op: FsOperation, raw_path: &str) -> PermissionMode {
@@ -98,11 +83,6 @@ impl CompiledFsAutomaton {
             final_mode.unwrap_or(self.default_mode)
         };
 
-        if let Some(p) = &self.parent {
-            let parent_mode = p.evaluate(svid, op, raw_path);
-            my_mode.join(parent_mode)
-        } else {
-            my_mode
-        }
+        my_mode
     }
 }
