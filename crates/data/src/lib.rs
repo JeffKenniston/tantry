@@ -43,7 +43,7 @@ impl DataStoreManager {
             let ext_aead: Option<Vec<u8>> = row.get(5)?;
 
             let (epoch_salt, thread_salt) = crate::crypto::get_or_provision_key_epoch(&conn, &thread_id, key_epoch)?;
-            let dek = iam.key_hierarchy().derive_dek(&epoch_salt, &thread_salt);
+            let dek = iam.key_hierarchy().derive_dek_from_salts(key_epoch, &epoch_salt, &thread_id, &thread_salt).map(|z| *z).unwrap_or([0u8; 32]);
             let aad = crate::crypto::compute_canonical_aad("interaction_checkpoints", &checkpoint_id, &thread_id, key_epoch);
 
             if let Some(wire) = md_aead {
@@ -72,7 +72,7 @@ impl DataStoreManager {
             let aead: Vec<u8> = row.get(3)?;
 
             let (epoch_salt, thread_salt) = crate::crypto::get_or_provision_key_epoch(&conn, &thread_id, key_epoch)?;
-            let dek = iam.key_hierarchy().derive_dek(&epoch_salt, &thread_salt);
+            let dek = iam.key_hierarchy().derive_dek_from_salts(key_epoch, &epoch_salt, &thread_id, &thread_salt).map(|z| *z).unwrap_or([0u8; 32]);
             let aad = crate::crypto::compute_canonical_aad("archived_messages", &message_id, &thread_id, key_epoch);
 
             let _ = crate::crypto::decrypt_envelope(&aead, &dek, &aad)?;
