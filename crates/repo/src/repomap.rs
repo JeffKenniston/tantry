@@ -76,8 +76,7 @@ impl SkeletonRepoMapSlot {
         let mut current_tokens = 0;
 
         for (sym, _) in ranked_symbols {
-            let decl = format!("{} {{ ... }}
-", sym);
+            let decl = format!("{} {{ ... }}\n", sym);
             let tokens = (decl.len() as f64 / 4.0).ceil() as u64;
             if current_tokens + tokens > self.max_tokens {
                 break;
