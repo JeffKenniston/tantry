@@ -56,12 +56,28 @@ impl Indexer {
             }
         }
 
+        // To find deleted files, we need to track what we see in the VFS.
+        let mut vfs_files = HashSet::new();
+
         let mut queue = vec![(String::from(""), &vfs.root)];
         while let Some((path, node)) = queue.pop() {
             let hash = node.subtree_blake3.to_vec();
             if let Some(db_hash) = db_dirs.get(&path) {
                 if db_hash == &hash {
-                    // Tree hasn't changed, prune search
+                    // Tree hasn't changed, prune search, but we still need to add files to vfs_files
+                    // so we don't think they are deleted. Actually, if tree hasn't changed,
+                    // NO files in it are dirty or deleted. We still need to record that they exist.
+                    let mut collect_queue = vec![(path.clone(), node)];
+                    while let Some((cp, n)) = collect_queue.pop() {
+                        for (fnm, _) in &n.files {
+                            let fp = if cp.is_empty() { fnm.clone() } else { format!("{}/{}", cp, fnm) };
+                            vfs_files.insert(fp);
+                        }
+                        for (snm, sn) in &n.subdirs {
+                            let sp = if cp.is_empty() { snm.clone() } else { format!("{}/{}", cp, snm) };
+                            collect_queue.push((sp, sn));
+                        }
+                    }
                     continue;
                 }
             }
@@ -72,6 +88,7 @@ impl Indexer {
                 } else {
                     format!("{}/{}", path, file_name)
                 };
+                vfs_files.insert(file_path.clone());
                 let file_hash = file_data.blake3_hash.to_vec();
                 if let Some(db_file_hash) = db_files.get(&file_path) {
                     if db_file_hash != &file_hash {
@@ -92,6 +109,13 @@ impl Indexer {
             }
         }
 
+        // Check for deleted files
+        for (db_file_path, _) in db_files {
+            if !vfs_files.contains(&db_file_path) {
+                dirty_files.insert(db_file_path);
+            }
+        }
+
         Ok(dirty_files)
     }
 
@@ -99,6 +123,49 @@ impl Indexer {
     pub fn persist(&mut self, vfs: &VfsTree) -> Result<()> {
         let tx = self.conn.transaction()?;
         {
+            let mut vfs_paths = HashSet::new();
+
+            let mut queue = vec![(String::from(""), &vfs.root)];
+            while let Some((path, node)) = queue.pop() {
+                vfs_paths.insert(path.clone());
+                for (file_name, _) in &node.files {
+                    let file_path = if path.is_empty() {
+                        file_name.clone()
+                    } else {
+                        format!("{}/{}", path, file_name)
+                    };
+                    vfs_paths.insert(file_path);
+                }
+
+                for (subdir_name, subdir_node) in &node.subdirs {
+                    let subdir_path = if path.is_empty() {
+                        subdir_name.clone()
+                    } else {
+                        format!("{}/{}", path, subdir_name)
+                    };
+                    queue.push((subdir_path, subdir_node));
+                }
+            }
+
+            // Get existing paths
+            let mut db_paths = Vec::new();
+            let mut select_stmt = tx.prepare("SELECT vfs_path FROM merkle_nodes")?;
+            let mut rows = select_stmt.query([])?;
+            while let Some(row) = rows.next()? {
+                let p: String = row.get(0)?;
+                db_paths.push(p);
+            }
+            drop(rows);
+            drop(select_stmt);
+
+            let mut delete_stmt = tx.prepare("DELETE FROM merkle_nodes WHERE vfs_path = ?")?;
+            for p in db_paths {
+                if !vfs_paths.contains(&p) {
+                    delete_stmt.execute([&p])?;
+                }
+            }
+            drop(delete_stmt);
+
             let mut stmt = tx.prepare(
                 "INSERT INTO merkle_nodes (vfs_path, is_dir, blake3_hash, mtime_ns, symbol_count)
                  VALUES (?1, ?2, ?3, ?4, ?5)
@@ -109,8 +176,8 @@ impl Indexer {
                     symbol_count = excluded.symbol_count",
             )?;
 
-            let mut queue = vec![(String::from(""), &vfs.root)];
-            while let Some((path, node)) = queue.pop() {
+            let mut queue2 = vec![(String::from(""), &vfs.root)];
+            while let Some((path, node)) = queue2.pop() {
                 stmt.execute((
                     &path,
                     1,
@@ -140,7 +207,7 @@ impl Indexer {
                     } else {
                         format!("{}/{}", path, subdir_name)
                     };
-                    queue.push((subdir_path, subdir_node));
+                    queue2.push((subdir_path, subdir_node));
                 }
             }
         }
