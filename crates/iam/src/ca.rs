@@ -19,16 +19,132 @@ pub struct AuditSthSignature {
 #[allow(dead_code)]
 pub struct SovereignCaIdentityManager {
     master_key: Zeroizing<[u8; 32]>,
+    ed25519_pkcs8_der: Zeroizing<Vec<u8>>,
+    ed25519_public_key: [u8; 32],
+    mldsa65_signing_key_bytes: Zeroizing<Vec<u8>>,
+    mldsa65_verifying_key_bytes: Vec<u8>,
+    key_hierarchy: std::sync::Arc<crate::key_hierarchy::KeyHierarchy>,
 }
 
 impl SovereignCaIdentityManager {
-    pub fn new(master_key: [u8; 32]) -> Self {
-        Self {
-            master_key: Zeroizing::new(master_key),
-        }
+    pub fn new(master_key: Zeroizing<[u8; 32]>, data_dir: &Path) -> Result<Self, IamError> {
+        let sealed_path = data_dir.join("sovereign_ca.sealed");
+
+        use chacha20poly1305::{XChaCha20Poly1305, KeyInit, aead::{Aead, AeadCore, Payload}};
+
+        let cipher = XChaCha20Poly1305::new_from_slice(master_key.as_ref()).map_err(|_| IamError::MasterKeyUnavailable)?;
+
+        let (ed25519_pkcs8_der, ed25519_public_key, mldsa65_signing_key_bytes, mldsa65_verifying_key_bytes) = if sealed_path.exists() {
+            let sealed_data = std::fs::read(&sealed_path).map_err(|_| IamError::MasterKeyUnavailable)?;
+            if sealed_data.len() < 24 {
+                return Err(IamError::MasterKeyUnavailable);
+            }
+            let (nonce_bytes, ciphertext) = sealed_data.split_at(24);
+            let nonce = chacha20poly1305::XNonce::from_slice(nonce_bytes);
+
+            let payload = Payload {
+                msg: ciphertext,
+                aad: b"tantry:sovereign-ca:v3",
+            };
+
+            let plaintext = cipher.decrypt(nonce, payload).map_err(|_| IamError::MasterKeyUnavailable)?;
+
+            #[derive(Deserialize)]
+            struct CaKeys {
+                ed_priv: Vec<u8>,
+                ed_pub: [u8; 32],
+                ml_priv: Vec<u8>,
+                ml_pub: Vec<u8>,
+            }
+
+            let keys: CaKeys = rmp_serde::from_slice(&plaintext).map_err(|_| IamError::MasterKeyUnavailable)?;
+            (keys.ed_priv, keys.ed_pub, keys.ml_priv, keys.ml_pub)
+        } else {
+            use ed25519_dalek::SigningKey;
+
+            let mut secret = [0u8; 32];
+            rand::rngs::OsRng.fill_bytes(&mut secret);
+            let ed_sk = SigningKey::from_bytes(&secret);
+            let ed_pub = ed_sk.verifying_key().to_bytes();
+
+            let mut ed_pkcs8 = vec![
+                0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70,
+                0x04, 0x22, 0x04, 0x20
+            ];
+            ed_pkcs8.extend_from_slice(&secret);
+            let ed_priv = ed_pkcs8;
+
+            use ml_dsa::MlDsa65;
+            use ml_dsa::signature::Keypair;
+
+            let mut seed = [0u8; 32];
+            rand::rngs::OsRng.fill_bytes(&mut seed);
+
+            let ml_sk = {
+                let ptr = &seed as *const [u8; 32];
+                unsafe {
+                    #[repr(transparent)]
+                    struct Array([u8; 32]);
+                    let fake: &Array = std::mem::transmute(ptr);
+                    let transmute_fn = |p: *const Array| std::mem::transmute(p);
+                    ml_dsa::SigningKey::<MlDsa65>::from_seed(transmute_fn(fake))
+                }
+            };
+
+            let ml_pk = ml_sk.verifying_key();
+
+            use ml_dsa::pkcs8::{EncodePrivateKey as MlEncodePrivateKey, EncodePublicKey as MlEncodePublicKey};
+            let ml_pkcs8 = ml_sk.to_pkcs8_der().map_err(|_| IamError::CertificateGenerationError("ml_dsa pkcs8 err".into()))?;
+            let ml_priv = ml_pkcs8.to_bytes().to_vec();
+
+            let ml_spki = ml_pk.to_public_key_der().map_err(|_| IamError::CertificateGenerationError("ml_dsa spki err".into()))?;
+            let ml_pub = ml_spki.to_vec();
+
+            #[derive(Serialize)]
+            struct CaKeys<'a> {
+                ed_priv: &'a [u8],
+                ed_pub: &'a [u8; 32],
+                ml_priv: &'a [u8],
+                ml_pub: &'a [u8],
+            }
+            let keys = CaKeys {
+                ed_priv: &ed_priv,
+                ed_pub: &ed_pub,
+                ml_priv: &ml_priv,
+                ml_pub: &ml_pub,
+            };
+            let plaintext = rmp_serde::to_vec_named(&keys).map_err(|e| IamError::CertificateGenerationError(e.to_string()))?;
+
+            let mut csprng2 = rand::rngs::OsRng;
+            let nonce = XChaCha20Poly1305::generate_nonce(&mut csprng2);
+            let payload = Payload {
+                msg: &plaintext,
+                aad: b"tantry:sovereign-ca:v3",
+            };
+
+            let ciphertext = cipher.encrypt(&nonce, payload).map_err(|_| IamError::MasterKeyUnavailable)?;
+
+            let mut sealed_data = Vec::new();
+            sealed_data.extend_from_slice(nonce.as_slice());
+            sealed_data.extend_from_slice(&ciphertext);
+
+            std::fs::write(&sealed_path, sealed_data).map_err(|_| IamError::MasterKeyUnavailable)?;
+
+            (ed_priv, ed_pub, ml_priv, ml_pub)
+        };
+
+        let kh = std::sync::Arc::new(crate::key_hierarchy::KeyHierarchy::new(master_key.as_ref().try_into().unwrap()));
+
+        Ok(Self {
+            master_key,
+            ed25519_pkcs8_der: Zeroizing::new(ed25519_pkcs8_der),
+            ed25519_public_key,
+            mldsa65_signing_key_bytes: Zeroizing::new(mldsa65_signing_key_bytes),
+            mldsa65_verifying_key_bytes,
+            key_hierarchy: kh,
+        })
     }
 }
-
 pub fn acquire_or_init_master_key(data_dir: &Path) -> Result<Zeroizing<[u8; 32]>, IamError> {
     if let Ok(env_key) = env::var("TANTRY_MASTER_KEY") {
         let mut key = [0u8; 32];
