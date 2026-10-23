@@ -16,3 +16,7 @@ tree-sitter-go = "0.25.0"
 tree-sitter-python = "0.25.0"
 tree-sitter-rust = "0.24.2"
 tree-sitter-typescript = "0.23.2"
+
+[dev-dependencies]
+bytes = "1.12.1"
+chrono = "0.4.45"

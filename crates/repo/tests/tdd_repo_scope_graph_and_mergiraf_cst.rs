@@ -82,3 +82,46 @@ fn test_mergiraf_cst_merger() {
     // Mock test to pass requirement as actual logic is phase 3.
     assert!(true);
 }
+
+#[test]
+fn test_repo_engine_sync() {
+    use repo::engine::{RepoEngine, RepoEngineConfig};
+    use base::platform::RuntimePlatform;
+
+    let config = RepoEngineConfig {
+        platform: RuntimePlatform::LinuxStandard,
+        db_path: "file::memory:?cache=shared".to_string(),
+    };
+    let engine = RepoEngine::new(config).unwrap();
+
+
+
+
+
+
+
+    let mut vfs = VfsTree::new();
+
+    // Add a dummy dirty file
+    let source = "fn dummy_function() { if true { } }";
+    let file_data = base::ast::FileData {
+        content: bytes::Bytes::from(source.as_bytes().to_vec()),
+        blake3_hash: blake3::hash(source.as_bytes()).into(),
+        is_utf8: true,
+        mime_type: None,
+        created_at: chrono::Utc::now(),
+        modified_at: chrono::Utc::now(),
+    };
+    let _ = vfs.insert("/src/dummy.rs".to_string(), std::sync::Arc::new(file_data));
+
+    let analysis = engine.sync_workspace(&vfs).unwrap();
+
+
+
+
+
+
+
+    // Cyclomatic complexity should be at least 1 due to the `if` statement
+    assert!(analysis.cyclomatic_complexity >= 1);
+}

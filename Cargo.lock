@@ -1637,6 +1637,8 @@ version = "0.1.0"
 dependencies = [
  "base",
  "blake3",
+ "bytes",
+ "chrono",
  "dashmap",
  "rayon",
  "rusqlite",
