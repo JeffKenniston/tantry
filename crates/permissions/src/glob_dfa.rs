@@ -5,32 +5,47 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::{Deserialize, Serialize};
 
 bitflags! {
+    /// Filesystem operations covered by policy rules.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
     pub struct FsOperation: u8 {
+        /// Read operation.
         const READ   = 0b0001;
+        /// Write operation.
         const WRITE  = 0b0010;
+        /// Delete operation.
         const DELETE = 0b0100;
+        /// Execute operation.
         const EXEC   = 0b1000;
+        /// All operations.
         const ALL    = 0b1111;
     }
 }
 
+/// A policy rule defining a glob pattern and associated filesystem operations and evaluation mode.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FsPolicyRule {
+    /// The glob pattern to match against.
     pub glob_pattern: String,
+    /// The filesystem operations this rule applies to.
     pub operations: FsOperation,
+    /// The evaluation mode (Allow, Interrupt, or Deny).
     pub mode: PermissionMode,
+    /// The optional SPIFFE prefix required for this rule to apply.
     pub required_spiffe_prefix: Option<String>,
 }
 
+/// A compiled automaton for evaluating filesystem policies using a `GlobSet`.
 #[derive(Debug, Clone)]
 pub struct CompiledFsAutomaton {
+    /// The default mode to return if no rules match.
     pub default_mode: PermissionMode,
+    /// The list of policy rules.
     pub rules: Vec<FsPolicyRule>,
     glob_set: GlobSet,
 }
 
 impl CompiledFsAutomaton {
+    /// Creates a new `CompiledFsAutomaton` from the given default mode and policy rules.
     pub fn new(
         default_mode: PermissionMode,
         rules: Vec<FsPolicyRule>,
@@ -49,6 +64,7 @@ impl CompiledFsAutomaton {
         })
     }
 
+    /// Evaluates the given operation and path against the rules, returning the resulting `PermissionMode`.
     pub fn evaluate(&self, svid: &SpiffeId, op: FsOperation, raw_path: &str) -> PermissionMode {
         let normalized_path = match base::path::validate_and_normalize_path(raw_path) {
             Ok(p) => p,
