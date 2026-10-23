@@ -11,6 +11,12 @@ pub struct FsCapability {
     pub automaton: CompiledFsAutomaton,
 }
 
+impl FsCapability {
+    pub fn set_parent(&mut self, p: Arc<CompiledFsAutomaton>) {
+        self.automaton.set_parent(p);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetPolicyRule {
     pub domain_glob: String,
@@ -24,12 +30,21 @@ pub struct NetCapability {
     pub default_mode: PermissionMode,
     pub rules: Vec<NetPolicyRule>,
     domain_glob_set: GlobSet,
+    parent: Option<Arc<NetCapability>>,
 }
 
 impl NetCapability {
     pub fn new(
         default_mode: PermissionMode,
         rules: Vec<NetPolicyRule>,
+    ) -> Result<Self, globset::Error> {
+        Self::new_with_parent(default_mode, rules, None)
+    }
+
+    pub fn new_with_parent(
+        default_mode: PermissionMode,
+        rules: Vec<NetPolicyRule>,
+        parent: Option<Arc<NetCapability>>,
     ) -> Result<Self, globset::Error> {
         let mut builder = GlobSetBuilder::new();
         for rule in &rules {
@@ -41,7 +56,12 @@ impl NetCapability {
             default_mode,
             rules,
             domain_glob_set,
+            parent,
         })
+    }
+
+    pub fn set_parent(&mut self, p: Arc<NetCapability>) {
+        self.parent = Some(p);
     }
 
     pub fn evaluate_egress(
@@ -52,60 +72,77 @@ impl NetCapability {
         tunnel_registry: Option<&ScopedTunnelRegistry>,
         now_ms: i64,
     ) -> PermissionMode {
+        let mut my_mode = None;
+
         if let Some(registry) = tunnel_registry {
             if registry.is_service_active(host, now_ms) {
                 let matches = self.domain_glob_set.matches(host);
+                let mut deny = false;
                 for rule_idx in matches {
                     let rule = &self.rules[rule_idx];
                     if rule.mode == PermissionMode::Deny {
-                        return PermissionMode::Deny;
+                        deny = true;
+                        break;
                     }
                 }
-                return PermissionMode::Allow;
-            }
-        }
-
-        let matches = self.domain_glob_set.matches(host);
-        if matches.is_empty() {
-            return self.default_mode;
-        }
-
-        let mut final_mode: Option<PermissionMode> = None;
-
-        for rule_idx in matches {
-            let rule = &self.rules[rule_idx];
-
-            let port_allowed = rule.allowed_ports.is_empty()
-                || rule
-                    .allowed_ports
-                    .iter()
-                    .any(|&(start, end)| port >= start && port <= end);
-            if !port_allowed {
-                continue;
-            }
-
-            let method_allowed = match method {
-                Some(m) => {
-                    rule.allowed_methods.is_empty()
-                        || rule
-                            .allowed_methods
-                            .iter()
-                            .any(|allowed| allowed.eq_ignore_ascii_case(m))
+                if deny {
+                    my_mode = Some(PermissionMode::Deny);
+                } else {
+                    my_mode = Some(PermissionMode::Allow);
                 }
-                None => true,
-            };
-            if !method_allowed {
-                continue;
             }
-
-            let m = rule.mode;
-            final_mode = Some(match final_mode {
-                None => m,
-                Some(existing) => existing.join(m),
-            });
         }
 
-        final_mode.unwrap_or(self.default_mode)
+        let my_mode = my_mode.unwrap_or_else(|| {
+            let matches = self.domain_glob_set.matches(host);
+            if matches.is_empty() {
+                return self.default_mode;
+            }
+
+            let mut final_mode: Option<PermissionMode> = None;
+
+            for rule_idx in matches {
+                let rule = &self.rules[rule_idx];
+
+                let port_allowed = rule.allowed_ports.is_empty()
+                    || rule
+                        .allowed_ports
+                        .iter()
+                        .any(|&(start, end)| port >= start && port <= end);
+                if !port_allowed {
+                    continue;
+                }
+
+                let method_allowed = match method {
+                    Some(m) => {
+                        rule.allowed_methods.is_empty()
+                            || rule
+                                .allowed_methods
+                                .iter()
+                                .any(|allowed| allowed.eq_ignore_ascii_case(m))
+                    }
+                    None => true,
+                };
+                if !method_allowed {
+                    continue;
+                }
+
+                let m = rule.mode;
+                final_mode = Some(match final_mode {
+                    None => m,
+                    Some(existing) => existing.join(m),
+                });
+            }
+
+            final_mode.unwrap_or(self.default_mode)
+        });
+
+        if let Some(p) = &self.parent {
+            let parent_mode = p.evaluate_egress(host, port, method, tunnel_registry, now_ms);
+            my_mode.join(parent_mode)
+        } else {
+            my_mode
+        }
     }
 }
 
@@ -217,6 +254,7 @@ pub struct McpCapability {
     pub max_spend_micros: u64,
     pub rules: Vec<McpPolicyRule>,
     tool_glob_set: GlobSet,
+    parent: Option<Arc<McpCapability>>,
 }
 
 impl McpCapability {
@@ -224,6 +262,15 @@ impl McpCapability {
         default_mode: PermissionMode,
         max_spend_micros: u64,
         rules: Vec<McpPolicyRule>,
+    ) -> Result<Self, globset::Error> {
+        Self::new_with_parent(default_mode, max_spend_micros, rules, None)
+    }
+
+    pub fn new_with_parent(
+        default_mode: PermissionMode,
+        max_spend_micros: u64,
+        rules: Vec<McpPolicyRule>,
+        parent: Option<Arc<McpCapability>>,
     ) -> Result<Self, globset::Error> {
         let mut builder = GlobSetBuilder::new();
         for rule in &rules {
@@ -236,7 +283,12 @@ impl McpCapability {
             max_spend_micros,
             rules,
             tool_glob_set,
+            parent,
         })
+    }
+
+    pub fn set_parent(&mut self, p: Arc<McpCapability>) {
+        self.parent = Some(p);
     }
 
     pub fn evaluate_mcp_call(
@@ -245,28 +297,35 @@ impl McpCapability {
         tool_name: &str,
         estimated_spend_micros: u64,
     ) -> PermissionMode {
-        if estimated_spend_micros > self.max_spend_micros {
-            return PermissionMode::Deny;
+        let my_mode = if estimated_spend_micros > self.max_spend_micros {
+            PermissionMode::Deny
+        } else {
+            let query = format!("{}:{}", server_name, tool_name);
+            let matches = self.tool_glob_set.matches(&query);
+
+            if matches.is_empty() {
+                self.default_mode
+            } else {
+                let mut final_mode: Option<PermissionMode> = None;
+
+                for rule_idx in matches {
+                    let rule = &self.rules[rule_idx];
+                    let m = rule.mode;
+                    final_mode = Some(match final_mode {
+                        None => m,
+                        Some(existing) => existing.join(m),
+                    });
+                }
+
+                final_mode.unwrap_or(self.default_mode)
+            }
+        };
+
+        if let Some(p) = &self.parent {
+            let parent_mode = p.evaluate_mcp_call(server_name, tool_name, estimated_spend_micros);
+            my_mode.join(parent_mode)
+        } else {
+            my_mode
         }
-
-        let query = format!("{}:{}", server_name, tool_name);
-        let matches = self.tool_glob_set.matches(&query);
-
-        if matches.is_empty() {
-            return self.default_mode;
-        }
-
-        let mut final_mode: Option<PermissionMode> = None;
-
-        for rule_idx in matches {
-            let rule = &self.rules[rule_idx];
-            let m = rule.mode;
-            final_mode = Some(match final_mode {
-                None => m,
-                Some(existing) => existing.join(m),
-            });
-        }
-
-        final_mode.unwrap_or(self.default_mode)
     }
 }
