@@ -14,3 +14,11 @@ impl SpiffeId {
         &self.uri
     }
 }
+
+pub struct ScopedTunnelRegistry {}
+
+impl ScopedTunnelRegistry {
+    pub fn is_service_active(&self, _host: &str, _now_ms: i64) -> bool {
+        false
+    }
+}
