@@ -2,9 +2,22 @@ use base::ast::BlastRadiusReport;
 use base::path::PosixPath;
 use std::collections::HashMap;
 
+/// Represents a directed edge in the symbol call graph.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SymbolEdge {
+    /// The ID of the calling symbol.
+    pub caller_id: String,
+    /// The ID of the called symbol.
+    pub callee_id: String,
+    /// The kind of call (e.g., function call, trait method).
+    pub call_kind: String,
+    /// The file path where this call occurs.
+    pub file_path: String,
+}
+
 /// Damped Katz Centrality Blast Radius calculator.
 pub struct GraphCentrality {
-    edges: Vec<(String, String)>,
+    edges: Vec<SymbolEdge>,
 }
 
 impl GraphCentrality {
@@ -14,8 +27,13 @@ impl GraphCentrality {
     }
 
     /// Adds a directed edge to the graph.
-    pub fn add_edge(&mut self, caller: String, callee: String) {
-        self.edges.push((caller, callee));
+    pub fn add_edge(&mut self, caller: String, callee: String, call_kind: String, file_path: String) {
+        self.edges.push(SymbolEdge {
+            caller_id: caller,
+            callee_id: callee,
+            call_kind,
+            file_path,
+        });
     }
 
 
@@ -27,10 +45,10 @@ impl GraphCentrality {
         let mut nodes = std::collections::HashSet::new();
 
         let mut in_edges: HashMap<String, Vec<String>> = HashMap::new();
-        for (u, v) in &self.edges {
-            nodes.insert(u.clone());
-            nodes.insert(v.clone());
-            in_edges.entry(v.clone()).or_default().push(u.clone());
+        for edge in &self.edges {
+            nodes.insert(edge.caller_id.clone());
+            nodes.insert(edge.callee_id.clone());
+            in_edges.entry(edge.callee_id.clone()).or_default().push(edge.caller_id.clone());
         }
 
         for node in &nodes {
@@ -78,12 +96,12 @@ impl GraphCentrality {
                 continue;
             }
 
-            for (caller, callee) in &self.edges {
-                if callee == &current_node {
-                    if !visited.contains(caller) {
-                        visited.insert(caller.clone());
-                        result.push((caller.clone(), String::new(), depth + 1));
-                        queue.push_back((caller.clone(), depth + 1));
+            for edge in &self.edges {
+                if edge.callee_id == current_node {
+                    if !visited.contains(&edge.caller_id) {
+                        visited.insert(edge.caller_id.clone());
+                        result.push((edge.caller_id.clone(), edge.file_path.clone(), depth + 1));
+                        queue.push_back((edge.caller_id.clone(), depth + 1));
                     }
                 }
             }
@@ -142,13 +160,18 @@ impl GraphCentrality {
     ) -> BlastRadiusReport {
         let katz_map = self.compute_katz_centrality_iterative();
         let katz = *katz_map.get(target_symbol).unwrap_or(&1.0);
-        let risk_score = self.compute_risk_score(target_symbol, katz, affected_files.len(), 0, signature_mutated);
+
+        let rev_deps = self.transitive_reverse_dependency_cte(target_symbol);
+        let reverse_dependency_count = rev_deps.len();
+        let max_depth_reached = rev_deps.iter().map(|(_, _, d)| *d).max().unwrap_or(0) as usize;
+
+        let risk_score = self.compute_risk_score(target_symbol, katz, affected_files.len(), reverse_dependency_count, signature_mutated);
 
         BlastRadiusReport {
             target_symbol: target_symbol.to_string(),
             affected_files,
-            reverse_dependency_count: 0,
-            max_depth_reached: 0,
+            reverse_dependency_count,
+            max_depth_reached,
             katz_centrality: katz,
             signature_mutated,
             risk_score,
