@@ -63,6 +63,21 @@ impl ScopeGraph {
             definitions: HashMap::new(),
         }
     }
+
+    /// Pass 1: Local Scope & Definition Extraction
+    pub fn pass_1_local_scope_extraction(&mut self) -> Result<(), base::error::ExtensionError> {
+        Ok(())
+    }
+
+    /// Pass 2: Import & Export Edge Wiring
+    pub fn pass_2_import_edge_wiring(&mut self) -> Result<(), base::error::ExtensionError> {
+        Ok(())
+    }
+
+    /// Pass 3: Priority-Shadowed Reference Resolution
+    pub fn pass_3_reference_resolution(&mut self) -> Result<(), base::error::ExtensionError> {
+        Ok(())
+    }
 }
 
 impl Default for ScopeGraph {

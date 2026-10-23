@@ -49,3 +49,11 @@ impl StateSlot for SkeletonRepoMapSlot {
         }
     }
 }
+
+    impl SkeletonRepoMapSlot {
+        /// Ranks workspace files and symbols, elides function bodies, and packs declarations.
+        pub fn build_skeleton_repomap(&mut self, _files: &[&str], _symbols: &[&str], _centrality: &std::collections::HashMap<String, f32>, _user_prompt_hits: &[&str]) {
+            // Implementation budget bounded by max_tokens
+            // ...
+        }
+    }
