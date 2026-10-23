@@ -1,6 +1,13 @@
 use crate::ext::SpiffeId;
 use crate::lattice::PermissionMode;
 
+/// Evaluates whether a given Zenoh key expression is permitted for a given SPIFFE ID.
+///
+/// Ensures compliance with strict Zenoh topic structure:
+/// - Rejects `..`, `\0`, or leading/trailing slashes.
+/// - Root agents (`spiffe://{td}/agent/{a}/task/{tid}`) can access `tantry/{td}/**`.
+/// - Subagents (`spiffe://{td}/agent/{a}/task/{tid}/subagent/{s}/task/{child_tid}`)
+///   can ONLY publish to `.../events` and `.../state`, and can ONLY subscribe to `.../cmd`.
 pub fn evaluate_zenoh_topic(svid: &SpiffeId, key_expr: &str, is_publish: bool) -> PermissionMode {
     if key_expr.contains("..") || key_expr.contains('\0') || key_expr.starts_with('/') || key_expr.ends_with('/') {
         return PermissionMode::Deny;

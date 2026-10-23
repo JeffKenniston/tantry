@@ -61,26 +61,28 @@ fn test_zenoh_guard_subagent() {
 use std::collections::BTreeMap;
 use permissions::capabilities::{FsCapability, NetCapability, EnvCapability, McpCapability};
 use permissions::attenuation::PermissionLattice;
+use std::sync::Arc;
+use permissions::glob_dfa::CompiledFsAutomaton;
 
 #[test]
 fn test_attenuation() {
     let mut i1 = BTreeMap::new();
     i1.insert("tool1".to_string(), PermissionMode::Interrupt);
     let p1 = PermissionLattice {
-        fs: FsCapability::Base,
-        net: NetCapability::Base,
-        env: EnvCapability::Base,
-        mcp: McpCapability::Base { max_spend_micros: 1000, effective_max_spend_micros: 1000 },
+        fs: FsCapability::Base(Arc::new(CompiledFsAutomaton::new(PermissionMode::Allow, vec![]).unwrap())),
+        net: NetCapability::new(PermissionMode::Allow, vec![]).unwrap(),
+        env: EnvCapability::new(vec![], vec![]).unwrap(),
+        mcp: McpCapability::new(PermissionMode::Allow, 1000, 1000, vec![]).unwrap(),
         interrupt_on_tools: i1,
     };
 
     let mut i2 = BTreeMap::new();
     i2.insert("tool1".to_string(), PermissionMode::Deny);
     let p2 = PermissionLattice {
-        fs: FsCapability::Base,
-        net: NetCapability::Base,
-        env: EnvCapability::Base,
-        mcp: McpCapability::Base { max_spend_micros: 500, effective_max_spend_micros: 500 },
+        fs: FsCapability::Base(Arc::new(CompiledFsAutomaton::new(PermissionMode::Allow, vec![]).unwrap())),
+        net: NetCapability::new(PermissionMode::Allow, vec![]).unwrap(),
+        env: EnvCapability::new(vec![], vec![]).unwrap(),
+        mcp: McpCapability::new(PermissionMode::Allow, 500, 500, vec![]).unwrap(),
         interrupt_on_tools: i2,
     };
 

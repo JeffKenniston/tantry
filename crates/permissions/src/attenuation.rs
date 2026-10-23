@@ -3,16 +3,24 @@ use std::sync::Arc;
 use crate::capabilities::{FsCapability, NetCapability, EnvCapability, McpCapability};
 use crate::lattice::PermissionMode;
 
+/// Represents a 4-dimensional permission lattice.
 #[derive(Debug, Clone)]
 pub struct PermissionLattice {
+    /// Filesystem capability.
     pub fs: FsCapability,
+    /// Network capability.
     pub net: NetCapability,
+    /// Environment capability.
     pub env: EnvCapability,
+    /// MCP capability.
     pub mcp: McpCapability,
+    /// Specific tools to interrupt on.
     pub interrupt_on_tools: BTreeMap<String, PermissionMode>,
 }
 
 impl PermissionLattice {
+    /// Constructs a composite lattice where every evaluation query computes the pointwise least upper bound.
+    /// This enforces the pointwise join attenuation law $\text{Effective}(x) = \mathcal{P}_{\text{parent}}(x) \sqcup \mathcal{C}_{\text{child}}(x)$.
     pub fn narrow_for_subagent(&self, child_requested: &PermissionLattice) -> PermissionLattice {
         let mut new_interrupt = self.interrupt_on_tools.clone();
         for (k, v) in &child_requested.interrupt_on_tools {
