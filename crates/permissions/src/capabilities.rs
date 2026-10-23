@@ -125,7 +125,7 @@ impl NetCapability {
                     }
                 }
 
-                if tunnel_registry.map_or(false, |r| r.is_service_active(host, now_ms)) {
+                if tunnel_registry.is_some_and(|r| r.is_service_active(host, now_ms)) {
                     if host_has_deny {
                         return PermissionMode::Deny;
                     } else {
