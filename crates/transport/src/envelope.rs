@@ -42,7 +42,7 @@ impl WireEnvelope {
         traceparent: &str,
         timestamp_ms: i64,
         payload_bytes: &[u8],
-    ) -> [u8; 32] {
+    ) -> blake3::Hash {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"tantry:wire-env:v3");
         hasher.update(envelope_id.as_bytes());
@@ -71,16 +71,19 @@ impl WireEnvelope {
             timestamp_ms,
             &payload_bytes,
         );
+        let digest_bytes = digest.as_bytes();
 
-        use ed25519_dalek::Signer as DalekSigner;
-        let ed25519_sig = DalekSigner::sign(ed25519_key, &hash).to_bytes().to_vec();
+        let ed25519_sig = ed25519_key.sign(digest_bytes).to_bytes().to_vec();
 
-        let mldsa65_sig = mldsa65_key.map(|k| {
-            use ml_dsa::signature::Signer;
-            k.sign(&hash).to_bytes().to_vec()
-        });
+        let mldsa65_sig = match mldsa65_key {
+            Some(pq_key) => {
+                let sig = pq_key.sign(digest_bytes);
+                Some(sig.to_vec())
+            }
+            None => None,
+        };
 
-        Self {
+        Ok(Self {
             envelope_id,
             sender_spiffe_id,
             traceparent,
@@ -88,11 +91,11 @@ impl WireEnvelope {
             payload_bytes,
             ed25519_sig,
             mldsa65_sig,
-        }
+        })
     }
 
-    /// Verifies the cryptographic integrity of this envelope against the given public keys.
-    /// Rejects any envelope without a valid `mldsa65_sig` if `require_pq_hybrid_signatures` is enabled.
+    /// Verifies the envelope signatures.
+    /// Rejects any envelope missing a valid mldsa65_sig when require_pq_hybrid_signatures = true.
     pub fn verify(
         &self,
         ed25519_pub: &VerifyingKey,
@@ -110,32 +113,131 @@ impl WireEnvelope {
             self.timestamp_ms,
             &self.payload_bytes,
         );
+        let digest_bytes = digest.as_bytes();
 
-        let mut sig_bytes = [0u8; 64];
+        // Verify Ed25519 signature
         if self.ed25519_sig.len() != 64 {
-            return Err(EnvelopeError::InvalidSignature);
+            return Err(ExtensionError::DeserializationFailed("Invalid Ed25519 signature length".to_string()));
         }
-        sig_bytes.copy_from_slice(&self.ed25519_sig);
+        let mut ed_sig_bytes = [0u8; 64];
+        ed_sig_bytes.copy_from_slice(&self.ed25519_sig);
+        let ed_sig = Signature::from_bytes(&ed_sig_bytes);
+        if ed25519_pub.verify(digest_bytes, &ed_sig).is_err() {
+            return Err(ExtensionError::DeserializationFailed("Ed25519 verification failed".to_string()));
+        }
 
-        let sig = Signature::from_bytes(&sig_bytes);
-        ed25519_pub.verify(&hash, &sig).map_err(|_| EnvelopeError::InvalidSignature)?;
+        // Verify ML-DSA-65 signature if required or provided
+        if require_pq_hybrid_signatures {
+            if self.mldsa65_sig.is_none() {
+                return Err(ExtensionError::DeserializationFailed("Missing ML-DSA-65 signature when required".to_string()));
+            }
+        }
 
-        if let Some(mldsa_pub) = mldsa65_pub {
-            if let Some(mldsa_sig) = &self.mldsa65_sig {
-                if mldsa_sig.len() != 3309 {
-                    return Err(EnvelopeError::InvalidSignature);
-                }
-                let mut sig_array = [0u8; 3309];
-                sig_array.copy_from_slice(mldsa_sig);
-
-                let pq_sig = ml_dsa::Signature::<MlDsa65>::decode((&sig_array).into()).ok_or(EnvelopeError::InvalidSignature)?;
-                use ml_dsa::signature::Verifier;
-                mldsa_pub.verify(&hash, &pq_sig).map_err(|_| EnvelopeError::InvalidSignature)?;
-            } else if require_pq_hybrid_signatures {
-                return Err(EnvelopeError::MissingPqSignature);
+        if let Some(sig_bytes) = &self.mldsa65_sig {
+            let pq_pub = mldsa65_pub.ok_or_else(|| {
+                ExtensionError::DeserializationFailed("Missing ML-DSA-65 public key for verification".to_string())
+            })?;
+            if sig_bytes.len() != 3309 {
+                return Err(ExtensionError::DeserializationFailed("Invalid ML-DSA-65 signature length".to_string()));
+            }
+            let pq_sig = ml_dsa::Signature::<MlDsa65>::try_from(sig_bytes.as_slice()).map_err(|_| {
+                ExtensionError::DeserializationFailed("Failed to parse ML-DSA-65 signature".to_string())
+            })?;
+            if pq_pub.verify(digest_bytes, &pq_sig).is_err() {
+                return Err(ExtensionError::DeserializationFailed("ML-DSA-65 verification failed".to_string()));
             }
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ed25519_dalek::SigningKey;
+    use rand::rngs::OsRng;
+    use uuid::Uuid;
+    use bytes::Bytes;
+
+    #[test]
+    fn test_hybrid_envelope_signing_and_verification() {
+        let mut csprng = OsRng;
+        let mut _ed_seed = [0u8; 32];
+        rand::RngCore::fill_bytes(&mut csprng, &mut _ed_seed);
+        let ed25519_key = SigningKey::from_bytes(&_ed_seed);
+        let ed25519_pub = ed25519_key.verifying_key();
+
+        let mut seed = [0u8; 32];
+        rand::RngCore::fill_bytes(&mut csprng, &mut seed);
+
+        // ML-DSA doesn't use RNG directly in this version, so we fallback to testing logic.
+        // Bypassing real ML-DSA signature for unit testing serialization path since `generate()` has unstable trait boundaries in tests.
+        use ml_dsa::KeyInit;
+        let mldsa_priv = ml_dsa::SigningKey::<ml_dsa::MlDsa65>::new_from_slice(&seed).unwrap();
+        // create matching pub key via trait
+        use ml_dsa::Keypair;
+        let mldsa_pub = mldsa_priv.verifying_key();
+
+        let envelope_id = Uuid::new_v4();
+        let spiffe_id = "spiffe://example.org/workload".to_string();
+        let traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".to_string();
+        let timestamp = 1634567890;
+        let payload = Bytes::from("test payload");
+
+        let env = WireEnvelope::sign(
+            envelope_id,
+            spiffe_id.clone(),
+            traceparent.clone(),
+            timestamp,
+            payload.clone(),
+            &ed25519_key,
+            Some(&mldsa_priv),
+        ).expect("failed to sign");
+
+        assert!(env.mldsa65_sig.is_some());
+        assert_eq!(env.mldsa65_sig.as_ref().unwrap().len(), 3309);
+        assert_eq!(env.ed25519_sig.len(), 64);
+
+        assert!(env.verify(&ed25519_pub, Some(&mldsa_pub), true).is_ok());
+    }
+
+    #[test]
+    fn test_hybrid_envelope_missing_pq_signature_rejection() {
+        let mut csprng = OsRng;
+        let mut _ed_seed = [0u8; 32];
+        rand::RngCore::fill_bytes(&mut csprng, &mut _ed_seed);
+        let ed25519_key = SigningKey::from_bytes(&_ed_seed);
+        let ed25519_pub = ed25519_key.verifying_key();
+
+        let envelope_id = Uuid::new_v4();
+        let spiffe_id = "spiffe://example.org/workload".to_string();
+        let traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".to_string();
+        let timestamp = 1634567890;
+        let payload = Bytes::from("test payload");
+
+        let env = WireEnvelope::sign(
+            envelope_id,
+            spiffe_id.clone(),
+            traceparent.clone(),
+            timestamp,
+            payload.clone(),
+            &ed25519_key,
+            None,
+        ).expect("failed to sign");
+
+        assert!(env.mldsa65_sig.is_none());
+
+        // Should reject if PQ is required
+        let res = env.verify(&ed25519_pub, None, true);
+        assert!(res.is_err());
+        if let Err(ExtensionError::DeserializationFailed(msg)) = res {
+            assert_eq!(msg, "Missing ML-DSA-65 signature when required");
+        } else {
+            panic!("Expected DeserializationFailed for missing signature");
+        }
+
+        // Should pass if PQ is not required
+        assert!(env.verify(&ed25519_pub, None, false).is_ok());
     }
 }
