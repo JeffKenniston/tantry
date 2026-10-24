@@ -37,6 +37,23 @@ impl BillingEnforcer {
 
     /// Pre-Flight Lease (`acquire_lease`): Computes worst-case estimated cost,
     /// reserves it in the ledger, and returns a RAII BudgetLeaseGuard.
+    pub fn acquire_lease_fixed(&self, task_id: &str, lease_micros: i64) -> Result<BudgetLeaseGuard, CognitiveError> {
+        self.ledger.try_reserve_budget(task_id, lease_micros).map_err(|e| {
+            if e.to_string().contains("Budget exhausted") {
+                CognitiveError::BudgetExhausted(e.to_string())
+            } else {
+                CognitiveError::DatabaseError(e.to_string())
+            }
+        })?;
+
+        Ok(BudgetLeaseGuard {
+            ledger: self.ledger.clone(),
+            task_id: task_id.to_string(),
+            lease_micros,
+            settled: false,
+        })
+    }
+
     pub fn acquire_lease(
         &self,
         task_id: &str,
