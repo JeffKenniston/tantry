@@ -21,6 +21,7 @@ pub struct ScopedTunnelRegistry {
 }
 
 impl ScopedTunnelRegistry {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             by_id: DashMap::new(),

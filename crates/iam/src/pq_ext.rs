@@ -9,6 +9,7 @@ pub struct PqExtensionPayload {
     pub pre_tbs_blake3: [u8; 32],
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn compute_pre_tbs_pq_digest(
     serial_be: &[u8],
     issuer_dn: &[u8],
