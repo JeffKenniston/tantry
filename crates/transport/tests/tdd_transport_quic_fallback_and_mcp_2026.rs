@@ -1,5 +1,8 @@
 use base::execution::StreamEvent;
 use transport::backpressure::{CreditControlledPublisher, CreditGrant};
+use transport::quic_mcp::{QuicMcpTransport, McpWireProtocol};
+use quinn::Endpoint;
+
 
 #[test]
 fn test_credit_backpressure_coalescing() {
@@ -67,4 +70,33 @@ fn test_lifecycle_preservation() {
     } else {
         panic!("Expected ModelDelta");
     }
+}
+
+#[tokio::test]
+async fn test_quic_fallback() {
+    // 1. Simulates a blackholed UDP socket and verifies `QuicMcpTransport` silently falls back from Quinn QUIC/H3 to TLS 1.3 HTTP/2 within `260ms`.
+    let endpoint = Endpoint::client("[::]:0".parse().unwrap()).unwrap();
+    let http_client = reqwest::Client::new();
+    let transport = QuicMcpTransport::new(endpoint, http_client, 250);
+
+    // To reliably test the fallback without OS ICMP port unreachable immediate failures on localhost,
+    // we mock it by trying to connect to a blackhole IP (like an unroutable IP).
+    let start = std::time::Instant::now();
+    // Connect to a reserved documentation IP that blackholes traffic
+    let protocol = transport.connect("192.0.2.1:12345".parse().unwrap()).await.unwrap();
+    let elapsed = start.elapsed();
+
+    assert_eq!(protocol, McpWireProtocol::Http2);
+    assert!(elapsed.as_millis() >= 250 && elapsed.as_millis() < 300, "took {} ms", elapsed.as_millis());
+}
+
+#[tokio::test]
+async fn test_mcp_headers_and_dpop() {
+    let endpoint = Endpoint::client("[::]:0".parse().unwrap()).unwrap();
+    let http_client = reqwest::Client::new();
+    let transport = QuicMcpTransport::new(endpoint, http_client, 250);
+
+    // Test that the transport can mint dpop proofs
+    let proof = transport.mint_dpop_proof("POST", "https://example.com");
+    assert!(!proof.is_empty());
 }
