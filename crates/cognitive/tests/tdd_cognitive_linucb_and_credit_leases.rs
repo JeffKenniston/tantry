@@ -137,7 +137,7 @@ fn test_billing_concurrent() {
         handles.push(thread::spawn(move || {
             let enforcer = BillingEnforcer::new(l);
             if let Ok(guard) = enforcer.acquire_lease(task_id, 1000, 0, 1000, 0) {
-                let _ = guard.settle(1000, 0, 0, 1000, 0, 0);
+                let _ = guard.settle(1000, 0, 0, 1000, 0, 0, None, 0, None);
             }
         }));
     }
