@@ -1,35 +1,42 @@
-use ed25519_dalek::{Signer as Ed25519Signer, Verifier as Ed25519Verifier, Signature, SigningKey, VerifyingKey};
-use ml_dsa::MlDsa65;
-
-use ml_dsa::SignatureEncoding;
-use base::error::ExtensionError;
-use uuid::Uuid;
 use bytes::Bytes;
-use serde::{Serialize, Deserialize};
+use ed25519_dalek::{Verifier, Signature, SigningKey, VerifyingKey};
+use uuid::Uuid;
+use ml_dsa::MlDsa65;
+use ml_dsa::SignatureEncoding;
 
-/// WireEnvelope represents a hybrid post-quantum wire envelope.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Error type for operations involving `WireEnvelope`, including signature generation
+/// and verification failures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnvelopeError {
+    /// Indicates that a cryptographic signature attached to the envelope is invalid.
+    InvalidSignature,
+    /// Indicates that the required post-quantum hybrid signature is missing.
+    MissingPqSignature,
+}
+
+/// A secure hybrid post-quantum envelope designed for safely transmitting metadata
+/// and payload bytes over potentially untrusted transport layers.
+#[derive(Debug, Clone)]
 pub struct WireEnvelope {
-    /// The unique identifier of the envelope.
+    /// Unique identifier for this envelope.
     pub envelope_id: Uuid,
-    /// The SPIFFE ID of the sender.
+    /// The SPIFFE ID representing the sender of this envelope.
     pub sender_spiffe_id: String,
-    /// The W3C traceparent for distributed tracing.
+    /// The distributed tracing traceparent context.
     pub traceparent: String,
-    /// The timestamp of the envelope in milliseconds.
+    /// Timestamp of envelope creation, in milliseconds since UNIX epoch.
     pub timestamp_ms: i64,
-    /// The payload bytes.
+    /// Arbitrary payload bytes carried within the envelope.
     pub payload_bytes: Bytes,
-    /// The Ed25519 signature (64 bytes).
+    /// The Ed25519 classical signature over the envelope hash (64 bytes).
     pub ed25519_sig: Vec<u8>,
-    /// The ML-DSA-65 post-quantum signature (3309 bytes).
+    /// The ML-DSA-65 post-quantum signature over the envelope hash, if available (3309 bytes).
     pub mldsa65_sig: Option<Vec<u8>>,
 }
 
 impl WireEnvelope {
-    /// Computes the BLAKE3 digest of the envelope for signing/verification.
-    /// Format: `BLAKE3("tantry:wire-env:v3" || envelope_id || sender_spiffe_id || traceparent || timestamp_ms_be64 || payload_bytes)`
-    pub fn hash_payload(
+    /// Computes the BLAKE3 hash over all canonical envelope fields required for signing.
+    pub fn compute_hash(
         envelope_id: &Uuid,
         sender_spiffe_id: &str,
         traceparent: &str,
@@ -43,10 +50,11 @@ impl WireEnvelope {
         hasher.update(traceparent.as_bytes());
         hasher.update(&timestamp_ms.to_be_bytes());
         hasher.update(payload_bytes);
-        hasher.finalize()
+        hasher.finalize().into()
     }
 
-    /// Signs a new envelope using hybrid Ed25519 and optional ML-DSA-65.
+    /// Constructs and cryptographically signs a new `WireEnvelope` using the provided keys.
+    /// If an `mldsa65_key` is provided, a hybrid signature is generated.
     pub fn sign(
         envelope_id: Uuid,
         sender_spiffe_id: String,
@@ -55,8 +63,8 @@ impl WireEnvelope {
         payload_bytes: Bytes,
         ed25519_key: &SigningKey,
         mldsa65_key: Option<&ml_dsa::SigningKey<MlDsa65>>,
-    ) -> Result<Self, ExtensionError> {
-        let digest = Self::hash_payload(
+    ) -> Self {
+        let hash = Self::compute_hash(
             &envelope_id,
             &sender_spiffe_id,
             &traceparent,
@@ -93,8 +101,12 @@ impl WireEnvelope {
         ed25519_pub: &VerifyingKey,
         mldsa65_pub: Option<&ml_dsa::VerifyingKey<MlDsa65>>,
         require_pq_hybrid_signatures: bool,
-    ) -> Result<(), ExtensionError> {
-        let digest = Self::hash_payload(
+    ) -> Result<(), EnvelopeError> {
+        if require_pq_hybrid_signatures && self.mldsa65_sig.is_none() {
+            return Err(EnvelopeError::MissingPqSignature);
+        }
+
+        let hash = Self::compute_hash(
             &self.envelope_id,
             &self.sender_spiffe_id,
             &self.traceparent,

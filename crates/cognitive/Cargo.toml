@@ -1,0 +1,15 @@
+[package]
+name = "cognitive"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base = { path = "../base" }
+blake3 = "1.5"
+bytecheck = "0.8.3"
+rand = "0.8.5"
+rkyv = { version = "0.8.18", features = ["bytecheck"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+data = { path = "../data" }
+thiserror = "2.0"

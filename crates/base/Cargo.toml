@@ -11,7 +11,7 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 rkyv = { version = "0.8.18", features = ["bytecheck"] }
 rmp-serde = "1"
-bytecheck = "0.8"
+bytecheck = "0.8.3"
 bytes = { version = "1", features = ["serde"] }
 blake3 = "1"
 toml = "1.1.8"
