@@ -3701,6 +3701,7 @@ dependencies = [
  "ed25519-dalek",
  "ml-dsa",
  "proptest",
+ "rand 0.8.8",
  "tokio",
  "uuid",
 ]

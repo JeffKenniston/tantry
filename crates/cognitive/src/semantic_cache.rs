@@ -175,6 +175,22 @@ impl SemanticCache {
         Ok(())
     }
 
+
+    pub fn lookup(&self, messages: &[Message], query_embedding: &[f32], dek: &[u8; 32], expected_aad: &[u8; 32]) -> Result<Option<Vec<Message>>, crate::error::CognitiveError> {
+        if Self::check_mutation_bypass(messages) {
+            return Ok(None);
+        }
+
+        let candidates = self.store.search(query_embedding, 1, 0.8)
+            .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+
+        if let Some((best_id, _score)) = candidates.first() {
+            return self.retrieve_payload(best_id, dek, expected_aad);
+        }
+
+        Ok(None)
+    }
+
     pub fn retrieve_payload(&self, key_id: &str, dek: &[u8; 32], expected_aad: &[u8; 32]) -> Result<Option<Vec<Message>>, crate::error::CognitiveError> {
         let conn = self.store.db.lock().unwrap();
 
