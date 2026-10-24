@@ -1,0 +1,24 @@
+package tantry:runtime@0.3.0;
+
+interface fs {
+    read-file: func(path: string) -> result<string, string>;
+    write-file: func(path: string, content: string) -> result<_, string>;
+    list-dir: func(path: string) -> result<list<string>, string>;
+}
+
+interface graph {
+    query-symbols: func(query: string) -> result<string, string>;
+    blast-radius: func(symbol: string) -> result<string, string>;
+}
+
+interface tunnel {
+    request-scoped-token: func(service: string, ttl-secs: u64) -> result<string, string>;
+}
+
+world eval-sandbox {
+    import fs;
+    import graph;
+    import tunnel;
+
+    export eval: func(code: string) -> result<string, string>;
+}
