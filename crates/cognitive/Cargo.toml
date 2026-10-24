@@ -13,3 +13,4 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 data = { path = "../data" }
 thiserror = "2.0"
+rusqlite = "0.40.2"
