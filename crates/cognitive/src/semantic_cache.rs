@@ -37,12 +37,6 @@ impl SemanticCache {
 
     /// Mutation Bypass Invariant: skips cache lookup if a mutating tool was just used.
     pub fn check_mutation_bypass(messages: &[Message]) -> bool {
-        // ToolResult in AST does not contain tool name.
-        // The check will be more complex if we need tool name.
-        // Wait, wait... Let me look at specs...
-        // The specs say: "if the latest message in state.messages contains a ContentBlock::ToolResult from any tool where is_mutating_for_semantic_cache == true (write_file, edit_file, delete, execute, eval, browser, computer, task)"
-        // Since ToolResult does not hold name, how do we know? We'd have to look back at the ToolUse block.
-        // I'll implement exactly that.
         let mut mutating_tools = std::collections::HashSet::new();
 
         for msg in messages.iter() {
@@ -155,6 +149,61 @@ impl SemanticCache {
             sum += (a[i] as i32) * (b[i] as i32);
         }
         sum
+    }
+
+    pub fn store_payload(&self, key_id: &str, messages: &[Message], dek: &[u8; 32], aad: &[u8; 32]) -> Result<(), crate::error::CognitiveError> {
+        let plaintext = serde_json::to_vec(messages)
+            .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+
+        let encrypted = data::crypto::encrypt_envelope_xchacha20(&plaintext, dek, aad)
+            .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+
+        let conn = self.store.db.lock().unwrap();
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS semantic_cache_payloads (
+                id TEXT PRIMARY KEY,
+                payload BLOB
+            )", []
+        ).map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+
+        conn.execute(
+            "INSERT INTO semantic_cache_payloads (id, payload) VALUES (?1, ?2)
+             ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+            rusqlite::params![key_id, encrypted]
+        ).map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    pub fn retrieve_payload(&self, key_id: &str, dek: &[u8; 32], expected_aad: &[u8; 32]) -> Result<Option<Vec<Message>>, crate::error::CognitiveError> {
+        let conn = self.store.db.lock().unwrap();
+
+        // Ensure the table exists before querying.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS semantic_cache_payloads (
+                id TEXT PRIMARY KEY,
+                payload BLOB
+            )", []
+        ).map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+
+        let mut stmt = conn.prepare("SELECT payload FROM semantic_cache_payloads WHERE id = ?1")
+            .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+
+        let mut rows = stmt.query([key_id])
+            .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+
+        if let Some(row) = rows.next().map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))? {
+            let encrypted: Vec<u8> = row.get(0).map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+            let plaintext = data::crypto::decrypt_envelope(&encrypted, dek, expected_aad)
+                .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+
+            let messages = serde_json::from_slice(&plaintext)
+                .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+
+            Ok(Some(messages))
+        } else {
+            Ok(None)
+        }
     }
 }
 
