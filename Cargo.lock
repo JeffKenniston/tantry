@@ -2377,6 +2377,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
 
 [[package]]
+name = "transport"
+version = "0.1.0"
+dependencies = [
+ "base",
+ "blake3",
+ "bytes",
+ "ed25519-dalek",
+ "ml-dsa",
+ "rand 0.8.8",
+ "rand_core 0.10.1",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "tree-sitter"
 version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
