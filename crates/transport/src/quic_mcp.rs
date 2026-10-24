@@ -72,6 +72,7 @@ impl QuicMcpTransport {
 
     /// Connects to a remote address
     pub async fn connect(&self, remote_addr: SocketAddr) -> Result<McpWireProtocol, TransportError> {
+        #[allow(clippy::collapsible_if)]
         if let Some(cached) = self.protocol_cache.get(&remote_addr) {
             if cached.1.elapsed() < Duration::from_secs(300) {
                 return Ok(cached.0);
