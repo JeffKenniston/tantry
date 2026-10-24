@@ -1,8 +1,8 @@
 /// Agent Protocol HTTP Transport Module
 
-
 use reqwest::Client;
 use serde_json::Value;
+use eventsource_stream::EventStreamError;
 
 use crate::TransportError;
 
@@ -69,5 +69,16 @@ impl AgentProtocolHttpTransport {
             .json()
             .await
             .map_err(|e| TransportError::Internal(e.to_string()))
+    }
+
+    /// GET /threads/{thread_id}/runs/{run_id}/stream
+    pub async fn stream_run(&self, thread_id: &str, run_id: &str) -> Result<impl tokio_stream::Stream<Item = Result<eventsource_stream::Event, EventStreamError<reqwest::Error>>>, TransportError> {
+        use eventsource_stream::Eventsource;
+        let url = format!("{}/threads/{}/runs/{}/stream", self.base_url, thread_id, run_id);
+        let res = self.client.get(&url)
+            .send()
+            .await
+            .map_err(|e| TransportError::Internal(e.to_string()))?;
+        Ok(res.bytes_stream().eventsource())
     }
 }
