@@ -1,0 +1,16 @@
+[package]
+name = "backends"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base = { path = "../base" }
+cap-std = "3.4.1"
+thiserror = "1"
+uuid = { version = "1", features = ["v7", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+bytes = { version = "1", features = ["serde"] }
+blake3 = "1"
+glob = "0.3.1"
