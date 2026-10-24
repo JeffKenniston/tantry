@@ -61,3 +61,47 @@ fn test_local_fs_ls_glob_grep() {
     assert_eq!(grep_res[0].path, "/foo/bar.txt");
     assert_eq!(grep_res[0].content, "match this");
 }
+
+#[test]
+fn test_wasm_guard_rejects_start_section() {
+    use backends::wasm::validate_component_no_start_yield;
+    use backends::error::BackendError;
+
+    let safe_wasm: &[u8] = &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    assert!(validate_component_no_start_yield(safe_wasm).is_ok());
+
+    // Minimal WASM with start section
+    let unsafe_wasm: &[u8] = &[
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x08, 0x01, 0x00, // start section
+    ];
+    let err = validate_component_no_start_yield(unsafe_wasm).unwrap_err();
+    assert!(matches!(err, BackendError::UnsafeWasmStartSection));
+}
+
+#[test]
+fn test_termux_zygote_reap() {
+    use backends::termux_supervisor::TermuxZygotePool;
+
+    let pool = TermuxZygotePool::new(20);
+    assert!(pool.max_workers <= 8);
+
+    // Negative tests for reaping, should just pass without ESRCH
+    assert!(TermuxZygotePool::reap_process_group(99999).is_ok());
+}
+
+#[test]
+fn test_egress_proxy_blocks_unallowlisted() {
+    use backends::egress_proxy::EgressProxy;
+
+    let proxy = EgressProxy::new(vec!["crates.io".to_string()]);
+
+    // Allowlisted
+    assert!(proxy.evaluate_connection("crates.io", 0).is_ok());
+
+    // Scoped active
+    assert!(proxy.evaluate_connection("active.test.service", 0).is_ok());
+
+    // Blocked
+    assert!(proxy.evaluate_connection("malicious.com", 0).is_err());
+}

@@ -17,6 +17,8 @@ pub enum BackendError {
     Execution(String),
     #[error("Invalid operation: {0}")]
     InvalidOperation(String),
+    #[error("Unsafe WASM Start Section")]
+    UnsafeWasmStartSection,
 }
 
 impl From<std::io::Error> for BackendError {
