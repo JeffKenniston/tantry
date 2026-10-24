@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 /// Implements an RFC 6962 compliant Merkle Mountain Range (MMR) for tamper-evident, append-only audit logging.
 pub struct AuditMmrStore {
-    /// db
+    /// The thread-safe SQLite connection pool shared by all operations in this store.
     pub db: Arc<Mutex<Connection>>,
 }
 

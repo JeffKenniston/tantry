@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 /// Implements a two-stage vector database using binary quantization for coarse filtering and Int8 RaBitQ for exact rescoring.
 pub struct MatryoshkaVectorStore {
-    /// db
+    /// The thread-safe SQLite connection pool shared by all operations in this store.
     pub db: Arc<Mutex<Connection>>,
 }
 

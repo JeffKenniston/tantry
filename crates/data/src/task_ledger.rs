@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Manages persistent storage for agent task budgets, lifecycle states, and contextual multi-armed bandit (LinUCB) models.
 pub struct TaskLedgerStore {
-    /// db
+    /// The thread-safe SQLite connection pool shared by all operations in this store.
     pub db: Arc<Mutex<Connection>>,
 }
 
