@@ -700,6 +700,7 @@ dependencies = [
  "blake3",
  "bytecheck",
  "data",
+ "futures",
  "iam",
  "rand 0.8.8",
  "reqwest",
