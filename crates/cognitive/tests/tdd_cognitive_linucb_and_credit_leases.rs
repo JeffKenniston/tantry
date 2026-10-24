@@ -3,7 +3,7 @@ use cognitive::router::{Router, generate_context_vector};
 
 #[test]
 fn tdd_cognitive_linucb_and_credit_leases() {
-    let router = Router::new();
+    let mut router = Router::new();
 
     let ctx_override =
         generate_context_vector(1000, 0.1, false, 0, 10, 0, false, 0.9, 5, true, false);
@@ -74,5 +74,33 @@ fn tdd_cognitive_linucb_and_credit_leases() {
     assert!(
         valid_readonly.contains(&arm_readonly),
         "Safety Guardrail 4 Failed"
+    );
+
+    // Test update_arm convergence towards an optimal ModelTier selection
+    let ctx_learn = generate_context_vector(500, 0.0, false, 0, 0, 0, false, 1.0, 0, false, false);
+
+    // Reward CompactLite heavily for this context to make it the preferred choice
+    for _ in 0..10 {
+        router.update_arm(ModelTier::CompactLite, ctx_learn, 1.0);
+    }
+
+    // Now, without safety guardrails overriding it, the router should select CompactLite
+    let learned_arm = router.select_arm(
+        ctx_learn,
+        None,
+        false,
+        false,
+        0.0,
+        0,
+        false,
+        500,
+        0,
+        true, // deterministic
+    );
+
+    assert_eq!(
+        learned_arm,
+        ModelTier::CompactLite,
+        "LinUCB Convergence Failed: Model did not select the highly rewarded arm"
     );
 }
