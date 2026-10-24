@@ -15,8 +15,10 @@ pub trait LlmProvider: Send + Sync {
 }
 
 /// SpeculativeCascadeVerifier
+/// Verifier for speculative cascading execution.
 pub struct SpeculativeCascadeVerifier {
     /// provider
+    /// The underlying LLM provider.
     pub provider: Box<dyn LlmProvider>,
 }
 
@@ -34,12 +36,66 @@ impl SpeculativeCascadeVerifier {
         let mut first_events = Vec::new();
         let mut needs_escalation = false;
 
+        let mut check_buffer = String::new();
+
         while let Some(res) = stream.next().await {
             match res {
                 Ok(event) => {
                     if let StreamEvent::ModelDelta { ref text_delta, .. } = event {
                         tokens_checked += 1;
-                        if text_delta.contains("```json\n{\n  \"tool\":") && text_delta.contains("\"malformed_json\"") { // Dummy condition for low log-prob / malformed tool JSON.
+                        check_buffer.push_str(text_delta);
+
+                        let mut has_malformed = false;
+                        if check_buffer.contains("```json\n{\n") {
+                            if tokens_checked >= 64 {
+                                if let Some(start) = check_buffer.find("```json\n") {
+                                    let content = &check_buffer[start+8..];
+
+                                    // Parse iteratively rather than using the naive trailing } logic
+                                    // that breaks on nested JSON braces.
+                                    let mut braces = 0;
+                                    let mut in_string = false;
+                                    let mut is_escaped = false;
+                                    let mut found_end = false;
+                                    let mut parse_end_idx = 0;
+
+                                    for (i, c) in content.char_indices() {
+                                        if !in_string {
+                                            if c == '{' {
+                                                braces += 1;
+                                            } else if c == '}' {
+                                                braces -= 1;
+                                                if braces == 0 {
+                                                    found_end = true;
+                                                    // Move past the '}'
+                                                    parse_end_idx = i + 1;
+                                                    break;
+                                                }
+                                            } else if c == '"' {
+                                                in_string = true;
+                                            }
+                                        } else {
+                                            if c == '"' && !is_escaped {
+                                                in_string = false;
+                                            } else if c == '\\' && !is_escaped {
+                                                is_escaped = true;
+                                            } else {
+                                                is_escaped = false;
+                                            }
+                                        }
+                                    }
+
+                                    if found_end {
+                                        let json_str = &content[..parse_end_idx];
+                                        if serde_json::from_str::<serde_json::Value>(json_str).is_err() {
+                                            has_malformed = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if has_malformed {
                             needs_escalation = true;
                             break;
                         }
@@ -69,16 +125,13 @@ impl SpeculativeCascadeVerifier {
             req2.target_tier = target_tier;
             let stream2 = self.provider.stream_complete(req2)?;
             let mapped_stream = stream2.map(move |res| {
-                // Ensure guard stays alive in the closure context via Arc clone
                 let _g = guard.clone(); 
                 res
             });
             return Ok(Box::pin(mapped_stream));
         }
         
-        // combine events
         let remaining_stream = futures::stream::iter(first_events).chain(stream).map(move |res| {
-            // Ensure guard stays alive in the closure context via Arc clone
             let _g = guard.clone();
             res
         });

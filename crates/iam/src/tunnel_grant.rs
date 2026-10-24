@@ -67,6 +67,8 @@ impl ScopedTunnelRegistry {
             iat,
             jti: grant_id.clone(),
             pq_pk_b64,
+            htm: None,
+            htu: None,
         };
 
         let token = mint_hybrid_jwt_svid(svid, &claims)?;
