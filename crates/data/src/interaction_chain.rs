@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 /// Provides append-only, time-travel-capable storage for agent interaction checkpoints and messages.
 pub struct InteractionChainStore {
-    /// db
+    /// The thread-safe SQLite connection pool shared by all operations in this store.
     pub db: Arc<Mutex<Connection>>,
 }
 
