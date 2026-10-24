@@ -1,7 +1,8 @@
 use crate::ast::{CacheControl, ToolCallId};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[rkyv(derive(Debug, PartialEq, Eq))]
 /// ModelTier enum
 pub enum ModelTier {
     FrontierDeep,
