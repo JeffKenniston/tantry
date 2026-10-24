@@ -14,11 +14,15 @@ use std::collections::HashMap;
     rkyv::Deserialize,
 )]
 #[rkyv(derive(Debug, PartialEq))]
-/// PendingBanditFeedbackSlot struct for bandit feedback
+/// Stores contextual feature vectors and execution metrics for online LinUCB reinforcement learning updates.
 pub struct PendingBanditFeedbackSlot {
+    /// The tier that was selected by the router and executed.
     pub selected_tier: ModelTier,
+    /// The 12-dimensional contextual feature vector representing the state at selection time.
     pub context_x: [f64; 12],
+    /// The total cost incurred by the model execution in micro-dollars.
     pub cost_micros: u64,
+    /// The total latency of the model execution in milliseconds.
     pub latency_ms: u64,
 }
 
@@ -42,7 +46,7 @@ impl StateSlot for PendingBanditFeedbackSlot {
     }
 }
 
-/// Gaussian sample function
+/// Samples a value from the standard normal distribution using the Box-Muller transform for Thompson Sampling.
 fn sample_standard_normal() -> f64 {
     use rand::Rng;
     let mut rng = rand::thread_rng();
@@ -53,7 +57,7 @@ fn sample_standard_normal() -> f64 {
     r * theta.cos()
 }
 
-/// Computes a composite reward
+/// Computes a composite reward in [0.0, 1.0] based on tool success, execution cost, and latency. Higher values indicate better performance.
 pub fn compute_reward(
     tools_succeeded_and_lint_clean: bool,
     cost_micros: u64,
@@ -70,7 +74,7 @@ pub fn compute_reward(
     0.55 * success + 0.25 * cost_penalty + 0.20 * latency_penalty
 }
 
-/// Generates a 12D contextual feature vector
+/// Generates a normalized 12-dimensional contextual feature vector for the LinUCB router, encapsulating environment state.
 #[allow(clippy::too_many_arguments)]
 pub fn generate_context_vector(
     tokens_ctx: usize,
@@ -158,7 +162,7 @@ impl Default for Router {
 }
 
 impl Router {
-    /// new fn
+    /// Initializes a new Router with 12x12 identity matrices and zero vectors for each model tier arm.
     pub fn new() -> Self {
         let mut arms = HashMap::new();
         let tiers = vec![
@@ -179,7 +183,7 @@ impl Router {
         Self { arms }
     }
 
-    /// Selects best arm based on context
+    /// Evaluates safety guardrails and applies the 12D Disjoint LinUCB + Projected Thompson Sampling algorithm to select the optimal `ModelTier`.
     pub fn select_arm(
         &self,
         context_x: [f64; 12],
@@ -265,7 +269,7 @@ impl Router {
         best_arm
     }
 
-    /// update_arm fn
+    /// Updates the covariance matrix and reward vector for a given arm using the observed context and composite reward.
     pub fn update_arm(&mut self, arm: ModelTier, context_x: [f64; 12], reward: f64) {
         if let Some((a, b)) = self.arms.get_mut(arm.as_str()) {
             for i in 0..12 {
