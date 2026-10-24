@@ -149,3 +149,54 @@ fn test_billing_concurrent() {
     let task = ledger.get_task(task_id).unwrap().unwrap();
     assert!(task.spent_budget_micros <= 15);
 }
+
+#[test]
+fn test_mutation_bypass_and_dot_product_parity() {
+    use base::ast::Message;
+    use cognitive::semantic_cache::SemanticCache;
+    use uuid::Uuid;
+
+    let a: Vec<i8> = (0..256).map(|x| (x % 10) as i8).collect();
+    let b: Vec<i8> = (0..256).map(|x| (x % 5) as i8).collect();
+    let s = SemanticCache::dot_product_i8(&a, &b);
+    let expected_s: i32 = a.iter().zip(b.iter()).map(|(&x, &y)| (x as i32) * (y as i32)).sum();
+    assert_eq!(s, expected_s, "Bit-exact SIMD Int8 dot-product parity failed");
+
+    // Rust enums serialization typically expects a map with a single key for externally tagged enums
+
+    let msg1_json = serde_json::json!({
+        "id": Uuid::now_v7().to_string(),
+        "role": "Assistant",
+        "content": [{
+            "ToolUse": {
+                "id": "tool_1",
+                "name": "write_file",
+                "input": null
+            }
+        }],
+        "created_at": "2026-10-24T10:00:00Z",
+        "metadata": {}
+    });
+
+    let msg2_json = serde_json::json!({
+        "id": Uuid::now_v7().to_string(),
+        "role": "User",
+        "content": [{
+            "ToolResult": {
+                "tool_use_id": "tool_1",
+                "content": [{"Text": {"text": "ok", "cache_control": null}}],
+                "is_error": false,
+                "artifact": null
+            }
+        }],
+        "created_at": "2026-10-24T10:00:01Z",
+        "metadata": {}
+    });
+
+    let msg1: Message = serde_json::from_value(msg1_json).unwrap();
+    let msg2: Message = serde_json::from_value(msg2_json).unwrap();
+
+    let messages = vec![msg1, msg2];
+
+    assert!(SemanticCache::check_mutation_bypass(&messages), "Mutation Bypass Invariant Failed");
+}

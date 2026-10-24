@@ -5024,6 +5024,15 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee855f1f400bd0e5c02d150ae5de3840039a3f54b025156404e34c23c03f47c3"
 dependencies = [
+ "base",
+ "blake3",
+ "bytes",
+ "ed25519-dalek",
+ "ml-dsa",
+ "proptest",
+ "rand 0.8.8",
+ "tokio",
+ "uuid",
  "log",
  "once_cell",
  "tracing-core",
