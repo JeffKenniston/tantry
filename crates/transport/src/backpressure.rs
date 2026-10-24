@@ -1,6 +1,6 @@
 use base::execution::StreamEvent;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Credit-Controlled Stream Publisher & Coalescing Buffer
 /// A struct representing a grant of credits from the consumer to the publisher.
@@ -43,7 +43,8 @@ impl CreditControlledPublisher {
 
     /// Grants additional credits to the publisher and flushes any pending coalesced event.
     pub fn on_credit_granted(&mut self, grant: CreditGrant) -> Option<StreamEvent> {
-        self.credits.fetch_add(grant.additional_credits, Ordering::SeqCst);
+        self.credits
+            .fetch_add(grant.additional_credits, Ordering::SeqCst);
         self.flush()
     }
 
@@ -114,7 +115,6 @@ impl CreditControlledPublisher {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,26 +124,42 @@ mod tests {
     fn test_credit_exhaustion_and_coalescing() {
         let mut publisher = CreditControlledPublisher::new(1);
 
-        let e1 = StreamEvent::ModelDelta { text_delta: "A".to_string(), reasoning_delta: None };
+        let e1 = StreamEvent::ModelDelta {
+            text_delta: "A".to_string(),
+            reasoning_delta: None,
+        };
         let out1 = publisher.publish_event(e1);
         assert_eq!(out1.len(), 1);
 
-        let e2 = StreamEvent::ModelDelta { text_delta: "B".to_string(), reasoning_delta: None };
+        let e2 = StreamEvent::ModelDelta {
+            text_delta: "B".to_string(),
+            reasoning_delta: None,
+        };
         let out2 = publisher.publish_event(e2);
         assert_eq!(out2.len(), 0); // Credit exhausted, buffered
 
-        let e3 = StreamEvent::ModelDelta { text_delta: "C".to_string(), reasoning_delta: Some("R1".to_string()) };
+        let e3 = StreamEvent::ModelDelta {
+            text_delta: "C".to_string(),
+            reasoning_delta: Some("R1".to_string()),
+        };
         let out3 = publisher.publish_event(e3);
         assert_eq!(out3.len(), 0); // Coalesced
 
-        if let Some(StreamEvent::ModelDelta { text_delta, reasoning_delta }) = &publisher.pending {
+        if let Some(StreamEvent::ModelDelta {
+            text_delta,
+            reasoning_delta,
+        }) = &publisher.pending
+        {
             assert_eq!(text_delta, "BC");
             assert_eq!(reasoning_delta.as_ref().unwrap(), "R1");
         } else {
             panic!("Expected coalesced pending delta");
         }
 
-        let flush_res = publisher.on_credit_granted(CreditGrant { stream_id: "s1".to_string(), additional_credits: 1 });
+        let flush_res = publisher.on_credit_granted(CreditGrant {
+            stream_id: "s1".to_string(),
+            additional_credits: 1,
+        });
         assert!(flush_res.is_some());
 
         if let StreamEvent::ModelDelta { text_delta, .. } = flush_res.unwrap() {
@@ -160,11 +176,21 @@ mod tests {
     fn test_lifecycle_events_flush_pending_delta() {
         let mut publisher = CreditControlledPublisher::new(0);
 
-        let e1 = StreamEvent::ModelDelta { text_delta: "A".to_string(), reasoning_delta: None };
+        let e1 = StreamEvent::ModelDelta {
+            text_delta: "A".to_string(),
+            reasoning_delta: None,
+        };
         let out1 = publisher.publish_event(e1);
         assert_eq!(out1.len(), 0);
 
-        let lifecycle = StreamEvent::TurnComplete { step_index: 1, usage: TokenUsage { input_tokens: 0, cached_tokens: 0, output_tokens: 0 } };
+        let lifecycle = StreamEvent::TurnComplete {
+            step_index: 1,
+            usage: TokenUsage {
+                input_tokens: 0,
+                cached_tokens: 0,
+                output_tokens: 0,
+            },
+        };
         let out2 = publisher.publish_event(lifecycle);
 
         // Lifecycle arrives while delta is buffered. It should force-flush the pending delta.

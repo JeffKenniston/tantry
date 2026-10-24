@@ -1,10 +1,10 @@
 #![allow(dead_code)]
-use base64::Engine as _;
-use crate::svid::{mint_hybrid_jwt_svid, JwtSvidClaims, WorkloadSvid};
-use dashmap::DashMap;
 use crate::error::IamError;
-use uuid::Uuid;
+use crate::svid::{JwtSvidClaims, WorkloadSvid, mint_hybrid_jwt_svid};
+use base64::Engine as _;
 use chrono::Utc;
+use dashmap::DashMap;
+use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub struct ScopedTunnelGrant {
@@ -56,7 +56,8 @@ impl ScopedTunnelRegistry {
         let iat = now;
         let exp = now + ttl_secs;
 
-        let pq_pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&svid.mldsa65_verifying_key_bytes);
+        let pq_pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(&svid.mldsa65_verifying_key_bytes);
 
         let claims = JwtSvidClaims {
             iss: svid.spiffe_id.uri().to_string(),
@@ -80,7 +81,10 @@ impl ScopedTunnelRegistry {
         };
 
         self.by_id.insert(grant_id.clone(), grant.clone());
-        let mut entry = self.by_service.entry(normalized_service.to_string()).or_default();
+        let mut entry = self
+            .by_service
+            .entry(normalized_service.to_string())
+            .or_default();
         entry.push(grant_id);
 
         Ok(grant)
@@ -102,34 +106,51 @@ impl ScopedTunnelRegistry {
         }
     }
 
-    pub fn verify_token(&self, token: &str, verifier: &dyn crate::IdentityManager, now_ms: i64) -> Result<ScopedTunnelGrant, IamError> {
+    pub fn verify_token(
+        &self,
+        token: &str,
+        verifier: &dyn crate::IdentityManager,
+        now_ms: i64,
+    ) -> Result<ScopedTunnelGrant, IamError> {
         let parts: Vec<&str> = token.split('.').collect();
         if parts.len() != 3 {
-            return Err(IamError::TunnelGrantExpiredOrInvalid("Invalid JWT format".to_string()));
+            return Err(IamError::TunnelGrantExpiredOrInvalid(
+                "Invalid JWT format".to_string(),
+            ));
         }
 
         let claims_b64 = parts[1];
-        let claims_json_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(claims_b64)
-            .map_err(|_| IamError::TunnelGrantExpiredOrInvalid("Invalid claims base64".to_string()))?;
-        let claims: JwtSvidClaims = serde_json::from_slice(&claims_json_bytes)
-            .map_err(|_| IamError::TunnelGrantExpiredOrInvalid("Invalid claims JSON".to_string()))?;
+        let claims_json_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(claims_b64)
+            .map_err(|_| {
+                IamError::TunnelGrantExpiredOrInvalid("Invalid claims base64".to_string())
+            })?;
+        let claims: JwtSvidClaims = serde_json::from_slice(&claims_json_bytes).map_err(|_| {
+            IamError::TunnelGrantExpiredOrInvalid("Invalid claims JSON".to_string())
+        })?;
 
         let grant_id = claims.jti;
 
         let expected_aud = {
-            let grant = self.by_id.get(&grant_id).ok_or_else(|| IamError::TunnelGrantExpiredOrInvalid("Token not found in registry".to_string()))?;
+            let grant = self.by_id.get(&grant_id).ok_or_else(|| {
+                IamError::TunnelGrantExpiredOrInvalid("Token not found in registry".to_string())
+            })?;
             format!("tunnel://{}", grant.service_name)
         };
         verifier.verify_jwt_svid(token, &expected_aud)?;
 
         if let Some(grant) = self.by_id.get(&grant_id) {
             if now_ms >= grant.expires_at_ms {
-                 drop(grant); // explicit drop before mutating map
-                 self.by_id.remove(&grant_id);
-                 return Err(IamError::TunnelGrantExpiredOrInvalid("Token expired".to_string()));
+                drop(grant); // explicit drop before mutating map
+                self.by_id.remove(&grant_id);
+                return Err(IamError::TunnelGrantExpiredOrInvalid(
+                    "Token expired".to_string(),
+                ));
             }
             return Ok(grant.clone());
         }
-        Err(IamError::TunnelGrantExpiredOrInvalid("Token not found in registry".to_string()))
+        Err(IamError::TunnelGrantExpiredOrInvalid(
+            "Token not found in registry".to_string(),
+        ))
     }
 }

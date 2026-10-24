@@ -9,7 +9,11 @@ use crate::lattice::PermissionMode;
 /// - Subagents (`spiffe://{td}/agent/{a}/task/{tid}/subagent/{s}/task/{child_tid}`)
 ///   can ONLY publish to `.../events` and `.../state`, and can ONLY subscribe to `.../cmd`.
 pub fn evaluate_zenoh_topic(svid: &SpiffeId, key_expr: &str, is_publish: bool) -> PermissionMode {
-    if key_expr.contains("..") || key_expr.contains('\0') || key_expr.starts_with('/') || key_expr.ends_with('/') {
+    if key_expr.contains("..")
+        || key_expr.contains('\0')
+        || key_expr.starts_with('/')
+        || key_expr.ends_with('/')
+    {
         return PermissionMode::Deny;
     }
 
@@ -61,8 +65,14 @@ pub fn evaluate_zenoh_topic(svid: &SpiffeId, key_expr: &str, is_publish: bool) -
         PermissionMode::Deny
     } else {
         if is_publish {
-            let events_path = format!("tantry/{}/subagents/{}/tasks/{}/events", td, sub_s, child_tid);
-            let state_path = format!("tantry/{}/subagents/{}/tasks/{}/state", td, sub_s, child_tid);
+            let events_path = format!(
+                "tantry/{}/subagents/{}/tasks/{}/events",
+                td, sub_s, child_tid
+            );
+            let state_path = format!(
+                "tantry/{}/subagents/{}/tasks/{}/state",
+                td, sub_s, child_tid
+            );
             if key_expr == events_path || key_expr == state_path {
                 return PermissionMode::Allow;
             }

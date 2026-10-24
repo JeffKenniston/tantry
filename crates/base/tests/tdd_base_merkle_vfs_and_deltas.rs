@@ -14,7 +14,9 @@ impl StateSlot for MockSlot {
         Ok(self.data.as_bytes().to_vec())
     }
     fn decode_payload(bytes: &[u8]) -> Result<Self, base::error::ExtensionError> {
-        Ok(Self { data: String::from_utf8(bytes.to_vec()).unwrap() })
+        Ok(Self {
+            data: String::from_utf8(bytes.to_vec()).unwrap(),
+        })
     }
 }
 
@@ -30,16 +32,21 @@ impl StateSlot for SharedMockSlot {
         Ok(self.data.as_bytes().to_vec())
     }
     fn decode_payload(bytes: &[u8]) -> Result<Self, base::error::ExtensionError> {
-        Ok(Self { data: String::from_utf8(bytes.to_vec()).unwrap() })
+        Ok(Self {
+            data: String::from_utf8(bytes.to_vec()).unwrap(),
+        })
     }
 }
-
 
 #[test]
 fn test_state_extension_map_cow_isolation_and_hydration() {
     let mut map = StateExtensionMap::new();
-    map.insert(MockSlot { data: "private_data".to_string() });
-    map.insert(SharedMockSlot { data: "shared_data".to_string() });
+    map.insert(MockSlot {
+        data: "private_data".to_string(),
+    });
+    map.insert(SharedMockSlot {
+        data: "shared_data".to_string(),
+    });
 
     let forked = map.fork_shared_only();
     assert!(forked.get::<MockSlot>().is_none());
@@ -74,8 +81,13 @@ fn test_message_delta_apply() {
     // PatchById
     let id_to_patch = msg2.id;
     let mut patched_msg2 = msg2.clone();
-    patched_msg2.metadata.insert("patched".to_string(), serde_json::Value::Bool(true));
-    let delta_patch = MessageDelta::PatchById { target_id: id_to_patch, replacement: patched_msg2.clone() };
+    patched_msg2
+        .metadata
+        .insert("patched".to_string(), serde_json::Value::Bool(true));
+    let delta_patch = MessageDelta::PatchById {
+        target_id: id_to_patch,
+        replacement: patched_msg2.clone(),
+    };
     let evicted = MessageDelta::apply(&mut messages, delta_patch).unwrap();
     assert_eq!(evicted.len(), 1);
     assert_eq!(evicted[0].id, id_to_patch);
@@ -83,7 +95,10 @@ fn test_message_delta_apply() {
 
     // CompactRange
     let summary = Message::system("summary".to_string(), None);
-    let delta_compact = MessageDelta::CompactRange { up_to_id_inclusive: id_to_patch, summary_message: summary.clone() };
+    let delta_compact = MessageDelta::CompactRange {
+        up_to_id_inclusive: id_to_patch,
+        summary_message: summary.clone(),
+    };
     let evicted = MessageDelta::apply(&mut messages, delta_compact).unwrap();
     assert_eq!(evicted.len(), 2);
     assert_eq!(evicted[0].id, msg1.id);
@@ -93,8 +108,8 @@ fn test_message_delta_apply() {
     assert_eq!(messages[1].id, msg3.id);
 }
 
-use base::vfs_tree::VfsTree;
 use base::ast::FileData;
+use base::vfs_tree::VfsTree;
 use chrono::Utc;
 use std::sync::Arc;
 
@@ -108,9 +123,15 @@ fn test_vfs_diff_with_stats() {
     let f3 = Arc::new(FileData::new_utf8("file3".to_string(), Utc::now()));
     let f4 = Arc::new(FileData::new_utf8("file4".to_string(), Utc::now()));
 
-    before.insert("/dir1/a.txt".to_string(), f1.clone()).unwrap();
-    before.insert("/dir1/b.txt".to_string(), f2.clone()).unwrap();
-    before.insert("/dir2/c.txt".to_string(), f3.clone()).unwrap();
+    before
+        .insert("/dir1/a.txt".to_string(), f1.clone())
+        .unwrap();
+    before
+        .insert("/dir1/b.txt".to_string(), f2.clone())
+        .unwrap();
+    before
+        .insert("/dir2/c.txt".to_string(), f3.clone())
+        .unwrap();
 
     after.insert("/dir1/a.txt".to_string(), f1.clone()).unwrap();
     after.insert("/dir1/b.txt".to_string(), f4.clone()).unwrap();
@@ -123,7 +144,7 @@ fn test_vfs_diff_with_stats() {
 
 use base::error::PathValidationError;
 use base::path::validate_and_normalize_path;
-use base::platform::{interpolate_env_vars, RuntimePlatform};
+use base::platform::{RuntimePlatform, interpolate_env_vars};
 #[allow(unused_imports)]
 use proptest::prelude::*;
 
@@ -175,21 +196,39 @@ fn test_termux_path_rebasing() {
 
     // Test tantry specific rebases
     let t_data = platform.rebase_path("/var/lib/tantry/data", false).unwrap();
-    assert_eq!(t_data, "/data/data/com.termux/files/usr/var/lib/tantry/data");
+    assert_eq!(
+        t_data,
+        "/data/data/com.termux/files/usr/var/lib/tantry/data"
+    );
 
-    let spire_sock = platform.rebase_path("/run/spire/sockets/agent.sock", false).unwrap();
-    assert_eq!(spire_sock, "/data/data/com.termux/files/usr/var/run/spire/sockets/agent.sock");
+    let spire_sock = platform
+        .rebase_path("/run/spire/sockets/agent.sock", false)
+        .unwrap();
+    assert_eq!(
+        spire_sock,
+        "/data/data/com.termux/files/usr/var/run/spire/sockets/agent.sock"
+    );
 
-    let run_tantry = platform.rebase_path("/var/run/tantry/sandboxes", false).unwrap();
-    assert_eq!(run_tantry, "/data/data/com.termux/files/usr/var/run/tantry/sandboxes");
+    let run_tantry = platform
+        .rebase_path("/var/run/tantry/sandboxes", false)
+        .unwrap();
+    assert_eq!(
+        run_tantry,
+        "/data/data/com.termux/files/usr/var/run/tantry/sandboxes"
+    );
 
     // Test binaries
     let bin = platform.rebase_path("/usr/bin/jailer", false).unwrap();
     assert_eq!(bin, "/data/data/com.termux/files/usr/bin/jailer");
 
     // Test paths that shouldn't be rebased or are already under prefix
-    let already = platform.rebase_path("/data/data/com.termux/files/usr/var/lib/tantry/data", false).unwrap();
-    assert_eq!(already, "/data/data/com.termux/files/usr/var/lib/tantry/data");
+    let already = platform
+        .rebase_path("/data/data/com.termux/files/usr/var/lib/tantry/data", false)
+        .unwrap();
+    assert_eq!(
+        already,
+        "/data/data/com.termux/files/usr/var/lib/tantry/data"
+    );
 }
 
 #[test]

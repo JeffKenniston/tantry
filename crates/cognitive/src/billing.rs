@@ -1,8 +1,8 @@
 use crate::error::CognitiveError;
 use data::task_ledger::TaskLedgerStore;
-use std::sync::Arc;
+use iam::svid::{JwtSvidClaims, WorkloadSvid, mint_hybrid_jwt_svid};
 use serde::Serialize;
-use iam::svid::{mint_hybrid_jwt_svid, JwtSvidClaims, WorkloadSvid};
+use std::sync::Arc;
 
 #[derive(Serialize)]
 pub struct BudgetWebhookPayload {
@@ -47,13 +47,15 @@ impl BillingEnforcer {
     ) -> Result<BudgetLeaseGuard, CognitiveError> {
         let lease_micros = ((n_in_est * p_in) + (n_max_out * p_out) + 999_999) / 1_000_000;
 
-        self.ledger.try_reserve_budget(task_id, lease_micros).map_err(|e| {
-            if e.to_string().contains("Budget exhausted") {
-                CognitiveError::BudgetExhausted(e.to_string())
-            } else {
-                CognitiveError::DatabaseError(e.to_string())
-            }
-        })?;
+        self.ledger
+            .try_reserve_budget(task_id, lease_micros)
+            .map_err(|e| {
+                if e.to_string().contains("Budget exhausted") {
+                    CognitiveError::BudgetExhausted(e.to_string())
+                } else {
+                    CognitiveError::DatabaseError(e.to_string())
+                }
+            })?;
 
         Ok(BudgetLeaseGuard {
             ledger: self.ledger.clone(),
@@ -69,13 +71,15 @@ impl BudgetLeaseGuard {
     pub fn upgrade_lease(&mut self, target_lease: i64) -> Result<(), CognitiveError> {
         if target_lease > self.lease_micros {
             let delta = target_lease - self.lease_micros;
-            self.ledger.upgrade_reserved_budget(&self.task_id, delta).map_err(|e| {
-                if e.to_string().contains("Budget exhausted") {
-                    CognitiveError::BudgetExhausted(e.to_string())
-                } else {
-                    CognitiveError::DatabaseError(e.to_string())
-                }
-            })?;
+            self.ledger
+                .upgrade_reserved_budget(&self.task_id, delta)
+                .map_err(|e| {
+                    if e.to_string().contains("Budget exhausted") {
+                        CognitiveError::BudgetExhausted(e.to_string())
+                    } else {
+                        CognitiveError::DatabaseError(e.to_string())
+                    }
+                })?;
             self.lease_micros = target_lease;
         }
         Ok(())
@@ -95,19 +99,24 @@ impl BudgetLeaseGuard {
         svid: Option<&WorkloadSvid>,
     ) -> Result<bool, CognitiveError> {
         let actual_cost_micros =
-            (((n_in - n_cached) * p_in) + (n_cached * p_cached) + (n_out * p_out) + 999_999) / 1_000_000;
+            (((n_in - n_cached) * p_in) + (n_cached * p_cached) + (n_out * p_out) + 999_999)
+                / 1_000_000;
 
         self.settled = true;
 
-        let should_fire_webhook = self.ledger.settle_budget(&self.task_id, self.lease_micros, actual_cost_micros, 0.9).map_err(|e| {
-            CognitiveError::DatabaseError(e.to_string())
-        })?;
+        let should_fire_webhook = self
+            .ledger
+            .settle_budget(&self.task_id, self.lease_micros, actual_cost_micros, 0.9)
+            .map_err(|e| CognitiveError::DatabaseError(e.to_string()))?;
 
         if should_fire_webhook {
             if let (Some(url), Some(svid)) = (webhook_url, svid) {
                 let task_opt = self.ledger.get_task(&self.task_id).unwrap_or(None);
                 if let Some(task) = task_opt {
-                    let timestamp_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+                    let timestamp_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as u64;
                     let payload = BudgetWebhookPayload {
                         task_id: task.task_id.clone(),
                         thread_id: "thread".to_string(),
@@ -119,7 +128,8 @@ impl BudgetLeaseGuard {
                     };
 
                     use base64::Engine;
-                    let pq_pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&svid.mldsa65_verifying_key_bytes);
+                    let pq_pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+                        .encode(&svid.mldsa65_verifying_key_bytes);
                     let jti = uuid::Uuid::now_v7().to_string();
 
                     let claims = JwtSvidClaims {
@@ -154,9 +164,10 @@ impl BudgetLeaseGuard {
                         if let Ok(dpop_proof) = mint_hybrid_jwt_svid(svid, &dpop_claims) {
                             if let Ok(client) = reqwest::blocking::Client::builder()
                                 .timeout(std::time::Duration::from_millis(webhook_timeout_ms))
-                                .build() {
-
-                                let _ = client.post(url)
+                                .build()
+                            {
+                                let _ = client
+                                    .post(url)
                                     .header("Authorization", format!("DPoP {}", jwt))
                                     .header("DPoP", dpop_proof)
                                     .json(&payload)
@@ -200,7 +211,9 @@ impl BudgetLeaseGuard {
 impl Drop for BudgetLeaseGuard {
     fn drop(&mut self) {
         if !self.settled {
-            let _ = self.ledger.settle_budget(&self.task_id, self.lease_micros, 0, 0.9);
+            let _ = self
+                .ledger
+                .settle_budget(&self.task_id, self.lease_micros, 0, 0.9);
         }
     }
 }

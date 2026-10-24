@@ -1,9 +1,9 @@
-use bytes::Bytes;
-use ed25519_dalek::{Verifier, Signature, SigningKey, VerifyingKey, Signer};
 use base::error::ExtensionError;
-use uuid::Uuid;
+use bytes::Bytes;
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use ml_dsa::MlDsa65;
 use ml_dsa::SignatureEncoding;
+use uuid::Uuid;
 
 /// Error type for operations involving `WireEnvelope`, including signature generation
 /// and verification failures.
@@ -104,7 +104,9 @@ impl WireEnvelope {
         require_pq_hybrid_signatures: bool,
     ) -> Result<(), base::error::ExtensionError> {
         if require_pq_hybrid_signatures && self.mldsa65_sig.is_none() {
-            return Err(base::error::ExtensionError::DeserializationFailed("Missing ML-DSA-65 signature when required".to_string()));
+            return Err(base::error::ExtensionError::DeserializationFailed(
+                "Missing ML-DSA-65 signature when required".to_string(),
+            ));
         }
 
         let hash = Self::compute_hash(
@@ -118,32 +120,47 @@ impl WireEnvelope {
 
         // Verify Ed25519 signature
         if self.ed25519_sig.len() != 64 {
-            return Err(ExtensionError::DeserializationFailed("Invalid Ed25519 signature length".to_string()));
+            return Err(ExtensionError::DeserializationFailed(
+                "Invalid Ed25519 signature length".to_string(),
+            ));
         }
         let mut ed_sig_bytes = [0u8; 64];
         ed_sig_bytes.copy_from_slice(&self.ed25519_sig);
         let ed_sig = Signature::from_bytes(&ed_sig_bytes);
         if ed25519_pub.verify(digest_bytes, &ed_sig).is_err() {
-            return Err(ExtensionError::DeserializationFailed("Ed25519 verification failed".to_string()));
+            return Err(ExtensionError::DeserializationFailed(
+                "Ed25519 verification failed".to_string(),
+            ));
         }
 
         // Verify ML-DSA-65 signature if required or provided
         if require_pq_hybrid_signatures && self.mldsa65_sig.is_none() {
-            return Err(ExtensionError::DeserializationFailed("Missing ML-DSA-65 signature when required".to_string()));
+            return Err(ExtensionError::DeserializationFailed(
+                "Missing ML-DSA-65 signature when required".to_string(),
+            ));
         }
 
         if let Some(sig_bytes) = &self.mldsa65_sig {
             let pq_pub = mldsa65_pub.ok_or_else(|| {
-                ExtensionError::DeserializationFailed("Missing ML-DSA-65 public key for verification".to_string())
+                ExtensionError::DeserializationFailed(
+                    "Missing ML-DSA-65 public key for verification".to_string(),
+                )
             })?;
             if sig_bytes.len() != 3309 {
-                return Err(ExtensionError::DeserializationFailed("Invalid ML-DSA-65 signature length".to_string()));
+                return Err(ExtensionError::DeserializationFailed(
+                    "Invalid ML-DSA-65 signature length".to_string(),
+                ));
             }
-            let pq_sig = ml_dsa::Signature::<MlDsa65>::try_from(sig_bytes.as_slice()).map_err(|_| {
-                ExtensionError::DeserializationFailed("Failed to parse ML-DSA-65 signature".to_string())
-            })?;
+            let pq_sig =
+                ml_dsa::Signature::<MlDsa65>::try_from(sig_bytes.as_slice()).map_err(|_| {
+                    ExtensionError::DeserializationFailed(
+                        "Failed to parse ML-DSA-65 signature".to_string(),
+                    )
+                })?;
             if pq_pub.verify(digest_bytes, &pq_sig).is_err() {
-                return Err(ExtensionError::DeserializationFailed("ML-DSA-65 verification failed".to_string()));
+                return Err(ExtensionError::DeserializationFailed(
+                    "ML-DSA-65 verification failed".to_string(),
+                ));
             }
         }
 
@@ -154,10 +171,10 @@ impl WireEnvelope {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::Bytes;
     use ed25519_dalek::SigningKey;
     use rand::rngs::OsRng;
     use uuid::Uuid;
-    use bytes::Bytes;
 
     #[test]
     fn test_hybrid_envelope_signing_and_verification() {
@@ -192,7 +209,8 @@ mod tests {
             payload.clone(),
             &ed25519_key,
             Some(&mldsa_priv),
-        ).expect("failed to sign");
+        )
+        .expect("failed to sign");
 
         assert!(env.mldsa65_sig.is_some());
         assert_eq!(env.mldsa65_sig.as_ref().unwrap().len(), 3309);
@@ -223,7 +241,8 @@ mod tests {
             payload.clone(),
             &ed25519_key,
             None,
-        ).expect("failed to sign");
+        )
+        .expect("failed to sign");
 
         assert!(env.mldsa65_sig.is_none());
 

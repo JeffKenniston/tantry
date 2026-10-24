@@ -1,12 +1,15 @@
-use crate::traits::{BackendCapabilities, DirEntryInfo, EditReceipt, GrepMatch, SandboxExecRequest, SandboxExecResult, VfsBackend, WriteReceipt};
 use crate::error::BackendError;
-use base::state::TantryState;
-use base::path::PosixPath;
+use crate::traits::{
+    BackendCapabilities, DirEntryInfo, EditReceipt, GrepMatch, SandboxExecRequest,
+    SandboxExecResult, VfsBackend, WriteReceipt,
+};
 use base::ast::FileData;
-use chrono::Utc;
-use std::sync::Arc;
-use std::io::{Read, Write};
+use base::path::PosixPath;
+use base::state::TantryState;
 use cap_std::fs::Dir;
+use chrono::Utc;
+use std::io::{Read, Write};
+use std::sync::Arc;
 
 /// LocalFsBackend struct
 pub struct LocalFsBackend {
@@ -24,7 +27,12 @@ impl LocalFsBackend {
         path.strip_prefix('/').unwrap_or(path)
     }
 
-    fn walk_dir(&self, matches: &mut Vec<PosixPath>, current_path: &str, matcher: &glob::Pattern) -> Result<(), BackendError> {
+    fn walk_dir(
+        &self,
+        matches: &mut Vec<PosixPath>,
+        current_path: &str,
+        matcher: &glob::Pattern,
+    ) -> Result<(), BackendError> {
         let read_dir = if current_path.is_empty() {
             self.dir.entries()
         } else {
@@ -74,14 +82,20 @@ impl VfsBackend for LocalFsBackend {
         let mut entries = Vec::new();
 
         let dir_entries = if local_path.is_empty() {
-            self.dir.entries().map_err(|e| BackendError::Io(e.to_string()))?
+            self.dir
+                .entries()
+                .map_err(|e| BackendError::Io(e.to_string()))?
         } else {
-            self.dir.read_dir(local_path).map_err(|e| BackendError::Io(e.to_string()))?
+            self.dir
+                .read_dir(local_path)
+                .map_err(|e| BackendError::Io(e.to_string()))?
         };
 
         for entry in dir_entries {
             let entry = entry.map_err(|e| BackendError::Io(e.to_string()))?;
-            let metadata = entry.metadata().map_err(|e| BackendError::Io(e.to_string()))?;
+            let metadata = entry
+                .metadata()
+                .map_err(|e| BackendError::Io(e.to_string()))?;
             let name = entry.file_name().to_string_lossy().to_string();
             entries.push(DirEntryInfo {
                 name,
@@ -92,11 +106,21 @@ impl VfsBackend for LocalFsBackend {
         Ok(entries)
     }
 
-    fn read_file(&self, _state: &TantryState, path: &str, offset_line: Option<usize>, limit_lines: Option<usize>) -> Result<String, BackendError> {
+    fn read_file(
+        &self,
+        _state: &TantryState,
+        path: &str,
+        offset_line: Option<usize>,
+        limit_lines: Option<usize>,
+    ) -> Result<String, BackendError> {
         let local_path = self.normalize_local_path(path);
-        let mut file = self.dir.open(local_path).map_err(|e| BackendError::Io(e.to_string()))?;
+        let mut file = self
+            .dir
+            .open(local_path)
+            .map_err(|e| BackendError::Io(e.to_string()))?;
         let mut content = String::new();
-        file.read_to_string(&mut content).map_err(|e| BackendError::Io(e.to_string()))?;
+        file.read_to_string(&mut content)
+            .map_err(|e| BackendError::Io(e.to_string()))?;
 
         let lines: Vec<&str> = content.lines().collect();
         let start = offset_line.unwrap_or(0);
@@ -112,19 +136,41 @@ impl VfsBackend for LocalFsBackend {
         Ok(lines[start..end].join("\n"))
     }
 
-    fn write_file(&self, state: &mut TantryState, path: &str, content: &str) -> Result<WriteReceipt, BackendError> {
+    fn write_file(
+        &self,
+        state: &mut TantryState,
+        path: &str,
+        content: &str,
+    ) -> Result<WriteReceipt, BackendError> {
         let local_path = self.normalize_local_path(path);
-        let mut file = self.dir.create(local_path).map_err(|e| BackendError::Io(e.to_string()))?;
-        file.write_all(content.as_bytes()).map_err(|e| BackendError::Io(e.to_string()))?;
+        let mut file = self
+            .dir
+            .create(local_path)
+            .map_err(|e| BackendError::Io(e.to_string()))?;
+        file.write_all(content.as_bytes())
+            .map_err(|e| BackendError::Io(e.to_string()))?;
 
-        let normalized = base::path::validate_and_normalize_path(path).map_err(|e| BackendError::Path(e.to_string()))?;
+        let normalized = base::path::validate_and_normalize_path(path)
+            .map_err(|e| BackendError::Path(e.to_string()))?;
         let file_data = Arc::new(FileData::new_utf8(content.to_string(), Utc::now()));
-        state.files.insert(normalized, file_data).map_err(|e| BackendError::Path(e.to_string()))?;
+        state
+            .files
+            .insert(normalized, file_data)
+            .map_err(|e| BackendError::Path(e.to_string()))?;
 
-        Ok(WriteReceipt { bytes_written: content.len() as u64 })
+        Ok(WriteReceipt {
+            bytes_written: content.len() as u64,
+        })
     }
 
-    fn edit_file(&self, state: &mut TantryState, path: &str, old_string: &str, new_string: &str, replace_all: bool) -> Result<EditReceipt, BackendError> {
+    fn edit_file(
+        &self,
+        state: &mut TantryState,
+        path: &str,
+        old_string: &str,
+        new_string: &str,
+        replace_all: bool,
+    ) -> Result<EditReceipt, BackendError> {
         let content = self.read_file(state, path, None, None)?;
 
         let occurrences = content.matches(old_string).count();
@@ -143,29 +189,40 @@ impl VfsBackend for LocalFsBackend {
 
         self.write_file(state, path, &new_content)?;
 
-        Ok(EditReceipt { occurrences_replaced: occurrences })
+        Ok(EditReceipt {
+            occurrences_replaced: occurrences,
+        })
     }
 
     fn delete(&self, state: &mut TantryState, path: &str) -> Result<(), BackendError> {
         let local_path = self.normalize_local_path(path);
-        self.dir.remove_file(local_path).map_err(|e| BackendError::Io(e.to_string()))?;
+        self.dir
+            .remove_file(local_path)
+            .map_err(|e| BackendError::Io(e.to_string()))?;
         state.files.remove(path);
         Ok(())
     }
 
     fn glob(&self, _state: &TantryState, pattern: &str) -> Result<Vec<PosixPath>, BackendError> {
-        let matcher = glob::Pattern::new(pattern).map_err(|e| BackendError::InvalidOperation(e.to_string()))?;
+        let matcher = glob::Pattern::new(pattern)
+            .map_err(|e| BackendError::InvalidOperation(e.to_string()))?;
         let mut matches = Vec::new();
         self.walk_dir(&mut matches, "", &matcher)?;
         Ok(matches)
     }
 
-    fn grep(&self, state: &TantryState, pattern: &str, path_glob: Option<&str>) -> Result<Vec<GrepMatch>, BackendError> {
+    fn grep(
+        &self,
+        state: &TantryState,
+        pattern: &str,
+        path_glob: Option<&str>,
+    ) -> Result<Vec<GrepMatch>, BackendError> {
         let paths = if let Some(g) = path_glob {
             self.glob(state, g)?
         } else {
             let mut all_paths = Vec::new();
-            let catch_all = glob::Pattern::new("**/*").map_err(|e| BackendError::InvalidOperation(e.to_string()))?;
+            let catch_all = glob::Pattern::new("**/*")
+                .map_err(|e| BackendError::InvalidOperation(e.to_string()))?;
             self.walk_dir(&mut all_paths, "", &catch_all)?;
             all_paths
         };

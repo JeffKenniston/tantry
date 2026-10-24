@@ -1,14 +1,14 @@
-pub mod error;
-pub mod db;
-pub mod crypto;
-pub mod task_ledger;
-pub mod interaction_chain;
 pub mod audit_mmr;
+pub mod crypto;
+pub mod db;
+pub mod error;
+pub mod interaction_chain;
+pub mod task_ledger;
 pub mod vector_index;
 
-use std::sync::Arc;
 use crate::error::DataError;
 use iam::IdentityManager;
+use std::sync::Arc;
 
 /// The boolean result of a full cryptographic consistency verification across all ledgers.
 pub struct IntegrityReport {
@@ -30,8 +30,13 @@ pub struct DataStoreManager {
 
 impl DataStoreManager {
     /// Validates the full cryptosystem: verifying the audit MMR and decrypting all valid (unshredded) checkpoints and messages to prove AEAD authenticity.
-    pub fn verify_all_integrity(&self, iam: &dyn IdentityManager) -> Result<IntegrityReport, DataError> {
-        self.audit_mmr.verify_all_chain_and_sths(iam).map_err(|e| DataError::TamperedAuditEntry(e))?;
+    pub fn verify_all_integrity(
+        &self,
+        iam: &dyn IdentityManager,
+    ) -> Result<IntegrityReport, DataError> {
+        self.audit_mmr
+            .verify_all_chain_and_sths(iam)
+            .map_err(|e| DataError::TamperedAuditEntry(e))?;
 
         let conn = self.interaction_chain.db.lock().unwrap();
         let mut stmt = conn.prepare("
@@ -50,9 +55,19 @@ impl DataStoreManager {
             let fd_aead: Option<Vec<u8>> = row.get(4)?;
             let ext_aead: Option<Vec<u8>> = row.get(5)?;
 
-            let (epoch_salt, thread_salt) = crate::crypto::get_or_provision_key_epoch(&conn, &thread_id, key_epoch)?;
-            let dek = iam.key_hierarchy().derive_dek_from_salts(key_epoch, &epoch_salt, &thread_id, &thread_salt).map(|z| *z).unwrap_or([0u8; 32]);
-            let aad = crate::crypto::compute_canonical_aad("interaction_checkpoints", &checkpoint_id, &thread_id, key_epoch);
+            let (epoch_salt, thread_salt) =
+                crate::crypto::get_or_provision_key_epoch(&conn, &thread_id, key_epoch)?;
+            let dek = iam
+                .key_hierarchy()
+                .derive_dek_from_salts(key_epoch, &epoch_salt, &thread_id, &thread_salt)
+                .map(|z| *z)
+                .unwrap_or([0u8; 32]);
+            let aad = crate::crypto::compute_canonical_aad(
+                "interaction_checkpoints",
+                &checkpoint_id,
+                &thread_id,
+                key_epoch,
+            );
 
             if let Some(wire) = md_aead {
                 let _ = crate::crypto::decrypt_envelope(&wire, &dek, &aad)?;
@@ -65,12 +80,14 @@ impl DataStoreManager {
             }
         }
 
-        let mut stmt = conn.prepare("
+        let mut stmt = conn.prepare(
+            "
             SELECT a.thread_id, a.message_id, a.key_epoch, a.message_aead
             FROM archived_messages a
             LEFT JOIN key_epochs k ON a.thread_id = k.thread_id AND a.key_epoch = k.key_epoch
             WHERE k.shredded = 0
-        ")?;
+        ",
+        )?;
         let mut rows = stmt.query([])?;
 
         while let Some(row) = rows.next()? {
@@ -79,9 +96,19 @@ impl DataStoreManager {
             let key_epoch: u32 = row.get(2)?;
             let aead: Vec<u8> = row.get(3)?;
 
-            let (epoch_salt, thread_salt) = crate::crypto::get_or_provision_key_epoch(&conn, &thread_id, key_epoch)?;
-            let dek = iam.key_hierarchy().derive_dek_from_salts(key_epoch, &epoch_salt, &thread_id, &thread_salt).map(|z| *z).unwrap_or([0u8; 32]);
-            let aad = crate::crypto::compute_canonical_aad("archived_messages", &message_id, &thread_id, key_epoch);
+            let (epoch_salt, thread_salt) =
+                crate::crypto::get_or_provision_key_epoch(&conn, &thread_id, key_epoch)?;
+            let dek = iam
+                .key_hierarchy()
+                .derive_dek_from_salts(key_epoch, &epoch_salt, &thread_id, &thread_salt)
+                .map(|z| *z)
+                .unwrap_or([0u8; 32]);
+            let aad = crate::crypto::compute_canonical_aad(
+                "archived_messages",
+                &message_id,
+                &thread_id,
+                key_epoch,
+            );
 
             let _ = crate::crypto::decrypt_envelope(&aead, &dek, &aad)?;
         }

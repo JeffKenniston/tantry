@@ -43,13 +43,17 @@ impl StateSlot for SkeletonRepoMapSlot {
             arr.copy_from_slice(&bytes[..8]);
             let max_tokens = u64::from_be_bytes(arr);
             let payload = bytes[8..].to_vec();
-            Ok(Self { max_tokens, payload })
+            Ok(Self {
+                max_tokens,
+                payload,
+            })
         } else {
-            Err(ExtensionError::DeserializationFailed("Invalid SkeletonRepoMapSlot payload".to_string()))
+            Err(ExtensionError::DeserializationFailed(
+                "Invalid SkeletonRepoMapSlot payload".to_string(),
+            ))
         }
     }
 }
-
 
 /// A symbol in the RepoMap.
 #[derive(Debug, Clone, PartialEq)]

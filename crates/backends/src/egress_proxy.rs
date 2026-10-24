@@ -20,7 +20,9 @@ pub struct EgressProxy {
 impl EgressProxy {
     /// Creates a new proxy with allowlisted mirrors
     pub fn new(allowlisted_mirrors: Vec<String>) -> Self {
-        Self { allowlisted_mirrors }
+        Self {
+            allowlisted_mirrors,
+        }
     }
 
     /// Evaluates whether a connection to the given hostname should be permitted

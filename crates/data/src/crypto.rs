@@ -1,13 +1,16 @@
 use crate::error::DataError;
+use aes_gcm_siv::Aes256GcmSiv;
 use blake3;
-use rand::RngCore;
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::sync::atomic::{AtomicU64, Ordering};
-use chacha20poly1305::{XChaCha20Poly1305, KeyInit, aead::{Aead, Key}};
-use aes_gcm_siv::{Aes256GcmSiv};
-use iam::key_hierarchy::KeyHierarchy;
-use rusqlite::Connection;
+use chacha20poly1305::{
+    KeyInit, XChaCha20Poly1305,
+    aead::{Aead, Key},
+};
 use core::convert::TryInto;
+use iam::key_hierarchy::KeyHierarchy;
+use rand::RngCore;
+use rusqlite::Connection;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Computes the canonical 32-byte BLAKE3 hash used as Additional Authenticated Data (AAD) to cryptographically bind rows to their thread and epoch.
 pub fn compute_canonical_aad(
@@ -51,7 +54,8 @@ pub fn encrypt_envelope_xchacha20(
     dek: &[u8; 32],
     aad: &[u8; 32],
 ) -> Result<Vec<u8>, DataError> {
-    let compressed = zstd::encode_all(plaintext, 3).map_err(|e| DataError::ZstdError(e.to_string()))?;
+    let compressed =
+        zstd::encode_all(plaintext, 3).map_err(|e| DataError::ZstdError(e.to_string()))?;
 
     let nonce_bytes = generate_xchacha20_nonce();
     let nonce = chacha20poly1305::XNonce::from(nonce_bytes);
@@ -64,7 +68,9 @@ pub fn encrypt_envelope_xchacha20(
         aad: aad,
     };
 
-    let ciphertext = cipher.encrypt(&nonce, payload).map_err(|e| DataError::AeadError(e.to_string()))?;
+    let ciphertext = cipher
+        .encrypt(&nonce, payload)
+        .map_err(|e| DataError::AeadError(e.to_string()))?;
 
     let mut wire = Vec::with_capacity(1 + 1 + 24 + ciphertext.len());
     wire.push(0x03);
@@ -82,7 +88,9 @@ pub fn decrypt_envelope(
     expected_aad: &[u8; 32],
 ) -> Result<Vec<u8>, DataError> {
     if wire.len() < 2 {
-        return Err(DataError::Serialization("Wire format too short".to_string()));
+        return Err(DataError::Serialization(
+            "Wire format too short".to_string(),
+        ));
     }
 
     if wire[0] != 0x03 {
@@ -90,11 +98,16 @@ pub fn decrypt_envelope(
     }
 
     let compressed = match wire[1] {
-        0x01 => { // XChaCha20Poly1305
+        0x01 => {
+            // XChaCha20Poly1305
             if wire.len() < 2 + 24 + 16 {
-                return Err(DataError::Serialization("XChaCha wire format too short".to_string()));
+                return Err(DataError::Serialization(
+                    "XChaCha wire format too short".to_string(),
+                ));
             }
-            let nonce_bytes: [u8; 24] = wire[2..26].try_into().map_err(|_| DataError::Serialization("Bad nonce".to_string()))?;
+            let nonce_bytes: [u8; 24] = wire[2..26]
+                .try_into()
+                .map_err(|_| DataError::Serialization("Bad nonce".to_string()))?;
             let ciphertext = &wire[26..];
             let key = Key::<XChaCha20Poly1305>::from(*dek);
             let cipher = XChaCha20Poly1305::new(&key);
@@ -103,13 +116,20 @@ pub fn decrypt_envelope(
                 msg: ciphertext,
                 aad: expected_aad,
             };
-            cipher.decrypt(&nonce, payload).map_err(|_| DataError::AadMismatch)?
-        },
-        0x02 => { // Aes256GcmSiv
+            cipher
+                .decrypt(&nonce, payload)
+                .map_err(|_| DataError::AadMismatch)?
+        }
+        0x02 => {
+            // Aes256GcmSiv
             if wire.len() < 2 + 12 + 16 {
-                return Err(DataError::Serialization("AES wire format too short".to_string()));
+                return Err(DataError::Serialization(
+                    "AES wire format too short".to_string(),
+                ));
             }
-            let nonce_bytes: [u8; 12] = wire[2..14].try_into().map_err(|_| DataError::Serialization("Bad nonce".to_string()))?;
+            let nonce_bytes: [u8; 12] = wire[2..14]
+                .try_into()
+                .map_err(|_| DataError::Serialization("Bad nonce".to_string()))?;
             let ciphertext = &wire[14..];
             let key = Key::<Aes256GcmSiv>::from(*dek);
             let cipher = Aes256GcmSiv::new(&key);
@@ -118,12 +138,15 @@ pub fn decrypt_envelope(
                 msg: ciphertext,
                 aad: expected_aad,
             };
-            cipher.decrypt(&nonce, payload).map_err(|_| DataError::AadMismatch)?
-        },
+            cipher
+                .decrypt(&nonce, payload)
+                .map_err(|_| DataError::AadMismatch)?
+        }
         _ => return Err(DataError::Serialization("Unknown cipher ID".to_string())),
     };
 
-    let plaintext = zstd::decode_all(compressed.as_slice()).map_err(|e| DataError::ZstdError(e.to_string()))?;
+    let plaintext =
+        zstd::decode_all(compressed.as_slice()).map_err(|e| DataError::ZstdError(e.to_string()))?;
     Ok(plaintext)
 }
 
@@ -133,7 +156,9 @@ pub fn get_or_provision_key_epoch(
     thread_id: &str,
     key_epoch: u32,
 ) -> Result<([u8; 32], [u8; 32]), DataError> {
-    let mut stmt = conn.prepare("SELECT thread_salt, shredded FROM key_epochs WHERE thread_id = ?1 AND key_epoch = ?2")?;
+    let mut stmt = conn.prepare(
+        "SELECT thread_salt, shredded FROM key_epochs WHERE thread_id = ?1 AND key_epoch = ?2",
+    )?;
     let mut rows = stmt.query(rusqlite::params![thread_id, key_epoch])?;
 
     if let Some(row) = rows.next()? {
@@ -145,14 +170,23 @@ pub fn get_or_provision_key_epoch(
         let thread_salt_val: Option<Vec<u8>> = row.get(0)?;
         if let Some(salt) = thread_salt_val {
             if salt.len() != 32 {
-                return Err(DataError::Serialization("Invalid thread salt length".to_string()));
+                return Err(DataError::Serialization(
+                    "Invalid thread salt length".to_string(),
+                ));
             }
             let mut arr = [0u8; 32];
             arr.copy_from_slice(&salt);
 
-            let mut epoch_stmt = conn.prepare("SELECT epoch_salt FROM key_epochs WHERE thread_id = ?1 AND key_epoch = ?2")?;
+            let mut epoch_stmt = conn.prepare(
+                "SELECT epoch_salt FROM key_epochs WHERE thread_id = ?1 AND key_epoch = ?2",
+            )?;
             let mut epoch_arr = [0u8; 32];
-            if let Some(r) = epoch_stmt.query_row(rusqlite::params![thread_id, key_epoch], |r| r.get::<_, Vec<u8>>(0)).ok() {
+            if let Some(r) = epoch_stmt
+                .query_row(rusqlite::params![thread_id, key_epoch], |r| {
+                    r.get::<_, Vec<u8>>(0)
+                })
+                .ok()
+            {
                 if r.len() == 32 {
                     epoch_arr.copy_from_slice(&r);
                 }
@@ -184,9 +218,15 @@ pub fn crypto_shred_thread(
 ) -> Result<(), DataError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
 
-    tx.execute("UPDATE key_epochs SET thread_salt = zeroblob(32) WHERE thread_id = ?1", rusqlite::params![thread_id])?;
+    tx.execute(
+        "UPDATE key_epochs SET thread_salt = zeroblob(32) WHERE thread_id = ?1",
+        rusqlite::params![thread_id],
+    )?;
 
-    tx.execute("UPDATE key_epochs SET thread_salt = NULL, shredded = 1 WHERE thread_id = ?1", rusqlite::params![thread_id])?;
+    tx.execute(
+        "UPDATE key_epochs SET thread_salt = NULL, shredded = 1 WHERE thread_id = ?1",
+        rusqlite::params![thread_id],
+    )?;
 
     tx.commit()?;
 

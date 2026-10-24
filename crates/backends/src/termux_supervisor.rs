@@ -1,5 +1,5 @@
 use crate::error::BackendError;
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 
 /// Manages a pool of termux zygotes
@@ -12,7 +12,9 @@ pub struct TermuxZygotePool {
 impl TermuxZygotePool {
     /// Create a new pool
     pub fn new(max_workers: usize) -> Self {
-        Self { max_workers: std::cmp::min(max_workers, 8) } // leaving room for up to 12 total
+        Self {
+            max_workers: std::cmp::min(max_workers, 8),
+        } // leaving room for up to 12 total
     }
 
     /// Reaps a timed-out process group and all descendants

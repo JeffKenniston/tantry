@@ -1,6 +1,6 @@
-use base::state::TantryState;
-use base::path::PosixPath;
 use crate::error::BackendError;
+use base::path::PosixPath;
+use base::state::TantryState;
 
 /// BackendCapabilities struct
 pub struct BackendCapabilities {
@@ -69,17 +69,40 @@ pub trait VfsBackend: Send + Sync {
     /// ls method
     fn ls(&self, state: &TantryState, path: &str) -> Result<Vec<DirEntryInfo>, BackendError>;
     /// read_file method
-    fn read_file(&self, state: &TantryState, path: &str, offset_line: Option<usize>, limit_lines: Option<usize>) -> Result<String, BackendError>;
+    fn read_file(
+        &self,
+        state: &TantryState,
+        path: &str,
+        offset_line: Option<usize>,
+        limit_lines: Option<usize>,
+    ) -> Result<String, BackendError>;
     /// write_file method
-    fn write_file(&self, state: &mut TantryState, path: &str, content: &str) -> Result<WriteReceipt, BackendError>;
+    fn write_file(
+        &self,
+        state: &mut TantryState,
+        path: &str,
+        content: &str,
+    ) -> Result<WriteReceipt, BackendError>;
     /// edit_file method
-    fn edit_file(&self, state: &mut TantryState, path: &str, old_string: &str, new_string: &str, replace_all: bool) -> Result<EditReceipt, BackendError>;
+    fn edit_file(
+        &self,
+        state: &mut TantryState,
+        path: &str,
+        old_string: &str,
+        new_string: &str,
+        replace_all: bool,
+    ) -> Result<EditReceipt, BackendError>;
     /// delete method
     fn delete(&self, state: &mut TantryState, path: &str) -> Result<(), BackendError>;
     /// glob method
     fn glob(&self, state: &TantryState, pattern: &str) -> Result<Vec<PosixPath>, BackendError>;
     /// grep method
-    fn grep(&self, state: &TantryState, pattern: &str, path_glob: Option<&str>) -> Result<Vec<GrepMatch>, BackendError>;
+    fn grep(
+        &self,
+        state: &TantryState,
+        pattern: &str,
+        path_glob: Option<&str>,
+    ) -> Result<Vec<GrepMatch>, BackendError>;
     /// execute method
     fn execute(&self, req: SandboxExecRequest) -> Result<SandboxExecResult, BackendError>;
 }

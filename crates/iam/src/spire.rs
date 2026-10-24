@@ -4,8 +4,8 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::UnixStream;
-use tokio::sync::{watch, RwLock};
-use tokio::time::{sleep, Duration};
+use tokio::sync::{RwLock, watch};
+use tokio::time::{Duration, sleep};
 
 #[allow(dead_code)]
 pub struct SpireSocketIdentityManager {
@@ -17,7 +17,10 @@ pub struct SpireSocketIdentityManager {
 }
 
 impl SpireSocketIdentityManager {
-    pub async fn connect(socket_path: PathBuf, key_hierarchy: Arc<crate::key_hierarchy::KeyHierarchy>) -> Result<Self, IamError> {
+    pub async fn connect(
+        socket_path: PathBuf,
+        key_hierarchy: Arc<crate::key_hierarchy::KeyHierarchy>,
+    ) -> Result<Self, IamError> {
         let _stream = tokio::time::timeout(
             Duration::from_millis(500),
             UnixStream::connect(&socket_path),
@@ -39,11 +42,11 @@ impl SpireSocketIdentityManager {
 
                 let mut current = active_clone.write().await;
                 if let Some(svid) = current.take() {
-                     let mut history = history_clone.write().await;
-                     if history.len() >= 16 {
-                          history.pop_front();
-                     }
-                     history.push_back(svid);
+                    let mut history = history_clone.write().await;
+                    if history.len() >= 16 {
+                        history.pop_front();
+                    }
+                    history.push_back(svid);
                 }
 
                 let _ = tx.send(());
@@ -62,7 +65,10 @@ impl SpireSocketIdentityManager {
 
 impl crate::IdentityManager for SpireSocketIdentityManager {
     fn current_svid(&self) -> Option<WorkloadSvid> {
-         self.active_svid.try_read().ok().and_then(|guard| guard.clone())
+        self.active_svid
+            .try_read()
+            .ok()
+            .and_then(|guard| guard.clone())
     }
 
     fn verify_jwt_svid(&self, _token: &str, _expected_audience: &str) -> Result<(), IamError> {
@@ -70,18 +76,36 @@ impl crate::IdentityManager for SpireSocketIdentityManager {
         Err(IamError::NotImplemented)
     }
 
-
     fn key_hierarchy(&self) -> &crate::key_hierarchy::KeyHierarchy {
         &self.key_hierarchy
     }
 
-    fn sign_audit_sth(&self, tree_size: u64, timestamp_ms: i64, mmr_root_blake3: &[u8; 32]) -> Result<crate::ca::AuditSthSignature, IamError> {
-        let svid = self.current_svid().ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
-        crate::ca::sign_audit_sth(tree_size, timestamp_ms, *mmr_root_blake3, svid.ed25519_pkcs8_der.as_ref(), svid.mldsa65_signing_key_bytes.as_ref())
+    fn sign_audit_sth(
+        &self,
+        tree_size: u64,
+        timestamp_ms: i64,
+        mmr_root_blake3: &[u8; 32],
+    ) -> Result<crate::ca::AuditSthSignature, IamError> {
+        let svid = self
+            .current_svid()
+            .ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
+        crate::ca::sign_audit_sth(
+            tree_size,
+            timestamp_ms,
+            *mmr_root_blake3,
+            svid.ed25519_pkcs8_der.as_ref(),
+            svid.mldsa65_signing_key_bytes.as_ref(),
+        )
     }
 
     fn verify_audit_sth(&self, sth: &crate::ca::AuditSthSignature) -> Result<(), IamError> {
-        let svid = self.current_svid().ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
-        crate::ca::verify_audit_sth(sth, &svid.ed25519_public_key, &svid.mldsa65_verifying_key_bytes)
+        let svid = self
+            .current_svid()
+            .ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
+        crate::ca::verify_audit_sth(
+            sth,
+            &svid.ed25519_public_key,
+            &svid.mldsa65_verifying_key_bytes,
+        )
     }
 }

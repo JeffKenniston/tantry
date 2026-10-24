@@ -1,6 +1,6 @@
 use base::error::PathValidationError;
 use base::path::validate_and_normalize_path;
-use base::platform::{interpolate_env_vars, RuntimePlatform};
+use base::platform::{RuntimePlatform, interpolate_env_vars};
 use proptest::prelude::*;
 
 proptest! {
@@ -51,21 +51,39 @@ fn test_termux_path_rebasing() {
 
     // Test tantry specific rebases
     let t_data = platform.rebase_path("/var/lib/tantry/data", false).unwrap();
-    assert_eq!(t_data, "/data/data/com.termux/files/usr/var/lib/tantry/data");
+    assert_eq!(
+        t_data,
+        "/data/data/com.termux/files/usr/var/lib/tantry/data"
+    );
 
-    let spire_sock = platform.rebase_path("/run/spire/sockets/agent.sock", false).unwrap();
-    assert_eq!(spire_sock, "/data/data/com.termux/files/usr/var/run/spire/sockets/agent.sock");
+    let spire_sock = platform
+        .rebase_path("/run/spire/sockets/agent.sock", false)
+        .unwrap();
+    assert_eq!(
+        spire_sock,
+        "/data/data/com.termux/files/usr/var/run/spire/sockets/agent.sock"
+    );
 
-    let run_tantry = platform.rebase_path("/var/run/tantry/sandboxes", false).unwrap();
-    assert_eq!(run_tantry, "/data/data/com.termux/files/usr/var/run/tantry/sandboxes");
+    let run_tantry = platform
+        .rebase_path("/var/run/tantry/sandboxes", false)
+        .unwrap();
+    assert_eq!(
+        run_tantry,
+        "/data/data/com.termux/files/usr/var/run/tantry/sandboxes"
+    );
 
     // Test binaries
     let bin = platform.rebase_path("/usr/bin/jailer", false).unwrap();
     assert_eq!(bin, "/data/data/com.termux/files/usr/bin/jailer");
 
     // Test paths that shouldn't be rebased or are already under prefix
-    let already = platform.rebase_path("/data/data/com.termux/files/usr/var/lib/tantry/data", false).unwrap();
-    assert_eq!(already, "/data/data/com.termux/files/usr/var/lib/tantry/data");
+    let already = platform
+        .rebase_path("/data/data/com.termux/files/usr/var/lib/tantry/data", false)
+        .unwrap();
+    assert_eq!(
+        already,
+        "/data/data/com.termux/files/usr/var/lib/tantry/data"
+    );
 }
 
 #[test]

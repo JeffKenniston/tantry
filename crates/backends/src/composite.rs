@@ -1,7 +1,10 @@
-use crate::traits::{BackendCapabilities, DirEntryInfo, EditReceipt, GrepMatch, SandboxExecRequest, SandboxExecResult, VfsBackend, WriteReceipt};
 use crate::error::BackendError;
-use base::state::TantryState;
+use crate::traits::{
+    BackendCapabilities, DirEntryInfo, EditReceipt, GrepMatch, SandboxExecRequest,
+    SandboxExecResult, VfsBackend, WriteReceipt,
+};
 use base::path::PosixPath;
+use base::state::TantryState;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -14,7 +17,9 @@ pub struct CompositeBackend {
 impl CompositeBackend {
     /// new method
     pub fn new() -> Self {
-        Self { mounts: BTreeMap::new() }
+        Self {
+            mounts: BTreeMap::new(),
+        }
     }
 
     /// mount method
@@ -22,8 +27,12 @@ impl CompositeBackend {
         self.mounts.insert(prefix, backend);
     }
 
-    fn get_backend<'a>(&'a self, path: &str) -> Result<(&'a Arc<dyn VfsBackend>, String), BackendError> {
-        let normalized = base::path::validate_and_normalize_path(path).map_err(|e| BackendError::Path(e.to_string()))?;
+    fn get_backend<'a>(
+        &'a self,
+        path: &str,
+    ) -> Result<(&'a Arc<dyn VfsBackend>, String), BackendError> {
+        let normalized = base::path::validate_and_normalize_path(path)
+            .map_err(|e| BackendError::Path(e.to_string()))?;
 
         // Find longest matching prefix
         let mut best_match = "";
@@ -32,7 +41,10 @@ impl CompositeBackend {
         for (prefix, backend) in self.mounts.iter() {
             if normalized.starts_with(prefix) && prefix.len() >= best_match.len() {
                 // Ensure it matches a full segment, not just a string prefix
-                if prefix == "/" || prefix == &normalized || normalized[prefix.len()..].starts_with('/') {
+                if prefix == "/"
+                    || prefix == &normalized
+                    || normalized[prefix.len()..].starts_with('/')
+                {
                     best_match = prefix;
                     best_backend = Some(backend);
                 }
@@ -45,10 +57,17 @@ impl CompositeBackend {
             } else {
                 normalized[best_match.len()..].to_string()
             };
-            let remaining = if remaining.is_empty() { "/".to_string() } else { remaining };
+            let remaining = if remaining.is_empty() {
+                "/".to_string()
+            } else {
+                remaining
+            };
             Ok((backend, remaining))
         } else {
-            Err(BackendError::Path(format!("No backend mounted for path: {}", path)))
+            Err(BackendError::Path(format!(
+                "No backend mounted for path: {}",
+                path
+            )))
         }
     }
 }
@@ -73,17 +92,35 @@ impl VfsBackend for CompositeBackend {
         backend.ls(state, &rel_path)
     }
 
-    fn read_file(&self, state: &TantryState, path: &str, offset_line: Option<usize>, limit_lines: Option<usize>) -> Result<String, BackendError> {
+    fn read_file(
+        &self,
+        state: &TantryState,
+        path: &str,
+        offset_line: Option<usize>,
+        limit_lines: Option<usize>,
+    ) -> Result<String, BackendError> {
         let (backend, rel_path) = self.get_backend(path)?;
         backend.read_file(state, &rel_path, offset_line, limit_lines)
     }
 
-    fn write_file(&self, state: &mut TantryState, path: &str, content: &str) -> Result<WriteReceipt, BackendError> {
+    fn write_file(
+        &self,
+        state: &mut TantryState,
+        path: &str,
+        content: &str,
+    ) -> Result<WriteReceipt, BackendError> {
         let (backend, rel_path) = self.get_backend(path)?;
         backend.write_file(state, &rel_path, content)
     }
 
-    fn edit_file(&self, state: &mut TantryState, path: &str, old_string: &str, new_string: &str, replace_all: bool) -> Result<EditReceipt, BackendError> {
+    fn edit_file(
+        &self,
+        state: &mut TantryState,
+        path: &str,
+        old_string: &str,
+        new_string: &str,
+        replace_all: bool,
+    ) -> Result<EditReceipt, BackendError> {
         let (backend, rel_path) = self.get_backend(path)?;
         backend.edit_file(state, &rel_path, old_string, new_string, replace_all)
     }
@@ -96,7 +133,8 @@ impl VfsBackend for CompositeBackend {
     fn glob(&self, state: &TantryState, pattern: &str) -> Result<Vec<PosixPath>, BackendError> {
         let mut results = Vec::new();
 
-        let normalized_pattern = base::path::validate_and_normalize_path(pattern).unwrap_or(pattern.to_string());
+        let normalized_pattern =
+            base::path::validate_and_normalize_path(pattern).unwrap_or(pattern.to_string());
         let matcher = glob::Pattern::new(pattern).ok();
 
         for (prefix, backend) in &self.mounts {
@@ -112,7 +150,7 @@ impl VfsBackend for CompositeBackend {
                     }
                     pattern_for_backend = stripped;
                 } else if normalized_pattern.contains('*') || normalized_pattern.contains('?') {
-                     pattern_for_backend = "**/*".to_string(); // Incomplete implementation for cross boundary globs
+                    pattern_for_backend = "**/*".to_string(); // Incomplete implementation for cross boundary globs
                 } else {
                     continue; // Path doesn't match this prefix
                 }
@@ -130,9 +168,9 @@ impl VfsBackend for CompositeBackend {
                     }
 
                     if let Some(ref m) = matcher {
-                       if m.matches(&match_path) {
-                          results.push(match_path);
-                       }
+                        if m.matches(&match_path) {
+                            results.push(match_path);
+                        }
                     } else {
                         results.push(match_path);
                     }
@@ -142,10 +180,16 @@ impl VfsBackend for CompositeBackend {
         Ok(results)
     }
 
-    fn grep(&self, state: &TantryState, pattern: &str, path_glob: Option<&str>) -> Result<Vec<GrepMatch>, BackendError> {
+    fn grep(
+        &self,
+        state: &TantryState,
+        pattern: &str,
+        path_glob: Option<&str>,
+    ) -> Result<Vec<GrepMatch>, BackendError> {
         let mut results = Vec::new();
 
-        let normalized_pattern = path_glob.map(|p| base::path::validate_and_normalize_path(p).unwrap_or(p.to_string()));
+        let normalized_pattern =
+            path_glob.map(|p| base::path::validate_and_normalize_path(p).unwrap_or(p.to_string()));
         let matcher = path_glob.and_then(|p| glob::Pattern::new(p).ok());
 
         for (prefix, backend) in &self.mounts {
@@ -162,7 +206,7 @@ impl VfsBackend for CompositeBackend {
                         }
                         pattern_for_backend = Some(stripped);
                     } else if np.contains('*') || np.contains('?') {
-                         pattern_for_backend = Some("**/*".to_string());
+                        pattern_for_backend = Some("**/*".to_string());
                     } else {
                         continue;
                     }

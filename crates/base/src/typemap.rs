@@ -1,8 +1,8 @@
+use core::fmt;
 use std::any::{Any, TypeId};
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
-use core::fmt;
 
 use crate::error::ExtensionError;
 
@@ -149,8 +149,6 @@ impl Clone for StateExtensionMap {
     }
 }
 
-
-
 impl fmt::Debug for StateExtensionMap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StateExtensionMap")
@@ -249,18 +247,25 @@ impl StateExtensionMap {
     }
 }
 
-
 #[derive(Default)]
 /// DefaultExtensionRegistryImpl struct
 pub struct DefaultExtensionRegistryImpl {
     #[allow(clippy::type_complexity)]
-    decoders: HashMap<String, (u8, Box<dyn Fn(&[u8]) -> Result<(TypeId, Box<dyn ErasedSlot>), ExtensionError>>)>,
+    decoders: HashMap<
+        String,
+        (
+            u8,
+            Box<dyn Fn(&[u8]) -> Result<(TypeId, Box<dyn ErasedSlot>), ExtensionError>>,
+        ),
+    >,
 }
 
 impl DefaultExtensionRegistryImpl {
     /// new fn
     pub fn new() -> Self {
-        Self { decoders: HashMap::new() }
+        Self {
+            decoders: HashMap::new(),
+        }
     }
 }
 
@@ -292,9 +297,12 @@ impl StateExtensionRegistry for DefaultExtensionRegistryImpl {
 pub fn register_slot<T: StateSlot>(registry: &mut DefaultExtensionRegistryImpl) {
     registry.decoders.insert(
         T::WIRE_KEY.to_string(),
-        (T::CODEC_TAG as u8, Box::new(|bytes| {
-            let val = T::decode_payload(bytes)?;
-            Ok((TypeId::of::<T>(), Box::new(SlotHolder(Arc::new(val)))))
-        })),
+        (
+            T::CODEC_TAG as u8,
+            Box::new(|bytes| {
+                let val = T::decode_payload(bytes)?;
+                Ok((TypeId::of::<T>(), Box::new(SlotHolder(Arc::new(val)))))
+            }),
+        ),
     );
 }

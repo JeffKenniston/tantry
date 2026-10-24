@@ -27,7 +27,13 @@ impl GraphCentrality {
     }
 
     /// Adds a directed edge to the graph.
-    pub fn add_edge(&mut self, caller: String, callee: String, call_kind: String, file_path: String) {
+    pub fn add_edge(
+        &mut self,
+        caller: String,
+        callee: String,
+        call_kind: String,
+        file_path: String,
+    ) {
         self.edges.push(SymbolEdge {
             caller_id: caller,
             callee_id: callee,
@@ -35,7 +41,6 @@ impl GraphCentrality {
             file_path,
         });
     }
-
 
     /// Computes Katz Centrality for nodes in the graph using an iterative approach.
     pub fn compute_katz_centrality_iterative(&self) -> HashMap<String, f32> {
@@ -48,7 +53,10 @@ impl GraphCentrality {
         for edge in &self.edges {
             nodes.insert(edge.caller_id.clone());
             nodes.insert(edge.callee_id.clone());
-            in_edges.entry(edge.callee_id.clone()).or_default().push(edge.caller_id.clone());
+            in_edges
+                .entry(edge.callee_id.clone())
+                .or_default()
+                .push(edge.caller_id.clone());
         }
 
         for node in &nodes {
@@ -111,7 +119,11 @@ impl GraphCentrality {
     }
 
     /// Hybrid Symbol Search using FTS5 and Vector Store logic via Reciprocal Rank Fusion.
-    pub fn search_symbols_hybrid(&self, bm25_ranks: &std::collections::HashMap<String, usize>, vec_ranks: &std::collections::HashMap<String, usize>) -> Vec<String> {
+    pub fn search_symbols_hybrid(
+        &self,
+        bm25_ranks: &std::collections::HashMap<String, usize>,
+        vec_ranks: &std::collections::HashMap<String, usize>,
+    ) -> Vec<String> {
         let mut rrf_scores: std::collections::HashMap<&str, f64> = std::collections::HashMap::new();
         let k = 60.0;
 
@@ -131,7 +143,6 @@ impl GraphCentrality {
         sorted.into_iter().map(|(s, _)| s.to_string()).collect()
     }
 
-
     /// Computes a risk score based on Katz centrality, affected files, and mutation type.
     pub fn compute_risk_score(
         &self,
@@ -142,8 +153,9 @@ impl GraphCentrality {
         signature_mutated: bool,
     ) -> f32 {
         let sigma_mut = if signature_mutated { 1.0 } else { 0.35 };
-        let base_val = 0.20 * katz + 0.40 * (affected_files as f32) + 0.50 * (public_trait_impls as f32);
-        let exponent = - (sigma_mut * base_val) / 10.0;
+        let base_val =
+            0.20 * katz + 0.40 * (affected_files as f32) + 0.50 * (public_trait_impls as f32);
+        let exponent = -(sigma_mut * base_val) / 10.0;
         let risk = 1.0 - exponent.exp();
         risk.clamp(0.0, 1.0)
     }
@@ -163,7 +175,13 @@ impl GraphCentrality {
         let reverse_dependency_count = rev_deps.len();
         let max_depth_reached = rev_deps.iter().map(|(_, _, d)| *d).max().unwrap_or(0) as usize;
 
-        let risk_score = self.compute_risk_score(target_symbol, katz, affected_files.len(), public_trait_impls, signature_mutated);
+        let risk_score = self.compute_risk_score(
+            target_symbol,
+            katz,
+            affected_files.len(),
+            public_trait_impls,
+            signature_mutated,
+        );
 
         BlastRadiusReport {
             target_symbol: target_symbol.to_string(),

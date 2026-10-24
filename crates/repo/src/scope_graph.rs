@@ -63,7 +63,6 @@ pub struct SymbolRef {
     pub scope_id: String,
 }
 
-
 /// A vertex representing a specific scope.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScopeVertex {
@@ -127,7 +126,11 @@ impl ScopeGraph {
     }
 
     /// Computes a unique symbol ID using BLAKE3.
-    pub fn compute_symbol_id(file_path: &str, scope_qualified_name: &str, kind: &ScopeKind) -> String {
+    pub fn compute_symbol_id(
+        file_path: &str,
+        scope_qualified_name: &str,
+        kind: &ScopeKind,
+    ) -> String {
         let kind_str = match kind {
             ScopeKind::Module => "Module",
             ScopeKind::StructOrClass => "StructOrClass",
@@ -143,7 +146,8 @@ impl ScopeGraph {
     pub fn pass_1_local_scope_extraction(&mut self) -> Result<(), base::error::ExtensionError> {
         let mut updates = Vec::new();
         for (id, def) in &self.definitions {
-            let expected_id = Self::compute_symbol_id(&def.file_path, &def.scope_qualified_name, &def.kind);
+            let expected_id =
+                Self::compute_symbol_id(&def.file_path, &def.scope_qualified_name, &def.kind);
             if *id != expected_id {
                 updates.push((id.clone(), expected_id));
             }
@@ -192,7 +196,9 @@ impl ScopeGraph {
                         }
                     } else {
                         for imp in &self.imports {
-                            if imp.file_path == pref.file_path && imp.target_symbol_id.as_ref() == Some(&def.symbol_id) {
+                            if imp.file_path == pref.file_path
+                                && imp.target_symbol_id.as_ref() == Some(&def.symbol_id)
+                            {
                                 if imp.is_wildcard {
                                     priority = ShadowPriority::WildcardImport as u8;
                                 } else {
@@ -214,7 +220,8 @@ impl ScopeGraph {
             }
 
             if let Some(sym_id) = best_match {
-                self.resolved_references.insert(pref.reference_id.clone(), sym_id);
+                self.resolved_references
+                    .insert(pref.reference_id.clone(), sym_id);
             }
         }
         Ok(())

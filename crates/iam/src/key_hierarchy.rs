@@ -44,7 +44,8 @@ impl KeyHierarchy {
         epoch_info.extend_from_slice(b":epoch:");
         epoch_info.extend_from_slice(&epoch_id.to_be_bytes());
 
-        epoch_hkdf.expand(&epoch_info, &mut epoch_dek)
+        epoch_hkdf
+            .expand(&epoch_info, &mut epoch_dek)
             .map_err(|_| IamError::MasterKeyUnavailable)?;
 
         // Tier 2 -> 3 (Thread)
@@ -56,7 +57,8 @@ impl KeyHierarchy {
         thread_info.extend_from_slice(b":thread:");
         thread_info.extend_from_slice(thread_id.as_bytes());
 
-        thread_hkdf.expand(&thread_info, &mut thread_dek)
+        thread_hkdf
+            .expand(&thread_info, &mut thread_dek)
             .map_err(|_| IamError::MasterKeyUnavailable)?;
 
         // Zeroize intermediate key

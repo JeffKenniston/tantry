@@ -1,7 +1,7 @@
-use std::sync::{Arc, Mutex};
-use rusqlite::Connection;
 use crate::error::DataError;
-use iam::{IdentityManager, AuditSthSignature};
+use iam::{AuditSthSignature, IdentityManager};
+use rusqlite::Connection;
+use std::sync::{Arc, Mutex};
 
 /// Implements an RFC 6962 compliant Merkle Mountain Range (MMR) for tamper-evident, append-only audit logging.
 pub struct AuditMmrStore {
@@ -38,7 +38,10 @@ impl AuditMmrStore {
                 h.copy_from_slice(&bytes);
                 h
             } else {
-                return Err(DataError::Serialization(format!("Missing seq_no {}", (seq_no - 1) as i64)));
+                return Err(DataError::Serialization(format!(
+                    "Missing seq_no {}",
+                    (seq_no - 1) as i64
+                )));
             }
         };
 
@@ -86,7 +89,8 @@ impl AuditMmrStore {
         for h_idx in 0..i.trailing_ones() {
             let left_pos = current_pos - (1 << (h_idx + 1)) + 1;
 
-            let mut stmt = conn.prepare("SELECT node_hash FROM audit_mmr_nodes WHERE mmr_pos = ?1")?;
+            let mut stmt =
+                conn.prepare("SELECT node_hash FROM audit_mmr_nodes WHERE mmr_pos = ?1")?;
             let mut rows = stmt.query(rusqlite::params![left_pos as i64])?;
             if let Some(row) = rows.next()? {
                 let left_hash: Vec<u8> = row.get(0)?;
@@ -102,7 +106,10 @@ impl AuditMmrStore {
                     rusqlite::params![current_pos as i64, h_idx + 1, current_hash_node.as_slice()]
                 )?;
             } else {
-                return Err(DataError::Serialization(format!("Missing left peak for MMR merge at pos {}", left_pos)));
+                return Err(DataError::Serialization(format!(
+                    "Missing left peak for MMR merge at pos {}",
+                    left_pos
+                )));
             }
         }
 
@@ -129,7 +136,9 @@ impl AuditMmrStore {
 
         while size > 0 {
             while (1 << (height + 1)) - 1 > size {
-                if height == 0 { break; }
+                if height == 0 {
+                    break;
+                }
                 height -= 1;
             }
             let peak_size = (1 << (height + 1)) - 1;
@@ -148,7 +157,10 @@ impl AuditMmrStore {
                 h.copy_from_slice(&hash);
                 peaks.push(h);
             } else {
-                return Err(DataError::Serialization(format!("Missing peak at pos {}", pos)));
+                return Err(DataError::Serialization(format!(
+                    "Missing peak at pos {}",
+                    pos
+                )));
             }
         }
 
@@ -168,11 +180,18 @@ impl AuditMmrStore {
     pub fn mountain_audit_path(&self, seq_no: u64) -> Result<Vec<[u8; 32]>, DataError> {
         let tree_size: u64 = {
             let conn = self.db.lock().unwrap();
-            conn.query_row("SELECT COALESCE(MAX(seq_no), 0) FROM audit_log", [], |r| { let s: i64 = r.get(0)?; Ok(s as u64) }).unwrap_or(0)
+            conn.query_row("SELECT COALESCE(MAX(seq_no), 0) FROM audit_log", [], |r| {
+                let s: i64 = r.get(0)?;
+                Ok(s as u64)
+            })
+            .unwrap_or(0)
         };
 
         if seq_no > tree_size || seq_no == 0 {
-            return Err(DataError::Serialization(format!("seq_no {} out of bounds", seq_no)));
+            return Err(DataError::Serialization(format!(
+                "seq_no {} out of bounds",
+                seq_no
+            )));
         }
 
         let conn = self.db.lock().unwrap();
@@ -182,11 +201,13 @@ impl AuditMmrStore {
         let mut current_pos = leaf_pos;
 
         let mut q_parent = conn.prepare("SELECT mmr_pos, height FROM audit_mmr_nodes WHERE mmr_pos > ?1 ORDER BY mmr_pos ASC LIMIT 1")?;
-        let mut q_sibling = conn.prepare("
+        let mut q_sibling = conn.prepare(
+            "
             SELECT node_hash FROM audit_mmr_nodes
             WHERE mmr_pos < ?1 AND height = ?2 AND mmr_pos != ?3
             ORDER BY mmr_pos DESC LIMIT 1
-        ")?;
+        ",
+        )?;
 
         loop {
             let mut rows_parent = q_parent.query(rusqlite::params![current_pos as i64])?;
@@ -194,7 +215,8 @@ impl AuditMmrStore {
                 let p_pos: i64 = p_row.get(0)?;
                 let p_height: i64 = p_row.get(1)?;
 
-                let mut rows_sibling = q_sibling.query(rusqlite::params![p_pos, p_height - 1, current_pos as i64])?;
+                let mut rows_sibling =
+                    q_sibling.query(rusqlite::params![p_pos, p_height - 1, current_pos as i64])?;
                 if let Some(s_row) = rows_sibling.next()? {
                     let s_hash: Vec<u8> = s_row.get(0)?;
                     let mut h = [0u8; 32];
@@ -215,12 +237,16 @@ impl AuditMmrStore {
         let mut peak_positions = Vec::new();
         let mut pos_acc = 0;
         let mut height = 0;
-        while (1 << height) - 1 <= size { height += 1; }
+        while (1 << height) - 1 <= size {
+            height += 1;
+        }
         height -= 1;
 
         while size > 0 {
             while (1 << (height + 1)) - 1 > size {
-                if height == 0 { break; }
+                if height == 0 {
+                    break;
+                }
                 height -= 1;
             }
             let peak_size = (1 << (height + 1)) - 1;
@@ -281,7 +307,11 @@ impl AuditMmrStore {
     }
 
     /// Generates a proof that an older tree is a strict subset (prefix) of a newer tree.
-    pub fn generate_consistency_proof(&self, old_size: u64, new_size: u64) -> Result<Vec<[u8; 32]>, DataError> {
+    pub fn generate_consistency_proof(
+        &self,
+        old_size: u64,
+        new_size: u64,
+    ) -> Result<Vec<[u8; 32]>, DataError> {
         if old_size == 0 || old_size >= new_size {
             return Ok(vec![]);
         }
@@ -297,12 +327,16 @@ impl AuditMmrStore {
         let mut current_pos = 0;
 
         let mut height = 0;
-        while (1 << height) - 1 <= size { height += 1; }
+        while (1 << height) - 1 <= size {
+            height += 1;
+        }
         height -= 1;
 
         while size > 0 {
             while (1 << (height + 1)) - 1 > size {
-                if height == 0 { break; }
+                if height == 0 {
+                    break;
+                }
                 height -= 1;
             }
             let peak_size = (1 << (height + 1)) - 1;
@@ -329,12 +363,16 @@ impl AuditMmrStore {
         let mut current_pos_new = 0;
 
         let mut height_new = 0;
-        while (1 << height_new) - 1 <= size_new { height_new += 1; }
+        while (1 << height_new) - 1 <= size_new {
+            height_new += 1;
+        }
         height_new -= 1;
 
         while size_new > 0 {
             while (1 << (height_new + 1)) - 1 > size_new {
-                if height_new == 0 { break; }
+                if height_new == 0 {
+                    break;
+                }
                 height_new -= 1;
             }
             let peak_size = (1 << (height_new + 1)) - 1;
@@ -359,7 +397,11 @@ impl AuditMmrStore {
     }
 
     /// Verifies an MMR consistency proof between two different tree roots.
-    pub fn verify_consistency_proof(proof: &[[u8; 32]], old_root: &[u8; 32], new_root: &[u8; 32]) -> bool {
+    pub fn verify_consistency_proof(
+        proof: &[[u8; 32]],
+        old_root: &[u8; 32],
+        new_root: &[u8; 32],
+    ) -> bool {
         if proof.is_empty() {
             return old_root == new_root;
         }
@@ -368,8 +410,12 @@ impl AuditMmrStore {
         let mut old_found = false;
         let mut new_found = false;
 
-        if &acc == old_root { old_found = true; }
-        if &acc == new_root { new_found = true; }
+        if &acc == old_root {
+            old_found = true;
+        }
+        if &acc == new_root {
+            new_found = true;
+        }
 
         for hash in proof.iter().skip(1) {
             let mut h = blake3::Hasher::new();
@@ -378,22 +424,37 @@ impl AuditMmrStore {
             h.update(&acc);
             acc = h.finalize().into();
 
-            if &acc == old_root { old_found = true; }
-            if &acc == new_root { new_found = true; }
+            if &acc == old_root {
+                old_found = true;
+            }
+            if &acc == new_root {
+                new_found = true;
+            }
         }
 
         // As a fallback for tests where proof might contain mock roots
-        old_found && new_found || proof.contains(old_root) && proof.contains(new_root) || (old_root == &[0u8; 32] && new_root == &[0u8; 32])
+        old_found && new_found
+            || proof.contains(old_root) && proof.contains(new_root)
+            || (old_root == &[0u8; 32] && new_root == &[0u8; 32])
     }
 
     /// Signs the current MMR root using post-quantum credentials and persists it to the database.
-    pub fn record_signed_tree_head(&self, iam: &dyn IdentityManager) -> Result<AuditSthSignature, DataError> {
+    pub fn record_signed_tree_head(
+        &self,
+        iam: &dyn IdentityManager,
+    ) -> Result<AuditSthSignature, DataError> {
         let tree_size: u64 = {
             let conn = self.db.lock().unwrap();
-            conn.query_row("SELECT COALESCE(MAX(seq_no), 0) FROM audit_log", [], |r| { let s: i64 = r.get(0)?; Ok(s as u64) })?
+            conn.query_row("SELECT COALESCE(MAX(seq_no), 0) FROM audit_log", [], |r| {
+                let s: i64 = r.get(0)?;
+                Ok(s as u64)
+            })?
         };
         let mmr_root = self.compute_mmr_root(tree_size)?;
-        let timestamp_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+        let timestamp_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
 
         iam.sign_audit_sth(tree_size, timestamp_ms as i64, &mmr_root)
             .map_err(|e| DataError::Serialization(format!("STH Sign Error: {:?}", e)))
@@ -472,7 +533,9 @@ impl AuditMmrStore {
         for (sth, h) in to_verify {
             iam.verify_audit_sth(&sth).map_err(|_| sth.tree_size)?;
 
-            let real_root = self.compute_mmr_root(sth.tree_size).map_err(|_| sth.tree_size)?;
+            let real_root = self
+                .compute_mmr_root(sth.tree_size)
+                .map_err(|_| sth.tree_size)?;
             if real_root != h {
                 return Err(sth.tree_size);
             }

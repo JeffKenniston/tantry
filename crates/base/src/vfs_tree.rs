@@ -129,7 +129,9 @@ impl VfsTree {
         normalized_path: PosixPath,
         data: Arc<FileData>,
     ) -> Result<Option<Arc<FileData>>, PathValidationError> {
-        let path = normalized_path.strip_prefix('/').unwrap_or(&normalized_path);
+        let path = normalized_path
+            .strip_prefix('/')
+            .unwrap_or(&normalized_path);
         if path.is_empty() {
             return Err(PathValidationError::EmptyPath);
         }
@@ -167,7 +169,10 @@ impl VfsTree {
         } else {
             new_dir.files.remove(segment);
             if !new_dir.subdirs.contains_key(segment) {
-                new_dir.subdirs.insert(segment.to_string(), Arc::new(MerkleDirNode::new(segment.to_string())));
+                new_dir.subdirs.insert(
+                    segment.to_string(),
+                    Arc::new(MerkleDirNode::new(segment.to_string())),
+                );
             }
             let child_dir = new_dir.subdirs.get_mut(segment).unwrap();
 
@@ -177,7 +182,6 @@ impl VfsTree {
         new_dir.recompute_hash();
         Ok(replaced)
     }
-
 
     /// remove fn
     pub fn remove(&mut self, normalized_path: &str) -> Option<Arc<FileData>> {
@@ -233,8 +237,8 @@ impl VfsTree {
         removed
     }
 
-/// diff fn
-pub fn diff(&self, after: &Self) -> Vec<FileDelta> {
+    /// diff fn
+    pub fn diff(&self, after: &Self) -> Vec<FileDelta> {
         let (deltas, _) = self.diff_with_stats(after);
         deltas
     }
@@ -265,10 +269,13 @@ pub fn diff(&self, after: &Self) -> Vec<FileDelta> {
             return;
         }
 
-        let b_keys: std::collections::BTreeSet<&String> = before.files.keys().chain(before.subdirs.keys()).collect();
-        let a_keys: std::collections::BTreeSet<&String> = after.files.keys().chain(after.subdirs.keys()).collect();
+        let b_keys: std::collections::BTreeSet<&String> =
+            before.files.keys().chain(before.subdirs.keys()).collect();
+        let a_keys: std::collections::BTreeSet<&String> =
+            after.files.keys().chain(after.subdirs.keys()).collect();
 
-        let all_keys: std::collections::BTreeSet<&String> = b_keys.union(&a_keys).cloned().collect();
+        let all_keys: std::collections::BTreeSet<&String> =
+            b_keys.union(&a_keys).cloned().collect();
 
         for key in all_keys {
             let current_path = format!("{}/{}", path_prefix, key);
@@ -280,7 +287,10 @@ pub fn diff(&self, after: &Self) -> Vec<FileDelta> {
 
             if let (Some(bf), Some(af)) = (b_file, a_file) {
                 if bf.blake3_hash != af.blake3_hash {
-                    deltas.push(FileDelta::Upsert { path: current_path, data: af.clone() });
+                    deltas.push(FileDelta::Upsert {
+                        path: current_path,
+                        data: af.clone(),
+                    });
                 }
             } else if let (Some(bd), Some(ad)) = (b_dir, a_dir) {
                 Self::diff_recursive(bd, ad, current_path, deltas, visited);
@@ -288,13 +298,18 @@ pub fn diff(&self, after: &Self) -> Vec<FileDelta> {
                 if let Some(d) = b_dir {
                     Self::collect_deletes(d, current_path.clone(), deltas, visited);
                 } else if b_file.is_some() {
-                    deltas.push(FileDelta::Delete { path: current_path.clone() });
+                    deltas.push(FileDelta::Delete {
+                        path: current_path.clone(),
+                    });
                 }
 
                 if let Some(d) = a_dir {
                     Self::collect_upserts(d, current_path, deltas, visited);
                 } else if let Some(f) = a_file {
-                    deltas.push(FileDelta::Upsert { path: current_path, data: f.clone() });
+                    deltas.push(FileDelta::Upsert {
+                        path: current_path,
+                        data: f.clone(),
+                    });
                 }
             }
         }
@@ -308,7 +323,8 @@ pub fn diff(&self, after: &Self) -> Vec<FileDelta> {
     ) {
         *visited += 1;
 
-        let keys: std::collections::BTreeSet<&String> = dir.files.keys().chain(dir.subdirs.keys()).collect();
+        let keys: std::collections::BTreeSet<&String> =
+            dir.files.keys().chain(dir.subdirs.keys()).collect();
 
         for key in keys {
             let current_path = format!("{}/{}", path_prefix, key);
@@ -331,7 +347,8 @@ pub fn diff(&self, after: &Self) -> Vec<FileDelta> {
     ) {
         *visited += 1;
 
-        let keys: std::collections::BTreeSet<&String> = dir.files.keys().chain(dir.subdirs.keys()).collect();
+        let keys: std::collections::BTreeSet<&String> =
+            dir.files.keys().chain(dir.subdirs.keys()).collect();
 
         for key in keys {
             let current_path = format!("{}/{}", path_prefix, key);
