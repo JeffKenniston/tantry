@@ -56,6 +56,8 @@ pub trait IdentityManager: Send + Sync {
             jti: uuid::Uuid::now_v7().to_string(),
             pq_pk_b64: base64::engine::general_purpose::URL_SAFE_NO_PAD
                 .encode(&svid.mldsa65_verifying_key_bytes),
+            htm: None,
+            htu: None,
         };
         crate::svid::mint_hybrid_jwt_svid(&svid, &claims)
     }

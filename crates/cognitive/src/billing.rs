@@ -4,28 +4,40 @@ use iam::svid::{JwtSvidClaims, WorkloadSvid, mint_hybrid_jwt_svid};
 use serde::Serialize;
 use std::sync::Arc;
 
+/// Payload for the budget webhook.
 #[derive(Serialize)]
 pub struct BudgetWebhookPayload {
+    /// Task identifier.
     pub task_id: String,
+    /// Thread identifier.
     pub thread_id: String,
+    /// Tenant identifier.
     pub tenant_id: String,
+    /// Spiffe identifier.
     pub spiffe_id: String,
+    /// Spent budget in microseconds.
     pub spent_micros: i64,
+    /// Hard budget in microseconds.
     pub hard_budget_micros: i64,
+    /// Timestamp in ms.
     pub timestamp_ms: u64,
 }
 
 /// Reservation-Based Atomic Credit-Lease Enforcer & 90% Signed Webhook Gate.
 pub struct BillingEnforcer {
-    /// Persists budget allocations.
+    /// Task ledger instance.
     pub ledger: Arc<TaskLedgerStore>,
 }
 
 /// RAII Guard that manages a budget lease for the duration of a speculative task.
 pub struct BudgetLeaseGuard {
+    /// Ledger reference.
     ledger: Arc<TaskLedgerStore>,
+    /// Task identifier.
     task_id: String,
+    /// Total lease in micros.
     lease_micros: i64,
+    /// Settled flag.
     settled: bool,
 }
 
@@ -54,6 +66,7 @@ impl BillingEnforcer {
         })
     }
 
+    /// acquire lease
     pub fn acquire_lease(
         &self,
         task_id: &str,
@@ -157,12 +170,11 @@ impl BudgetLeaseGuard {
                         iat: (timestamp_ms / 1000) as i64,
                         jti: jti.clone(),
                         pq_pk_b64: pq_pk_b64.clone(),
+                        htm: None,
+                        htu: None,
                     };
 
                     if let Ok(jwt) = mint_hybrid_jwt_svid(svid, &claims) {
-                        // Create DPoP proof matching RFC 9449 format. It must be a JWT itself.
-                        // For simplicity in this implementation, we re-use the minting logic for DPoP with a different audience/subject or specific claims
-                        // Since DPoP proof is a JWT, we will mint a second JWT for the DPoP header
                         let dpop_claims = JwtSvidClaims {
                             iss: svid.spiffe_id.uri().to_string(),
                             sub: "dpop".to_string(),
@@ -171,13 +183,10 @@ impl BudgetLeaseGuard {
                             iat: (timestamp_ms / 1000) as i64,
                             jti: jti.clone(),
                             pq_pk_b64,
+                            htm: Some("POST".to_string()),
+                            htu: Some(url.to_string()),
                         };
 
-                        // We must sign DPoP proof using the SVID's key. For simplicity here, we'll reuse the mint_hybrid_jwt_svid
-                        // wait, mint_hybrid_jwt_svid takes JwtSvidClaims strictly.
-                        // I will just mock the DPoP proof generation for now, but the specs specifically say:
-                        // "mints a workload JwtSvid and RFC 9449 DPoP proof (htm = "POST", htu = webhook_url)"
-                        // We will use the proper `JwtSvidClaims` and `mint_hybrid_jwt_svid`
                         if let Ok(dpop_proof) = mint_hybrid_jwt_svid(svid, &dpop_claims) {
                             if let Ok(client) = reqwest::blocking::Client::builder()
                                 .timeout(std::time::Duration::from_millis(webhook_timeout_ms))

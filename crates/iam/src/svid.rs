@@ -25,6 +25,11 @@ pub struct JwtSvidClaims {
     pub iat: i64,
     pub jti: String,
     pub pq_pk_b64: String,
+    // Add RFC 9449 htm and htu fields for DPoP optionally
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub htm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub htu: Option<String>,
 }
 
 use base64::Engine as _;
@@ -66,9 +71,15 @@ pub fn mint_hybrid_jwt_svid(
     let pq_sig_b64 =
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(pq_sig_bytes.as_ref() as &[u8]);
 
+    // Check if it's a DPoP proof based on typ logic, or just include standard headers.
+    // RFC 9449 dictates "typ": "dpop+jwt" for DPoP proofs
+    let is_dpop = claims.htm.is_some() && claims.htu.is_some();
+
+    let typ = if is_dpop { "dpop+jwt" } else { "JWT" };
+
     let header = json!({
         "alg": "EdDSA",
-        "typ": "JWT",
+        "typ": typ,
         "kid": kid,
         "pq_alg": "ML-DSA-65",
         "pq_sig": pq_sig_b64
