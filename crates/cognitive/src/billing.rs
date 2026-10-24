@@ -25,7 +25,7 @@ pub struct BillingEnforcer {
 pub struct BudgetLeaseGuard {
     ledger: Arc<TaskLedgerStore>,
     task_id: String,
-    lease_micros: i64,
+    pub lease_micros: i64,
     settled: bool,
 }
 
@@ -163,22 +163,8 @@ impl BudgetLeaseGuard {
                         // Create DPoP proof matching RFC 9449 format. It must be a JWT itself.
                         // For simplicity in this implementation, we re-use the minting logic for DPoP with a different audience/subject or specific claims
                         // Since DPoP proof is a JWT, we will mint a second JWT for the DPoP header
-                        let dpop_claims = JwtSvidClaims {
-                            iss: svid.spiffe_id.uri().to_string(),
-                            sub: "dpop".to_string(),
-                            aud: vec![url.to_string()],
-                            exp: (timestamp_ms / 1000) as i64 + 300,
-                            iat: (timestamp_ms / 1000) as i64,
-                            jti: jti.clone(),
-                            pq_pk_b64,
-                        };
-
-                        // We must sign DPoP proof using the SVID's key. For simplicity here, we'll reuse the mint_hybrid_jwt_svid
-                        // wait, mint_hybrid_jwt_svid takes JwtSvidClaims strictly.
-                        // I will just mock the DPoP proof generation for now, but the specs specifically say:
-                        // "mints a workload JwtSvid and RFC 9449 DPoP proof (htm = "POST", htu = webhook_url)"
-                        // We will use the proper `JwtSvidClaims` and `mint_hybrid_jwt_svid`
-                        if let Ok(dpop_proof) = mint_hybrid_jwt_svid(svid, &dpop_claims) {
+                        // Use iam's DPoP proof minting
+                        if let Ok(dpop_proof) = iam::dpop::mint_dpop_proof(svid, "POST", url, None) {
                             if let Ok(client) = reqwest::blocking::Client::builder()
                                 .timeout(std::time::Duration::from_millis(webhook_timeout_ms))
                                 .build()

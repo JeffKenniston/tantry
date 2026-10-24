@@ -60,7 +60,10 @@ impl SpeculativeCascadeVerifier {
         if needs_escalation {
             {
                 let mut guard_lock = guard.lock().unwrap();
-                guard_lock.upgrade_lease(100_000)?; // dummy delta for now, or something based on target tier
+                // Atomically reserve an escalated target lease.
+                // A static delta of 50_000 micro-dollars is applied as LlmProvider does not expose dynamic token estimations mid-stream.
+                let target_lease = guard_lock.lease_micros + 50_000;
+                guard_lock.upgrade_lease(target_lease)?;
             }
             let mut req2 = req.clone();
             req2.target_tier = target_tier;
