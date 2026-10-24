@@ -172,4 +172,55 @@ impl QuicMcpTransport {
             }
         }
     }
+
+    /// Discovers MCP servers
+    pub async fn discover_servers(&self, remote_addr: SocketAddr) -> Result<Value, TransportError> {
+        let request = McpRequest {
+            method: "server/discover".to_string(),
+            params: serde_json::json!({}),
+        };
+        self.send_request(remote_addr, request, "discover").await
+    }
+
+    /// Pauses/resumes a multi-round-trip request (SEP-2322 InputRequiredResult)
+    pub async fn pause_resume_request(&self, remote_addr: SocketAddr, target_name: &str, task_id: &str, resume_data: Value) -> Result<Value, TransportError> {
+        let request = McpRequest {
+            method: "resume".to_string(), // In SEP-2322 this method can vary, this is an abstraction
+            params: serde_json::json!({
+                "taskId": task_id,
+                "resumeData": resume_data
+            }),
+        };
+        self.send_request(remote_addr, request, target_name).await
+    }
+
+    /// Caches a resource (SEP-2549)
+    pub async fn cache_resource(&self, remote_addr: SocketAddr, target_name: &str, ttl_ms: u64, cache_scope: &str) -> Result<Value, TransportError> {
+        let request = McpRequest {
+            method: "cache/resource".to_string(),
+            params: serde_json::json!({
+                "ttlMs": ttl_ms,
+                "cacheScope": cache_scope
+            }),
+        };
+        self.send_request(remote_addr, request, target_name).await
+    }
+
+    /// Creates a sampling message (sampling/createMessage)
+    pub async fn create_message(&self, remote_addr: SocketAddr, target_name: &str, message: Value) -> Result<Value, TransportError> {
+        let request = McpRequest {
+            method: "sampling/createMessage".to_string(),
+            params: message,
+        };
+        self.send_request(remote_addr, request, target_name).await
+    }
+
+    /// Creates an elicitation (elicitation/create)
+    pub async fn create_elicitation(&self, remote_addr: SocketAddr, target_name: &str, elicitation: Value) -> Result<Value, TransportError> {
+        let request = McpRequest {
+            method: "elicitation/create".to_string(),
+            params: elicitation,
+        };
+        self.send_request(remote_addr, request, target_name).await
+    }
 }
