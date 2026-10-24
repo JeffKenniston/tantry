@@ -104,3 +104,48 @@ fn tdd_cognitive_linucb_and_credit_leases() {
         "LinUCB Convergence Failed: Model did not select the highly rewarded arm"
     );
 }
+
+#[test]
+fn test_billing_concurrent() {
+    use cognitive::billing::BillingEnforcer;
+    use data::task_ledger::TaskLedgerStore;
+    use std::sync::{Arc, Mutex};
+    use rusqlite::Connection;
+    use std::thread;
+
+    let db = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+    db.lock().unwrap().execute(
+        "CREATE TABLE task_ledger (
+            task_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            spent_budget_micros INTEGER NOT NULL,
+            reserved_budget_micros INTEGER NOT NULL,
+            hard_budget_micros INTEGER NOT NULL,
+            webhook_90_fired INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL
+        )",
+        [],
+    ).unwrap();
+
+    let ledger = Arc::new(TaskLedgerStore::new(db));
+    let task_id = "test_task";
+    ledger.create_task(task_id, 15).unwrap();
+
+    let mut handles = vec![];
+    for _ in 0..16 {
+        let l = ledger.clone();
+        handles.push(thread::spawn(move || {
+            let enforcer = BillingEnforcer::new(l);
+            if let Ok(guard) = enforcer.acquire_lease(task_id, 1000, 0, 1000, 0) {
+                let _ = guard.settle(1000, 0, 0, 1000, 0, 0);
+            }
+        }));
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    let task = ledger.get_task(task_id).unwrap().unwrap();
+    assert!(task.spent_budget_micros <= 15);
+}

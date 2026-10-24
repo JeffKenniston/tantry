@@ -157,3 +157,17 @@ impl SemanticCache {
         sum
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dot_product() {
+        let a: Vec<i8> = (0..32).map(|x| (x % 10) as i8).collect();
+        let b: Vec<i8> = (0..32).map(|x| (x % 5) as i8).collect();
+        let s = SemanticCache::dot_product_i8(&a, &b);
+        let expected_s: i32 = a.iter().zip(b.iter()).map(|(&x, &y)| (x as i32) * (y as i32)).sum();
+        assert_eq!(s, expected_s);
+    }
+}
