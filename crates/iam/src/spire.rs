@@ -65,6 +65,12 @@ impl crate::IdentityManager for SpireSocketIdentityManager {
          self.active_svid.try_read().ok().and_then(|guard| guard.clone())
     }
 
+    fn verify_jwt_svid(&self, _token: &str, _expected_audience: &str) -> Result<(), IamError> {
+        // Spire socket implementation not fully provided in spec for verify_jwt_svid, so just NotImplemented or dummy
+        Err(IamError::NotImplemented)
+    }
+
+
     fn key_hierarchy(&self) -> &crate::key_hierarchy::KeyHierarchy {
         &self.key_hierarchy
     }

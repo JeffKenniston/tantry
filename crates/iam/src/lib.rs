@@ -47,7 +47,9 @@ pub trait IdentityManager: Send + Sync {
         let svid = self.current_svid().ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
         crate::dpop::mint_dpop_proof(&svid, htm, htu, access_token)
     }
-    fn verify_dpop_proof(&self, _proof: &str, _htm: &str, _htu: &str, _access_token: Option<&str>) -> Result<(), IamError> { Err(IamError::NotImplemented) }
+    fn verify_dpop_proof(&self, proof: &str, htm: &str, htu: &str, access_token: Option<&str>, replay_cache: &dashmap::DashMap<String, i64>) -> Result<(), IamError> {
+        crate::dpop::verify_dpop_proof(proof, htm, htu, access_token, replay_cache)
+    }
     fn request_scoped_tunnel_token(&self, _service_name: &str, _ttl_secs: i64) -> Result<ScopedTunnelGrant, IamError> { Err(IamError::NotImplemented) }
     fn verify_scoped_tunnel_token(&self, _token: &str) -> Result<ScopedTunnelGrant, IamError> { Err(IamError::NotImplemented) }
     fn is_service_tunnel_active(&self, _host_or_authority: &str) -> bool { false }
@@ -136,6 +138,14 @@ impl IdentityManager for DualModeIdentityProvider {
     fn is_service_tunnel_active(&self, host_or_authority: &str) -> bool {
         self.registry.is_service_active(host_or_authority, chrono::Utc::now().timestamp_millis())
     }
+
+    fn verify_jwt_svid(&self, token: &str, expected_audience: &str) -> Result<(), IamError> {
+        match &self.inner {
+            DualModeInner::Spire(s) => s.verify_jwt_svid(token, expected_audience),
+            DualModeInner::Sovereign(s) => s.verify_jwt_svid(token, expected_audience),
+        }
+    }
+
 
     fn key_hierarchy(&self) -> &crate::key_hierarchy::KeyHierarchy {
         match &self.inner {

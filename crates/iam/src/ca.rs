@@ -7,7 +7,7 @@ use zeroize::Zeroizing;
 use serde::{Serialize, Deserialize};
 use base64::Engine as _;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuditSthSignature {
     pub tree_size: u64,
     pub timestamp_ms: i64,
@@ -80,16 +80,7 @@ impl SovereignCaIdentityManager {
             let mut seed = [0u8; 32];
             rand::rngs::OsRng.fill_bytes(&mut seed);
 
-            let ml_sk = {
-                let ptr = &seed as *const [u8; 32];
-                unsafe {
-                    #[repr(transparent)]
-                    struct Array([u8; 32]);
-                    let fake: &Array = std::mem::transmute(ptr);
-                    let transmute_fn = |p: *const Array| std::mem::transmute(p);
-                    ml_dsa::SigningKey::<MlDsa65>::from_seed(transmute_fn(fake))
-                }
-            };
+            let ml_sk = ml_dsa::SigningKey::<MlDsa65>::from_seed((&seed).into());
 
             let ml_pk = ml_sk.verifying_key();
 
@@ -294,6 +285,11 @@ impl crate::IdentityManager for SovereignCaIdentityManager {
     fn verify_audit_sth(&self, sth: &AuditSthSignature) -> Result<(), IamError> {
         verify_audit_sth(sth, &self.ed25519_public_key, &self.mldsa65_verifying_key_bytes)
     }
+
+    fn verify_jwt_svid(&self, token: &str, expected_audience: &str) -> Result<(), IamError> {
+        crate::svid::verify_hybrid_jwt_svid(token, expected_audience, &self.ed25519_public_key, &self.mldsa65_verifying_key_bytes, true).map(|_| ())
+    }
+
 
     fn current_svid(&self) -> Option<crate::svid::WorkloadSvid> {
         None
