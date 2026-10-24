@@ -152,3 +152,17 @@ pub enum PromptBlock {
         async_tasks_text: String,
     },
 }
+
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// ModelRequest struct
+pub struct ModelRequest {
+    pub messages: Vec<crate::ast::Message>,
+    pub target_tier: ModelTier,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// ModelResponse struct
+pub struct ModelResponse {
+    pub content: String,
+}
