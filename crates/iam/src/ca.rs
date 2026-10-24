@@ -136,6 +136,7 @@ impl SovereignCaIdentityManager {
         })
     }
 }
+#[allow(clippy::collapsible_if)]
 pub fn acquire_or_init_master_key(data_dir: &Path) -> Result<Zeroizing<[u8; 32]>, IamError> {
     if let Ok(env_key) = env::var("TANTRY_MASTER_KEY") {
         let mut key = [0u8; 32];
