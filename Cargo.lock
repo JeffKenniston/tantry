@@ -700,6 +700,7 @@ dependencies = [
  "blake3",
  "bytecheck",
  "data",
+ "futures",
  "iam",
  "rand 0.8.8",
  "reqwest",
@@ -3922,15 +3923,22 @@ dependencies = [
 name = "runtime"
 version = "0.1.0"
 dependencies = [
+ "backends",
  "base",
+ "chrono",
+ "data",
+ "iam",
  "opentelemetry",
+ "permissions",
  "prometheus",
  "rkyv",
  "rmp-serde",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
