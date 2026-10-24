@@ -1,8 +1,7 @@
 use base::execution::StreamEvent;
-use transport::backpressure::{CreditControlledPublisher, CreditGrant};
-use transport::quic_mcp::{QuicMcpTransport, McpWireProtocol};
 use quinn::Endpoint;
-
+use transport::backpressure::{CreditControlledPublisher, CreditGrant};
+use transport::quic_mcp::{McpWireProtocol, QuicMcpTransport};
 
 #[test]
 fn test_credit_backpressure_coalescing() {
@@ -25,10 +24,17 @@ fn test_credit_backpressure_coalescing() {
     assert_eq!(out2.len(), 0);
 
     // Grant credits
-    let flushed = publisher.on_credit_granted(CreditGrant { stream_id: "s1".to_string(), additional_credits: 1 });
+    let flushed = publisher.on_credit_granted(CreditGrant {
+        stream_id: "s1".to_string(),
+        additional_credits: 1,
+    });
     assert!(flushed.is_some());
 
-    if let StreamEvent::ModelDelta { text_delta, reasoning_delta } = flushed.unwrap() {
+    if let StreamEvent::ModelDelta {
+        text_delta,
+        reasoning_delta,
+    } = flushed.unwrap()
+    {
         assert_eq!(text_delta, "Hello World");
         assert_eq!(reasoning_delta, Some("thinking".to_string()));
     } else {
@@ -83,11 +89,18 @@ async fn test_quic_fallback() {
     // we mock it by trying to connect to a blackhole IP (like an unroutable IP).
     let start = std::time::Instant::now();
     // Connect to a reserved documentation IP that blackholes traffic
-    let protocol = transport.connect("192.0.2.1:12345".parse().unwrap()).await.unwrap();
+    let protocol = transport
+        .connect("192.0.2.1:12345".parse().unwrap())
+        .await
+        .unwrap();
     let elapsed = start.elapsed();
 
     assert_eq!(protocol, McpWireProtocol::Http2);
-    assert!(elapsed.as_millis() >= 250 && elapsed.as_millis() < 300, "took {} ms", elapsed.as_millis());
+    assert!(
+        elapsed.as_millis() >= 250 && elapsed.as_millis() < 300,
+        "took {} ms",
+        elapsed.as_millis()
+    );
 }
 
 #[tokio::test]

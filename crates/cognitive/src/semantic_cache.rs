@@ -151,7 +151,13 @@ impl SemanticCache {
         sum
     }
 
-    pub fn store_payload(&self, key_id: &str, messages: &[Message], dek: &[u8; 32], aad: &[u8; 32]) -> Result<(), crate::error::CognitiveError> {
+    pub fn store_payload(
+        &self,
+        key_id: &str,
+        messages: &[Message],
+        dek: &[u8; 32],
+        aad: &[u8; 32],
+    ) -> Result<(), crate::error::CognitiveError> {
         let plaintext = serde_json::to_vec(messages)
             .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
 
@@ -163,25 +169,35 @@ impl SemanticCache {
             "CREATE TABLE IF NOT EXISTS semantic_cache_payloads (
                 id TEXT PRIMARY KEY,
                 payload BLOB
-            )", []
-        ).map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+            )",
+            [],
+        )
+        .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
 
         conn.execute(
             "INSERT INTO semantic_cache_payloads (id, payload) VALUES (?1, ?2)
              ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
-            rusqlite::params![key_id, encrypted]
-        ).map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+            rusqlite::params![key_id, encrypted],
+        )
+        .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
 
         Ok(())
     }
 
-
-    pub fn lookup(&self, messages: &[Message], query_embedding: &[f32], dek: &[u8; 32], expected_aad: &[u8; 32]) -> Result<Option<Vec<Message>>, crate::error::CognitiveError> {
+    pub fn lookup(
+        &self,
+        messages: &[Message],
+        query_embedding: &[f32],
+        dek: &[u8; 32],
+        expected_aad: &[u8; 32],
+    ) -> Result<Option<Vec<Message>>, crate::error::CognitiveError> {
         if Self::check_mutation_bypass(messages) {
             return Ok(None);
         }
 
-        let candidates = self.store.search(query_embedding, 1, 0.8)
+        let candidates = self
+            .store
+            .search(query_embedding, 1, 0.8)
             .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
 
         if let Some((best_id, _score)) = candidates.first() {
@@ -191,7 +207,12 @@ impl SemanticCache {
         Ok(None)
     }
 
-    pub fn retrieve_payload(&self, key_id: &str, dek: &[u8; 32], expected_aad: &[u8; 32]) -> Result<Option<Vec<Message>>, crate::error::CognitiveError> {
+    pub fn retrieve_payload(
+        &self,
+        key_id: &str,
+        dek: &[u8; 32],
+        expected_aad: &[u8; 32],
+    ) -> Result<Option<Vec<Message>>, crate::error::CognitiveError> {
         let conn = self.store.db.lock().unwrap();
 
         // Ensure the table exists before querying.
@@ -199,17 +220,26 @@ impl SemanticCache {
             "CREATE TABLE IF NOT EXISTS semantic_cache_payloads (
                 id TEXT PRIMARY KEY,
                 payload BLOB
-            )", []
-        ).map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+            )",
+            [],
+        )
+        .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
 
-        let mut stmt = conn.prepare("SELECT payload FROM semantic_cache_payloads WHERE id = ?1")
+        let mut stmt = conn
+            .prepare("SELECT payload FROM semantic_cache_payloads WHERE id = ?1")
             .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
 
-        let mut rows = stmt.query([key_id])
+        let mut rows = stmt
+            .query([key_id])
             .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
 
-        if let Some(row) = rows.next().map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))? {
-            let encrypted: Vec<u8> = row.get(0).map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
+        if let Some(row) = rows
+            .next()
+            .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?
+        {
+            let encrypted: Vec<u8> = row
+                .get(0)
+                .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
             let plaintext = data::crypto::decrypt_envelope(&encrypted, dek, expected_aad)
                 .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
 
@@ -232,7 +262,11 @@ mod tests {
         let a: Vec<i8> = (0..32).map(|x| (x % 10) as i8).collect();
         let b: Vec<i8> = (0..32).map(|x| (x % 5) as i8).collect();
         let s = SemanticCache::dot_product_i8(&a, &b);
-        let expected_s: i32 = a.iter().zip(b.iter()).map(|(&x, &y)| (x as i32) * (y as i32)).sum();
+        let expected_s: i32 = a
+            .iter()
+            .zip(b.iter())
+            .map(|(&x, &y)| (x as i32) * (y as i32))
+            .sum();
         assert_eq!(s, expected_s);
     }
 }

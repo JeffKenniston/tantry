@@ -57,10 +57,16 @@ pub fn merge_subagent_trees(
         for delta in deltas {
             match delta {
                 FileDelta::Upsert { path, data } => {
-                    path_ops.entry(path).or_default().push((branch_name.clone(), BranchOp::Modify(data)));
+                    path_ops
+                        .entry(path)
+                        .or_default()
+                        .push((branch_name.clone(), BranchOp::Modify(data)));
                 }
                 FileDelta::Delete { path } => {
-                    path_ops.entry(path).or_default().push((branch_name.clone(), BranchOp::Delete));
+                    path_ops
+                        .entry(path)
+                        .or_default()
+                        .push((branch_name.clone(), BranchOp::Delete));
                 }
             }
         }
@@ -116,11 +122,13 @@ pub fn merge_subagent_trees(
         }
 
         if has_delete && first_hash.is_some() {
-            report.conflicts.push(VfsMergeConflict::ModifyDeleteConflict {
-                path: path.clone(),
-                modified_by,
-                deleted_by,
-            });
+            report
+                .conflicts
+                .push(VfsMergeConflict::ModifyDeleteConflict {
+                    path: path.clone(),
+                    modified_by,
+                    deleted_by,
+                });
             continue;
         }
 
@@ -150,7 +158,10 @@ pub fn merge_subagent_trees(
                                 continue;
                             }
 
-                            let conflict_content = format!("<<<<<<< {}\n{}\n=======\n{}\n>>>>>>> {}\n", b1, str1, str2, b2);
+                            let conflict_content = format!(
+                                "<<<<<<< {}\n{}\n=======\n{}\n>>>>>>> {}\n",
+                                b1, str1, str2, b2
+                            );
                             let new_data = FileData::new_utf8(conflict_content, now);
                             let _ = report.merged_tree.insert(path.clone(), Arc::new(new_data));
                             report.stage3_conflicts += 1;
@@ -185,9 +196,15 @@ pub fn merge_subagent_trees(
 
 /// Computes differences between two files by lines.
 fn three_way_merge(base: &str, a: &str, b: &str) -> Option<String> {
-    if a == b { return Some(a.to_string()); }
-    if a == base { return Some(b.to_string()); }
-    if b == base { return Some(a.to_string()); }
+    if a == b {
+        return Some(a.to_string());
+    }
+    if a == base {
+        return Some(b.to_string());
+    }
+    if b == base {
+        return Some(a.to_string());
+    }
 
     let a_lines: Vec<&str> = a.split('\n').collect();
     let b_lines: Vec<&str> = b.split('\n').collect();
@@ -204,20 +221,34 @@ fn three_way_merge(base: &str, a: &str, b: &str) -> Option<String> {
         let bl2 = b_lines.get(k);
 
         if al == bl2 {
-            if let Some(v) = al { merged.push(*v); }
-            i += 1; j += 1; k += 1;
+            if let Some(v) = al {
+                merged.push(*v);
+            }
+            i += 1;
+            j += 1;
+            k += 1;
         } else if al == bl {
-            if let Some(v) = bl2 { merged.push(*v); }
-            i += 1; j += 1; k += 1;
+            if let Some(v) = bl2 {
+                merged.push(*v);
+            }
+            i += 1;
+            j += 1;
+            k += 1;
         } else if bl2 == bl {
-            if let Some(v) = al { merged.push(*v); }
-            i += 1; j += 1; k += 1;
+            if let Some(v) = al {
+                merged.push(*v);
+            }
+            i += 1;
+            j += 1;
+            k += 1;
         } else {
             if i >= base_lines.len() {
                 if al.is_some() && bl2.is_none() {
-                    merged.push(*al.unwrap()); j += 1;
+                    merged.push(*al.unwrap());
+                    j += 1;
                 } else if bl2.is_some() && al.is_none() {
-                    merged.push(*bl2.unwrap()); k += 1;
+                    merged.push(*bl2.unwrap());
+                    k += 1;
                 } else {
                     return None;
                 }
@@ -256,9 +287,18 @@ fn cst_merge(base: &str, a: &str, b: &str, path: &str) -> Option<String> {
     let _ta = parser.parse(a, None)?;
     let _tb = parser.parse(b, None)?;
 
-    let base_tokens: Vec<&str> = base.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|s| !s.is_empty()).collect();
-    let a_tokens: Vec<&str> = a.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|s| !s.is_empty()).collect();
-    let b_tokens: Vec<&str> = b.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|s| !s.is_empty()).collect();
+    let base_tokens: Vec<&str> = base
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|s| !s.is_empty())
+        .collect();
+    let a_tokens: Vec<&str> = a
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|s| !s.is_empty())
+        .collect();
+    let b_tokens: Vec<&str> = b
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|s| !s.is_empty())
+        .collect();
 
     if base_tokens.len() == a_tokens.len() && base_tokens.len() == b_tokens.len() {
         let mut result = base.to_string();

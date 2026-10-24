@@ -1,34 +1,50 @@
-pub mod dpop;
 pub mod ca;
+pub mod dpop;
 pub mod error;
 pub mod key_hierarchy;
+pub mod pq_ext;
+pub mod spiffe;
 pub mod spire;
 pub mod svid;
 pub mod tunnel_grant;
-pub mod spiffe;
-pub mod pq_ext;
 
 pub use ca::*;
+pub use dpop::*;
 pub use error::*;
 pub use key_hierarchy::*;
 pub use spire::*;
 pub use svid::*;
-pub use dpop::*;
 pub use tunnel_grant::*;
 
 pub trait IdentityManager: Send + Sync {
-    fn current_svid(&self) -> Option<WorkloadSvid> { None }
-    fn mint_subagent_svid(&self, parent_svid: &WorkloadSvid, subagent_name: &str, child_task_id: &str, requested_ttl: i64) -> Result<WorkloadSvid, IamError> {
-        let child_spiffe = parent_svid.spiffe_id.derive_subagent(subagent_name, child_task_id)?;
+    fn current_svid(&self) -> Option<WorkloadSvid> {
+        None
+    }
+    fn mint_subagent_svid(
+        &self,
+        parent_svid: &WorkloadSvid,
+        subagent_name: &str,
+        child_task_id: &str,
+        requested_ttl: i64,
+    ) -> Result<WorkloadSvid, IamError> {
+        let child_spiffe = parent_svid
+            .spiffe_id
+            .derive_subagent(subagent_name, child_task_id)?;
         let mut new_svid = parent_svid.clone();
         new_svid.spiffe_id = child_spiffe;
         let requested_exp = chrono::Utc::now() + chrono::Duration::seconds(requested_ttl);
-        new_svid.expires_at = if requested_exp < parent_svid.expires_at { requested_exp } else { parent_svid.expires_at };
+        new_svid.expires_at = if requested_exp < parent_svid.expires_at {
+            requested_exp
+        } else {
+            parent_svid.expires_at
+        };
         Ok(new_svid)
     }
     fn mint_jwt_svid(&self, audience: &[String], ttl_secs: i64) -> Result<String, IamError> {
         use base64::Engine;
-        let svid = self.current_svid().ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
+        let svid = self
+            .current_svid()
+            .ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
         let now = chrono::Utc::now().timestamp();
         let exp = now + ttl_secs;
         let claims = JwtSvidClaims {
@@ -38,24 +54,56 @@ pub trait IdentityManager: Send + Sync {
             exp,
             iat: now,
             jti: uuid::Uuid::now_v7().to_string(),
-            pq_pk_b64: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&svid.mldsa65_verifying_key_bytes),
+            pq_pk_b64: base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(&svid.mldsa65_verifying_key_bytes),
         };
         crate::svid::mint_hybrid_jwt_svid(&svid, &claims)
     }
-    fn verify_jwt_svid(&self, _token: &str, _expected_audience: &str) -> Result<(), IamError> { Err(IamError::NotImplemented) }
-    fn mint_dpop_proof(&self, htm: &str, htu: &str, access_token: Option<&str>) -> Result<String, IamError> {
-        let svid = self.current_svid().ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
+    fn verify_jwt_svid(&self, _token: &str, _expected_audience: &str) -> Result<(), IamError> {
+        Err(IamError::NotImplemented)
+    }
+    fn mint_dpop_proof(
+        &self,
+        htm: &str,
+        htu: &str,
+        access_token: Option<&str>,
+    ) -> Result<String, IamError> {
+        let svid = self
+            .current_svid()
+            .ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
         crate::dpop::mint_dpop_proof(&svid, htm, htu, access_token)
     }
-    fn verify_dpop_proof(&self, proof: &str, htm: &str, htu: &str, access_token: Option<&str>, replay_cache: &dashmap::DashMap<String, i64>) -> Result<(), IamError> {
+    fn verify_dpop_proof(
+        &self,
+        proof: &str,
+        htm: &str,
+        htu: &str,
+        access_token: Option<&str>,
+        replay_cache: &dashmap::DashMap<String, i64>,
+    ) -> Result<(), IamError> {
         crate::dpop::verify_dpop_proof(proof, htm, htu, access_token, replay_cache)
     }
-    fn request_scoped_tunnel_token(&self, _service_name: &str, _ttl_secs: i64) -> Result<ScopedTunnelGrant, IamError> { Err(IamError::NotImplemented) }
-    fn verify_scoped_tunnel_token(&self, _token: &str) -> Result<ScopedTunnelGrant, IamError> { Err(IamError::NotImplemented) }
-    fn is_service_tunnel_active(&self, _host_or_authority: &str) -> bool { false }
+    fn request_scoped_tunnel_token(
+        &self,
+        _service_name: &str,
+        _ttl_secs: i64,
+    ) -> Result<ScopedTunnelGrant, IamError> {
+        Err(IamError::NotImplemented)
+    }
+    fn verify_scoped_tunnel_token(&self, _token: &str) -> Result<ScopedTunnelGrant, IamError> {
+        Err(IamError::NotImplemented)
+    }
+    fn is_service_tunnel_active(&self, _host_or_authority: &str) -> bool {
+        false
+    }
 
     fn key_hierarchy(&self) -> &key_hierarchy::KeyHierarchy;
-    fn sign_audit_sth(&self, tree_size: u64, timestamp_ms: i64, mmr_root_blake3: &[u8; 32]) -> Result<AuditSthSignature, error::IamError>;
+    fn sign_audit_sth(
+        &self,
+        tree_size: u64,
+        timestamp_ms: i64,
+        mmr_root_blake3: &[u8; 32],
+    ) -> Result<AuditSthSignature, error::IamError>;
     fn verify_audit_sth(&self, sth: &AuditSthSignature) -> Result<(), error::IamError>;
 }
 
@@ -73,11 +121,13 @@ impl base::typemap::StateSlot for WorkloadIdentitySlot {
     const CODEC_TAG: base::typemap::CodecTag = base::typemap::CodecTag::MessagePackNamed;
 
     fn encode_payload(&self) -> Result<Vec<u8>, base::error::ExtensionError> {
-        rmp_serde::to_vec_named(self).map_err(|e| base::error::ExtensionError::SerializationFailed(e.to_string()))
+        rmp_serde::to_vec_named(self)
+            .map_err(|e| base::error::ExtensionError::SerializationFailed(e.to_string()))
     }
 
     fn decode_payload(bytes: &[u8]) -> Result<Self, base::error::ExtensionError> {
-        rmp_serde::from_slice(bytes).map_err(|e| base::error::ExtensionError::DeserializationFailed(e.to_string()))
+        rmp_serde::from_slice(bytes)
+            .map_err(|e| base::error::ExtensionError::DeserializationFailed(e.to_string()))
     }
 }
 
@@ -100,16 +150,20 @@ impl DualModeIdentityProvider {
     ) -> Result<Self, IamError> {
         let mut master_key_arr = [0u8; 32];
         master_key_arr.copy_from_slice(master_key.as_ref());
-        let key_hierarchy = std::sync::Arc::new(crate::key_hierarchy::KeyHierarchy::new(master_key_arr));
+        let key_hierarchy =
+            std::sync::Arc::new(crate::key_hierarchy::KeyHierarchy::new(master_key_arr));
 
-        let inner = match SpireSocketIdentityManager::connect(spire_socket_path, key_hierarchy.clone()).await {
-            Ok(spire) => DualModeInner::Spire(spire),
-            Err(_) if enable_embedded_sovereign_ca_fallback => {
-                let ca = SovereignCaIdentityManager::new(master_key, data_dir)?;
-                DualModeInner::Sovereign(ca)
-            }
-            Err(e) => return Err(e),
-        };
+        let inner =
+            match SpireSocketIdentityManager::connect(spire_socket_path, key_hierarchy.clone())
+                .await
+            {
+                Ok(spire) => DualModeInner::Spire(spire),
+                Err(_) if enable_embedded_sovereign_ca_fallback => {
+                    let ca = SovereignCaIdentityManager::new(master_key, data_dir)?;
+                    DualModeInner::Sovereign(ca)
+                }
+                Err(e) => return Err(e),
+            };
 
         Ok(Self {
             inner,
@@ -126,17 +180,29 @@ impl IdentityManager for DualModeIdentityProvider {
         }
     }
 
-    fn request_scoped_tunnel_token(&self, service_name: &str, ttl_secs: i64) -> Result<ScopedTunnelGrant, IamError> {
-        let svid = self.current_svid().ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
-        self.registry.issue_grant(ttl_secs, &ScopedTunnelRegistry::normalize_host(service_name), &svid)
+    fn request_scoped_tunnel_token(
+        &self,
+        service_name: &str,
+        ttl_secs: i64,
+    ) -> Result<ScopedTunnelGrant, IamError> {
+        let svid = self
+            .current_svid()
+            .ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
+        self.registry.issue_grant(
+            ttl_secs,
+            &ScopedTunnelRegistry::normalize_host(service_name),
+            &svid,
+        )
     }
 
     fn verify_scoped_tunnel_token(&self, token: &str) -> Result<ScopedTunnelGrant, IamError> {
-        self.registry.verify_token(token, self, chrono::Utc::now().timestamp_millis())
+        self.registry
+            .verify_token(token, self, chrono::Utc::now().timestamp_millis())
     }
 
     fn is_service_tunnel_active(&self, host_or_authority: &str) -> bool {
-        self.registry.is_service_active(host_or_authority, chrono::Utc::now().timestamp_millis())
+        self.registry
+            .is_service_active(host_or_authority, chrono::Utc::now().timestamp_millis())
     }
 
     fn verify_jwt_svid(&self, token: &str, expected_audience: &str) -> Result<(), IamError> {
@@ -146,7 +212,6 @@ impl IdentityManager for DualModeIdentityProvider {
         }
     }
 
-
     fn key_hierarchy(&self) -> &crate::key_hierarchy::KeyHierarchy {
         match &self.inner {
             DualModeInner::Spire(s) => s.key_hierarchy(),
@@ -154,10 +219,17 @@ impl IdentityManager for DualModeIdentityProvider {
         }
     }
 
-    fn sign_audit_sth(&self, tree_size: u64, timestamp_ms: i64, mmr_root_blake3: &[u8; 32]) -> Result<AuditSthSignature, IamError> {
+    fn sign_audit_sth(
+        &self,
+        tree_size: u64,
+        timestamp_ms: i64,
+        mmr_root_blake3: &[u8; 32],
+    ) -> Result<AuditSthSignature, IamError> {
         match &self.inner {
             DualModeInner::Spire(s) => s.sign_audit_sth(tree_size, timestamp_ms, mmr_root_blake3),
-            DualModeInner::Sovereign(s) => s.sign_audit_sth(tree_size, timestamp_ms, mmr_root_blake3),
+            DualModeInner::Sovereign(s) => {
+                s.sign_audit_sth(tree_size, timestamp_ms, mmr_root_blake3)
+            }
         }
     }
 

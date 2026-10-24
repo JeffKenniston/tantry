@@ -1,9 +1,9 @@
 use crate::error::DataError;
-use base::state::TantryState;
-use base::delta::{MessageDelta, FileDelta};
 use base::ast::Message;
+use base::delta::{FileDelta, MessageDelta};
+use base::state::TantryState;
+use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
-use rusqlite::{params, Connection};
 
 /// Provides append-only, time-travel-capable storage for agent interaction checkpoints and messages.
 pub struct InteractionChainStore {
@@ -65,9 +65,15 @@ impl InteractionChainStore {
         }
         hasher.update(thread_id.as_bytes());
         hasher.update(&step_index.to_be_bytes());
-        if let Some(md) = msg_delta { hasher.update(md); }
-        if let Some(fd) = file_deltas { hasher.update(fd); }
-        if let Some(ext) = ext_slots { hasher.update(ext); }
+        if let Some(md) = msg_delta {
+            hasher.update(md);
+        }
+        if let Some(fd) = file_deltas {
+            hasher.update(fd);
+        }
+        if let Some(ext) = ext_slots {
+            hasher.update(ext);
+        }
         let checkpoint_blake3: [u8; 32] = hasher.finalize().into();
 
         // Strict INSERT INTO Invariant
@@ -88,7 +94,7 @@ impl InteractionChainStore {
                 ext_slots,
                 todos_json,
                 async_tasks_json
-            ]
+            ],
         )?;
 
         Ok(checkpoint_blake3)
@@ -111,7 +117,7 @@ impl InteractionChainStore {
                 "SELECT checkpoint_id, previous_checkpoint_id, thread_id, step_index, key_epoch,
                         message_delta_aead, file_deltas_aead, extension_slots_aead,
                         todos_json, async_tasks_json
-                 FROM interaction_checkpoints WHERE checkpoint_id = ?1"
+                 FROM interaction_checkpoints WHERE checkpoint_id = ?1",
             )?;
 
             let mut rows = stmt.query(params![cid])?;
@@ -137,11 +143,28 @@ impl InteractionChainStore {
 
         // Step-Index Capture Invariant
         let target_step_index = chain.first().map(|r| r.step_index).unwrap_or(0) as u64;
-        let target_thread_id = chain.first().map(|r| r.thread_id.clone()).unwrap_or_default();
+        let target_thread_id = chain
+            .first()
+            .map(|r| r.thread_id.clone())
+            .unwrap_or_default();
 
         chain.reverse();
 
-        let mut state = TantryState { thread_id: "".to_string(), step_index: 0, last_checkpoint_id: None, messages: vec![], files: base::vfs_tree::VfsTree::new(), todos: vec![], skills_metadata: vec![], memory_contents: std::collections::BTreeMap::new(), async_tasks: std::collections::BTreeMap::new(), rubric_input: None, rubric_status: None, structured_response: None, extensions: base::typemap::StateExtensionMap::new() };
+        let mut state = TantryState {
+            thread_id: "".to_string(),
+            step_index: 0,
+            last_checkpoint_id: None,
+            messages: vec![],
+            files: base::vfs_tree::VfsTree::new(),
+            todos: vec![],
+            skills_metadata: vec![],
+            memory_contents: std::collections::BTreeMap::new(),
+            async_tasks: std::collections::BTreeMap::new(),
+            rubric_input: None,
+            rubric_status: None,
+            structured_response: None,
+            extensions: base::typemap::StateExtensionMap::new(),
+        };
         let mut final_checkpoint_blake3 = [0u8; 32];
 
         for row in chain {
@@ -153,33 +176,62 @@ impl InteractionChainStore {
             }
             hasher.update(row.thread_id.as_bytes());
             hasher.update(&row.step_index.to_be_bytes());
-            if let Some(ref md) = row.message_delta_aead { hasher.update(md); }
-            if let Some(ref fd) = row.file_deltas_aead { hasher.update(fd); }
-            if let Some(ref ext) = row.extension_slots_aead { hasher.update(ext); }
+            if let Some(ref md) = row.message_delta_aead {
+                hasher.update(md);
+            }
+            if let Some(ref fd) = row.file_deltas_aead {
+                hasher.update(fd);
+            }
+            if let Some(ref ext) = row.extension_slots_aead {
+                hasher.update(ext);
+            }
             final_checkpoint_blake3 = hasher.finalize().into();
 
             // Deriving DEK securely via thread and epoch salts
-            let (epoch_salt, thread_salt) = crate::crypto::get_or_provision_key_epoch(&conn, &row.thread_id, row.key_epoch)?;
-            let dek = key_hierarchy.derive_dek_from_salts(row.key_epoch, &epoch_salt, &row.thread_id, &thread_salt).map(|z| *z).unwrap_or([0u8; 32]);
+            let (epoch_salt, thread_salt) =
+                crate::crypto::get_or_provision_key_epoch(&conn, &row.thread_id, row.key_epoch)?;
+            let dek = key_hierarchy
+                .derive_dek_from_salts(row.key_epoch, &epoch_salt, &row.thread_id, &thread_salt)
+                .map(|z| *z)
+                .unwrap_or([0u8; 32]);
 
-            let aad = crate::crypto::compute_canonical_aad("interaction_checkpoints", &row.checkpoint_id, &row.thread_id, row.key_epoch);
+            let aad = crate::crypto::compute_canonical_aad(
+                "interaction_checkpoints",
+                &row.checkpoint_id,
+                &row.thread_id,
+                row.key_epoch,
+            );
 
             if let Some(md_aead) = row.message_delta_aead {
                 let plaintext = crate::crypto::decrypt_envelope(&md_aead, &dek, &aad)?;
-                let msg_delta: MessageDelta = rmp_serde::from_slice(&plaintext).map_err(|e: rmp_serde::decode::Error| DataError::Serialization(e.to_string()))?;
-                MessageDelta::apply(&mut state.messages, msg_delta).map_err(|e| DataError::Serialization(format!("{:?}", e)))?;
+                let msg_delta: MessageDelta =
+                    rmp_serde::from_slice(&plaintext).map_err(|e: rmp_serde::decode::Error| {
+                        DataError::Serialization(e.to_string())
+                    })?;
+                MessageDelta::apply(&mut state.messages, msg_delta)
+                    .map_err(|e| DataError::Serialization(format!("{:?}", e)))?;
             }
 
             if let Some(fd_aead) = row.file_deltas_aead {
                 let plaintext = crate::crypto::decrypt_envelope(&fd_aead, &dek, &aad)?;
-                let file_deltas: Vec<FileDelta> = rmp_serde::from_slice(&plaintext).map_err(|e: rmp_serde::decode::Error| DataError::Serialization(e.to_string()))?;
-                FileDelta::apply_batch(&mut state.files, &file_deltas).map_err(|e| DataError::Serialization(format!("{:?}", e)))?;
+                let file_deltas: Vec<FileDelta> =
+                    rmp_serde::from_slice(&plaintext).map_err(|e: rmp_serde::decode::Error| {
+                        DataError::Serialization(e.to_string())
+                    })?;
+                FileDelta::apply_batch(&mut state.files, &file_deltas)
+                    .map_err(|e| DataError::Serialization(format!("{:?}", e)))?;
             }
 
             if let Some(ext_aead) = row.extension_slots_aead {
                 let plaintext = crate::crypto::decrypt_envelope(&ext_aead, &dek, &aad)?;
-                let raw_slots: std::collections::BTreeMap<String, Vec<u8>> = rmp_serde::from_slice(&plaintext).map_err(|e: rmp_serde::decode::Error| DataError::Serialization(e.to_string()))?;
-                state.extensions.hydrate_all(&raw_slots, registry).map_err(|e| DataError::Serialization(format!("{:?}", e)))?;
+                let raw_slots: std::collections::BTreeMap<String, Vec<u8>> =
+                    rmp_serde::from_slice(&plaintext).map_err(|e: rmp_serde::decode::Error| {
+                        DataError::Serialization(e.to_string())
+                    })?;
+                state
+                    .extensions
+                    .hydrate_all(&raw_slots, registry)
+                    .map_err(|e| DataError::Serialization(format!("{:?}", e)))?;
             }
 
             if let Some(t_json) = row.todos_json {
@@ -206,7 +258,10 @@ impl InteractionChainStore {
     }
 
     /// Queries the most recent checkpoint ID and step index for a given thread.
-    pub fn get_latest_checkpoint_for_thread(&self, thread_id: &str) -> Result<Option<(String, i64)>, DataError> {
+    pub fn get_latest_checkpoint_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<(String, i64)>, DataError> {
         let conn = self.db.lock().unwrap();
         let mut stmt = conn.prepare("SELECT checkpoint_id, step_index FROM interaction_checkpoints WHERE thread_id = ?1 ORDER BY step_index DESC LIMIT 1")?;
         let mut rows = stmt.query(params![thread_id])?;
@@ -219,7 +274,11 @@ impl InteractionChainStore {
     }
 
     /// Retrieves the unique checkpoint ID corresponding to an exact logical step index within a thread.
-    pub fn get_checkpoint_id_by_step(&self, thread_id: &str, step_index: i64) -> Result<Option<String>, DataError> {
+    pub fn get_checkpoint_id_by_step(
+        &self,
+        thread_id: &str,
+        step_index: i64,
+    ) -> Result<Option<String>, DataError> {
         let conn = self.db.lock().unwrap();
         let mut stmt = conn.prepare("SELECT checkpoint_id FROM interaction_checkpoints WHERE thread_id = ?1 AND step_index = ?2")?;
         let mut rows = stmt.query(params![thread_id, step_index])?;
@@ -243,7 +302,8 @@ impl InteractionChainStore {
         let mut msgs = Vec::new();
         for row in rows {
             let json = row?;
-            let msg: Message = serde_json::from_str(&json).map_err(|e| DataError::Serialization(e.to_string()))?;
+            let msg: Message =
+                serde_json::from_str(&json).map_err(|e| DataError::Serialization(e.to_string()))?;
             msgs.push(msg);
         }
         Ok(msgs)

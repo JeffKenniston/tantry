@@ -31,7 +31,9 @@ impl Indexer {
 
         // 1. Load the SQLite state once (for O(log N) check, we only do this once to avoid repeated querying)
         // In a real system, we'd query dynamically but here SQLite is fast and doing it in memory is fine for the spec.
-        let mut stmt = self.conn.prepare("SELECT vfs_path, is_dir, blake3_hash FROM merkle_nodes")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT vfs_path, is_dir, blake3_hash FROM merkle_nodes")?;
         let rows = stmt.query_map([], |row| {
             let path: String = row.get(0)?;
             let is_dir: i32 = row.get(1)?;
@@ -66,11 +68,19 @@ impl Indexer {
                     let mut collect_queue = vec![(path.clone(), node)];
                     while let Some((cp, n)) = collect_queue.pop() {
                         for (fnm, _) in &n.files {
-                            let fp = if cp.is_empty() { fnm.clone() } else { format!("{}/{}", cp, fnm) };
+                            let fp = if cp.is_empty() {
+                                fnm.clone()
+                            } else {
+                                format!("{}/{}", cp, fnm)
+                            };
                             vfs_files.insert(fp);
                         }
                         for (snm, sn) in &n.subdirs {
-                            let sp = if cp.is_empty() { snm.clone() } else { format!("{}/{}", cp, snm) };
+                            let sp = if cp.is_empty() {
+                                snm.clone()
+                            } else {
+                                format!("{}/{}", cp, snm)
+                            };
                             collect_queue.push((sp, sn));
                         }
                     }

@@ -86,16 +86,7 @@ fn tdd_cognitive_linucb_and_credit_leases() {
 
     // Now, without safety guardrails overriding it, the router should select CompactLite
     let learned_arm = router.select_arm(
-        ctx_learn,
-        None,
-        false,
-        false,
-        0.0,
-        0,
-        false,
-        500,
-        0,
-        true, // deterministic
+        ctx_learn, None, false, false, 0.0, 0, false, 500, 0, true, // deterministic
     );
 
     assert_eq!(
@@ -109,13 +100,15 @@ fn tdd_cognitive_linucb_and_credit_leases() {
 fn test_billing_concurrent() {
     use cognitive::billing::BillingEnforcer;
     use data::task_ledger::TaskLedgerStore;
-    use std::sync::{Arc, Mutex};
     use rusqlite::Connection;
+    use std::sync::{Arc, Mutex};
     use std::thread;
 
     let db = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
-    db.lock().unwrap().execute(
-        "CREATE TABLE task_ledger (
+    db.lock()
+        .unwrap()
+        .execute(
+            "CREATE TABLE task_ledger (
             task_id TEXT PRIMARY KEY,
             status TEXT NOT NULL,
             spent_budget_micros INTEGER NOT NULL,
@@ -124,8 +117,9 @@ fn test_billing_concurrent() {
             webhook_90_fired INTEGER NOT NULL,
             updated_at_ms INTEGER NOT NULL
         )",
-        [],
-    ).unwrap();
+            [],
+        )
+        .unwrap();
 
     let ledger = Arc::new(TaskLedgerStore::new(db));
     let task_id = "test_task";
@@ -159,8 +153,15 @@ fn test_mutation_bypass_and_dot_product_parity() {
     let a: Vec<i8> = (0..256).map(|x| (x % 10) as i8).collect();
     let b: Vec<i8> = (0..256).map(|x| (x % 5) as i8).collect();
     let s = SemanticCache::dot_product_i8(&a, &b);
-    let expected_s: i32 = a.iter().zip(b.iter()).map(|(&x, &y)| (x as i32) * (y as i32)).sum();
-    assert_eq!(s, expected_s, "Bit-exact SIMD Int8 dot-product parity failed");
+    let expected_s: i32 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(&x, &y)| (x as i32) * (y as i32))
+        .sum();
+    assert_eq!(
+        s, expected_s,
+        "Bit-exact SIMD Int8 dot-product parity failed"
+    );
 
     // Rust enums serialization typically expects a map with a single key for externally tagged enums
 
@@ -198,5 +199,8 @@ fn test_mutation_bypass_and_dot_product_parity() {
 
     let messages = vec![msg1, msg2];
 
-    assert!(SemanticCache::check_mutation_bypass(&messages), "Mutation Bypass Invariant Failed");
+    assert!(
+        SemanticCache::check_mutation_bypass(&messages),
+        "Mutation Bypass Invariant Failed"
+    );
 }

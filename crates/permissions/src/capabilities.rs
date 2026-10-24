@@ -1,10 +1,10 @@
 use crate::ext::{ScopedTunnelRegistry, SpiffeId};
 use crate::glob_dfa::{CompiledFsAutomaton, FsOperation};
 use crate::lattice::PermissionMode;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 /// Represents a filesystem capability.
 #[derive(Debug, Clone)]
@@ -25,9 +25,9 @@ impl FsCapability {
     pub fn evaluate(&self, svid: &SpiffeId, op: FsOperation, raw_path: &str) -> PermissionMode {
         match self {
             Self::Base(automaton) => automaton.evaluate(svid, op, raw_path),
-            Self::Composite { parent, child } => {
-                parent.evaluate(svid, op, raw_path).join(child.evaluate(svid, op, raw_path))
-            }
+            Self::Composite { parent, child } => parent
+                .evaluate(svid, op, raw_path)
+                .join(child.evaluate(svid, op, raw_path)),
         }
     }
 }
@@ -72,7 +72,10 @@ pub enum NetCapability {
 
 impl NetCapability {
     /// Creates a new network capability from rules.
-    pub fn new(default_mode: PermissionMode, rules: Vec<NetPolicyRule>) -> Result<Self, globset::Error> {
+    pub fn new(
+        default_mode: PermissionMode,
+        rules: Vec<NetPolicyRule>,
+    ) -> Result<Self, globset::Error> {
         let mut builder = GlobSetBuilder::new();
         for rule in &rules {
             builder.add(Glob::new(&rule.domain_glob)?);
@@ -108,11 +111,17 @@ impl NetCapability {
                     }
 
                     let port_match = rule.allowed_ports.is_empty()
-                        || rule.allowed_ports.iter().any(|&(start, end)| port >= start && port <= end);
+                        || rule
+                            .allowed_ports
+                            .iter()
+                            .any(|&(start, end)| port >= start && port <= end);
 
                     let method_match = rule.allowed_methods.is_empty()
                         || match method {
-                            Some(m) => rule.allowed_methods.iter().any(|allowed| allowed.eq_ignore_ascii_case(m)),
+                            Some(m) => rule
+                                .allowed_methods
+                                .iter()
+                                .any(|allowed| allowed.eq_ignore_ascii_case(m)),
                             None => true,
                         };
 
@@ -138,11 +147,10 @@ impl NetCapability {
                 } else {
                     final_mode.unwrap_or(automaton.default_mode)
                 }
-            },
-            Self::Composite { parent, child } => {
-                parent.evaluate_egress(host, port, method, tunnel_registry, now_ms)
-                    .join(child.evaluate_egress(host, port, method, tunnel_registry, now_ms))
             }
+            Self::Composite { parent, child } => parent
+                .evaluate_egress(host, port, method, tunnel_registry, now_ms)
+                .join(child.evaluate_egress(host, port, method, tunnel_registry, now_ms)),
         }
     }
 }
@@ -174,14 +182,25 @@ pub enum EnvCapability {
 
 impl EnvCapability {
     /// Creates a new base environment capability.
-    pub fn new(allow_globs: Vec<String>, exact_allow_overrides: Vec<String>) -> Result<Self, globset::Error> {
+    pub fn new(
+        allow_globs: Vec<String>,
+        exact_allow_overrides: Vec<String>,
+    ) -> Result<Self, globset::Error> {
         let mut builder = GlobSetBuilder::new();
         for glob in &allow_globs {
             builder.add(Glob::new(glob)?);
         }
         let allow_globset = builder.build()?;
 
-        let secrets = ["*KEY*", "*TOKEN*", "*SECRET*", "*PASSWORD*", "*CREDENTIAL*", "*PRIVATE*", "*BEARER*"];
+        let secrets = [
+            "*KEY*",
+            "*TOKEN*",
+            "*SECRET*",
+            "*PASSWORD*",
+            "*CREDENTIAL*",
+            "*PRIVATE*",
+            "*BEARER*",
+        ];
         let mut secret_builder = GlobSetBuilder::new();
         for secret in secrets {
             secret_builder.add(Glob::new(secret)?);
@@ -204,7 +223,10 @@ impl EnvCapability {
             Self::Base(automaton) => {
                 let mut env = BTreeMap::new();
                 for (k, v) in host_vars {
-                    let is_exact_override = automaton.exact_allow_overrides.iter().any(|allowed| allowed.eq_ignore_ascii_case(&k));
+                    let is_exact_override = automaton
+                        .exact_allow_overrides
+                        .iter()
+                        .any(|allowed| allowed.eq_ignore_ascii_case(&k));
 
                     if is_exact_override {
                         env.insert(k, v);
@@ -221,7 +243,7 @@ impl EnvCapability {
                     }
                 }
                 env
-            },
+            }
             Self::Composite { parent, child } => {
                 let host_vars: Vec<(String, String)> = host_vars.into_iter().collect();
                 let p_env = parent.scrub_host_env(host_vars.clone());
@@ -290,8 +312,12 @@ impl McpCapability {
     /// Returns the maximum spend in microseconds.
     pub fn max_spend_micros(&self) -> u64 {
         match self {
-            Self::Base { max_spend_micros, .. } => *max_spend_micros,
-            Self::Composite { max_spend_micros, .. } => *max_spend_micros,
+            Self::Base {
+                max_spend_micros, ..
+            } => *max_spend_micros,
+            Self::Composite {
+                max_spend_micros, ..
+            } => *max_spend_micros,
         }
     }
 
@@ -327,7 +353,11 @@ impl McpCapability {
         estimated_spend_micros: u64,
     ) -> PermissionMode {
         match self {
-            Self::Base { effective_max_spend_micros, automaton, .. } => {
+            Self::Base {
+                effective_max_spend_micros,
+                automaton,
+                ..
+            } => {
                 if estimated_spend_micros > *effective_max_spend_micros {
                     return PermissionMode::Deny;
                 }
@@ -351,12 +381,18 @@ impl McpCapability {
                 }
 
                 final_mode.unwrap_or(automaton.default_mode)
-            },
-            Self::Composite { parent, child, effective_max_spend_micros, .. } => {
+            }
+            Self::Composite {
+                parent,
+                child,
+                effective_max_spend_micros,
+                ..
+            } => {
                 if estimated_spend_micros > *effective_max_spend_micros {
                     return PermissionMode::Deny;
                 }
-                parent.evaluate_mcp_call(server_name, tool_name, estimated_spend_micros)
+                parent
+                    .evaluate_mcp_call(server_name, tool_name, estimated_spend_micros)
                     .join(child.evaluate_mcp_call(server_name, tool_name, estimated_spend_micros))
             }
         }

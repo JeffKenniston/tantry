@@ -1,5 +1,5 @@
-use backends::traits::VfsBackend;
 use backends::local_fs::LocalFsBackend;
+use backends::traits::VfsBackend;
 use base::state::TantryState;
 use base::vfs_tree::VfsTree;
 use std::os::unix::fs::symlink;
@@ -46,15 +46,22 @@ fn test_local_fs_ls_glob_grep() {
     let backend = LocalFsBackend::new(root_path).unwrap();
     let mut state = create_mock_state();
 
-    backend.write_file(&mut state, "/test.txt", "hello\nworld").unwrap();
-    backend.write_file(&mut state, "/foo/bar.txt", "match this\ntest").unwrap();
+    backend
+        .write_file(&mut state, "/test.txt", "hello\nworld")
+        .unwrap();
+    backend
+        .write_file(&mut state, "/foo/bar.txt", "match this\ntest")
+        .unwrap();
 
     let ls_res = backend.ls(&state, "/").unwrap();
     assert_eq!(ls_res.len(), 2);
 
     let mut glob_res = backend.glob(&state, "**/*.txt").unwrap();
     glob_res.sort();
-    assert_eq!(glob_res, vec!["/foo/bar.txt".to_string(), "/test.txt".to_string()]);
+    assert_eq!(
+        glob_res,
+        vec!["/foo/bar.txt".to_string(), "/test.txt".to_string()]
+    );
 
     let grep_res = backend.grep(&state, "match", None).unwrap();
     assert_eq!(grep_res.len(), 1);
@@ -64,16 +71,15 @@ fn test_local_fs_ls_glob_grep() {
 
 #[test]
 fn test_wasm_guard_rejects_start_section() {
-    use backends::wasm::validate_component_no_start_yield;
     use backends::error::BackendError;
+    use backends::wasm::validate_component_no_start_yield;
 
     let safe_wasm: &[u8] = &[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
     assert!(validate_component_no_start_yield(safe_wasm).is_ok());
 
     // Minimal WASM with start section
     let unsafe_wasm: &[u8] = &[
-        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-        0x08, 0x01, 0x00, // start section
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x08, 0x01, 0x00, // start section
     ];
     let err = validate_component_no_start_yield(unsafe_wasm).unwrap_err();
     assert!(matches!(err, BackendError::UnsafeWasmStartSection));

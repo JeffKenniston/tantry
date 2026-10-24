@@ -18,11 +18,13 @@ pub fn check_cst_diagnostics(path: &str, tree: &Tree, source: &str) -> Vec<CstDi
             let end_byte = node.end_byte();
 
             // Defend against byte ranges out of bounds
-            let snippet = if start_byte <= source.len() && end_byte <= source.len() && start_byte <= end_byte {
-                source[start_byte..end_byte].to_string()
-            } else {
-                String::new()
-            };
+            let snippet =
+                if start_byte <= source.len() && end_byte <= source.len() && start_byte <= end_byte
+                {
+                    source[start_byte..end_byte].to_string()
+                } else {
+                    String::new()
+                };
 
             diagnostics.push(CstDiagnostic {
                 start_line: start.row + 1,
@@ -30,7 +32,11 @@ pub fn check_cst_diagnostics(path: &str, tree: &Tree, source: &str) -> Vec<CstDi
                 end_line: end.row + 1,
                 end_col: end.column + 1,
                 snippet,
-                message: format!("Syntax error at {path}:{}:{}", start.row + 1, start.column + 1),
+                message: format!(
+                    "Syntax error at {path}:{}:{}",
+                    start.row + 1,
+                    start.column + 1
+                ),
             });
         }
 

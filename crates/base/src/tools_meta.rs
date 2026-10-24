@@ -1,7 +1,7 @@
-use chrono::{DateTime, Utc};
+use crate::ast::FileData;
 use crate::path::PosixPath;
 use crate::vfs_tree::VfsTree;
-use crate::ast::FileData;
+use chrono::{DateTime, Utc};
 use std::sync::Arc;
 
 /// TOOL_WRITE_TODOS const
@@ -164,7 +164,13 @@ pub fn maybe_offload_tool_output(
 
     let mut diagnostics = Vec::new();
     let keywords = [
-        "error[E", "error:", "FAILED", "panicked at", "Traceback", "SyntaxError", "Exception",
+        "error[E",
+        "error:",
+        "FAILED",
+        "panicked at",
+        "Traceback",
+        "SyntaxError",
+        "Exception",
     ];
 
     for (i, line) in lines.iter().enumerate() {

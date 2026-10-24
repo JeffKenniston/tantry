@@ -1,8 +1,8 @@
 //! Agent Protocol HTTP Transport Module
 
+use eventsource_stream::EventStreamError;
 use reqwest::Client;
 use serde_json::Value;
-use eventsource_stream::EventStreamError;
 
 use crate::TransportError;
 
@@ -25,7 +25,8 @@ impl AgentProtocolHttpTransport {
     /// POST /threads
     pub async fn create_thread(&self) -> Result<Value, TransportError> {
         let url = format!("{}/threads", self.base_url);
-        self.client.post(&url)
+        self.client
+            .post(&url)
             .send()
             .await
             .map_err(|e| TransportError::Internal(e.to_string()))?
@@ -37,7 +38,8 @@ impl AgentProtocolHttpTransport {
     /// POST /threads/{thread_id}/runs
     pub async fn create_run(&self, thread_id: &str, input: Value) -> Result<Value, TransportError> {
         let url = format!("{}/threads/{}/runs", self.base_url, thread_id);
-        self.client.post(&url)
+        self.client
+            .post(&url)
             .json(&input)
             .send()
             .await
@@ -50,7 +52,8 @@ impl AgentProtocolHttpTransport {
     /// GET /threads/{thread_id}/runs/{run_id}
     pub async fn get_run(&self, thread_id: &str, run_id: &str) -> Result<Value, TransportError> {
         let url = format!("{}/threads/{}/runs/{}", self.base_url, thread_id, run_id);
-        self.client.get(&url)
+        self.client
+            .get(&url)
             .send()
             .await
             .map_err(|e| TransportError::Internal(e.to_string()))?
@@ -61,8 +64,12 @@ impl AgentProtocolHttpTransport {
 
     /// POST /threads/{thread_id}/runs/{run_id}/cancel
     pub async fn cancel_run(&self, thread_id: &str, run_id: &str) -> Result<Value, TransportError> {
-        let url = format!("{}/threads/{}/runs/{}/cancel", self.base_url, thread_id, run_id);
-        self.client.post(&url)
+        let url = format!(
+            "{}/threads/{}/runs/{}/cancel",
+            self.base_url, thread_id, run_id
+        );
+        self.client
+            .post(&url)
             .send()
             .await
             .map_err(|e| TransportError::Internal(e.to_string()))?
@@ -72,10 +79,24 @@ impl AgentProtocolHttpTransport {
     }
 
     /// GET /threads/{thread_id}/runs/{run_id}/stream
-    pub async fn stream_run(&self, thread_id: &str, run_id: &str) -> Result<impl tokio_stream::Stream<Item = Result<eventsource_stream::Event, EventStreamError<reqwest::Error>>>, TransportError> {
+    pub async fn stream_run(
+        &self,
+        thread_id: &str,
+        run_id: &str,
+    ) -> Result<
+        impl tokio_stream::Stream<
+            Item = Result<eventsource_stream::Event, EventStreamError<reqwest::Error>>,
+        >,
+        TransportError,
+    > {
         use eventsource_stream::Eventsource;
-        let url = format!("{}/threads/{}/runs/{}/stream", self.base_url, thread_id, run_id);
-        let res = self.client.get(&url)
+        let url = format!(
+            "{}/threads/{}/runs/{}/stream",
+            self.base_url, thread_id, run_id
+        );
+        let res = self
+            .client
+            .get(&url)
             .send()
             .await
             .map_err(|e| TransportError::Internal(e.to_string()))?;

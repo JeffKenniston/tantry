@@ -1,9 +1,9 @@
-use base::vfs_tree::VfsTree;
-use repo::indexer::Indexer;
-use repo::scope_graph::{ScopeGraph, ScopeKind, SymbolDef};
-use repo::graph::GraphCentrality;
-use repo::repomap::SkeletonRepoMapSlot;
 use base::typemap::StateSlot;
+use base::vfs_tree::VfsTree;
+use repo::graph::GraphCentrality;
+use repo::indexer::Indexer;
+use repo::repomap::SkeletonRepoMapSlot;
+use repo::scope_graph::{ScopeGraph, ScopeKind, SymbolDef};
 
 #[test]
 fn test_indexer() {
@@ -19,7 +19,8 @@ fn test_scope_graph_resolution() {
     let mut graph = ScopeGraph::new();
 
     // Add two definitions with same name but different impl blocks/modules
-    let sym1_id = ScopeGraph::compute_symbol_id("/src/mod_a.rs", "ImplA::method", &ScopeKind::Function);
+    let sym1_id =
+        ScopeGraph::compute_symbol_id("/src/mod_a.rs", "ImplA::method", &ScopeKind::Function);
     graph.definitions.insert(
         sym1_id.clone(),
         SymbolDef {
@@ -29,10 +30,11 @@ fn test_scope_graph_resolution() {
             body_blake3: [1u8; 32],
             file_path: "/src/mod_a.rs".to_string(),
             scope_qualified_name: "ImplA::method".to_string(),
-        }
+        },
     );
 
-    let sym2_id = ScopeGraph::compute_symbol_id("/src/mod_b.rs", "ImplB::method", &ScopeKind::Function);
+    let sym2_id =
+        ScopeGraph::compute_symbol_id("/src/mod_b.rs", "ImplB::method", &ScopeKind::Function);
     graph.definitions.insert(
         sym2_id.clone(),
         SymbolDef {
@@ -42,7 +44,7 @@ fn test_scope_graph_resolution() {
             body_blake3: [2u8; 32],
             file_path: "/src/mod_b.rs".to_string(),
             scope_qualified_name: "ImplB::method".to_string(),
-        }
+        },
     );
 
     graph.references.push(repo::scope_graph::SymbolRef {
@@ -60,8 +62,10 @@ fn test_scope_graph_resolution() {
 #[test]
 fn test_risk_score_variance() {
     let centrality = GraphCentrality::new();
-    let report_sig_mut = centrality.ast_blast_radius("sym1", vec!["/src/main.rs".to_string()], true, 0);
-    let report_body_only = centrality.ast_blast_radius("sym1", vec!["/src/main.rs".to_string()], false, 0);
+    let report_sig_mut =
+        centrality.ast_blast_radius("sym1", vec!["/src/main.rs".to_string()], true, 0);
+    let report_body_only =
+        centrality.ast_blast_radius("sym1", vec!["/src/main.rs".to_string()], false, 0);
 
     assert!(report_sig_mut.risk_score > report_body_only.risk_score);
 }
@@ -85,20 +89,14 @@ fn test_mergiraf_cst_merger() {
 
 #[test]
 fn test_repo_engine_sync() {
-    use repo::engine::{RepoEngine, RepoEngineConfig};
     use base::platform::RuntimePlatform;
+    use repo::engine::{RepoEngine, RepoEngineConfig};
 
     let config = RepoEngineConfig {
         platform: RuntimePlatform::LinuxStandard,
         db_path: "file::memory:?cache=shared".to_string(),
     };
     let engine = RepoEngine::new(config).unwrap();
-
-
-
-
-
-
 
     let mut vfs = VfsTree::new();
 
@@ -115,12 +113,6 @@ fn test_repo_engine_sync() {
     let _ = vfs.insert("/src/dummy.rs".to_string(), std::sync::Arc::new(file_data));
 
     let analysis = engine.sync_workspace(&vfs).unwrap();
-
-
-
-
-
-
 
     // Cyclomatic complexity should be at least 1 due to the `if` statement
     assert!(analysis.cyclomatic_complexity >= 1);

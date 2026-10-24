@@ -1,4 +1,3 @@
-
 /// Tier of sandbox isolation detected on the host
 #[derive(Debug, PartialEq, Eq)]
 pub enum IsolationTier {
@@ -30,7 +29,11 @@ pub struct HostCapabilityProbe;
 impl HostCapabilityProbe {
     /// Detect optimal sandbox tier
     pub fn detect(_config: &SandboxesConfig, platform: &RuntimePlatform) -> IsolationTier {
-        if let Ok(_file) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/kvm") {
+        if let Ok(_file) = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/kvm")
+        {
             // we'd also check for firecracker/jailer bins
             return IsolationTier::FirecrackerKvm;
         }

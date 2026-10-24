@@ -1,32 +1,44 @@
 use crate::error::BackendError;
-use wasmparser::{Parser, Payload};
-use wasmtime::{Config, Engine, StoreLimits, StoreLimitsBuilder, Store};
-use wasmtime::component::{Component, Linker, HasSelf};
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView, WasiCtxView, ResourceTable, p2::add_to_linker_async};
+use crate::traits::VfsBackend;
 use base::config::WasmSandboxConfig;
 use base::state::TantryState;
-use crate::traits::VfsBackend;
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
+use wasmparser::{Parser, Payload};
+use wasmtime::component::{Component, HasSelf, Linker};
+use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder};
+use wasmtime_wasi::{
+    ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView, p2::add_to_linker_async,
+};
 
-use base::path::validate_and_normalize_path;
 use crate::egress_proxy::ScopedTunnelRegistry;
+use base::path::validate_and_normalize_path;
 // Dummy types to satisfy Phase 3 specs when specific dependencies are out of scope
 pub struct PermissionLattice {}
 impl PermissionLattice {
-    pub fn evaluate_fs(_state: &TantryState, _path: &str, _op: &str) -> bool { true }
-    pub fn evaluate_net(_state: &TantryState, _service: &str) -> bool { true }
+    pub fn evaluate_fs(_state: &TantryState, _path: &str, _op: &str) -> bool {
+        true
+    }
+    pub fn evaluate_net(_state: &TantryState, _service: &str) -> bool {
+        true
+    }
 }
 
 pub struct RepoEngine {}
 impl RepoEngine {
-    pub fn query_symbols(_state: &TantryState, _query: &str) -> String { "[]".to_string() }
-    pub fn blast_radius(_state: &TantryState, _symbol: &str) -> String { "[]".to_string() }
+    pub fn query_symbols(_state: &TantryState, _query: &str) -> String {
+        "[]".to_string()
+    }
+    pub fn blast_radius(_state: &TantryState, _symbol: &str) -> String {
+        "[]".to_string()
+    }
 }
 
 pub struct IdentityManager {}
 impl IdentityManager {
-    pub fn request_scoped_token(_state: &TantryState, _service: &str, _ttl_secs: u64) -> String { "token".to_string() }
+    pub fn request_scoped_token(_state: &TantryState, _service: &str, _ttl_secs: u64) -> String {
+        "token".to_string()
+    }
 }
 
 /// WasmHostState struct
@@ -63,28 +75,42 @@ wasmtime::component::bindgen!({
 
 impl tantry::runtime::fs::Host for WasmHostState {
     async fn read_file(&mut self, path: String) -> Result<String, String> {
-        let normalized = validate_and_normalize_path(&path).map_err(|e| e.to_string())?.to_string();
+        let normalized = validate_and_normalize_path(&path)
+            .map_err(|e| e.to_string())?
+            .to_string();
         let state = self.state.lock().unwrap();
         if !PermissionLattice::evaluate_fs(&state, &normalized, "read") {
             return Err("Permission denied".to_string());
         }
-        self.vfs.read_file(&state, &normalized, None, None).map_err(|e| e.to_string())
+        self.vfs
+            .read_file(&state, &normalized, None, None)
+            .map_err(|e| e.to_string())
     }
     async fn write_file(&mut self, path: String, content: String) -> Result<(), String> {
-        let normalized = validate_and_normalize_path(&path).map_err(|e| e.to_string())?.to_string();
+        let normalized = validate_and_normalize_path(&path)
+            .map_err(|e| e.to_string())?
+            .to_string();
         let mut state = self.state.lock().unwrap();
         if !PermissionLattice::evaluate_fs(&state, &normalized, "write") {
             return Err("Permission denied".to_string());
         }
-        self.vfs.write_file(&mut state, &normalized, &content).map_err(|e| e.to_string()).map(|_| ())
+        self.vfs
+            .write_file(&mut state, &normalized, &content)
+            .map_err(|e| e.to_string())
+            .map(|_| ())
     }
     async fn list_dir(&mut self, path: String) -> Result<Vec<String>, String> {
-        let normalized = validate_and_normalize_path(&path).map_err(|e| e.to_string())?.to_string();
+        let normalized = validate_and_normalize_path(&path)
+            .map_err(|e| e.to_string())?
+            .to_string();
         let state = self.state.lock().unwrap();
         if !PermissionLattice::evaluate_fs(&state, &normalized, "read") {
             return Err("Permission denied".to_string());
         }
-        self.vfs.ls(&state, &normalized).map(|v| v.into_iter().map(|e| e.name).collect()).map_err(|e| e.to_string())
+        self.vfs
+            .ls(&state, &normalized)
+            .map(|v| v.into_iter().map(|e| e.name).collect())
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -100,19 +126,25 @@ impl tantry::runtime::graph::Host for WasmHostState {
 }
 
 impl tantry::runtime::tunnel::Host for WasmHostState {
-    async fn request_scoped_token(&mut self, service: String, ttl_secs: u64) -> Result<String, String> {
+    async fn request_scoped_token(
+        &mut self,
+        service: String,
+        ttl_secs: u64,
+    ) -> Result<String, String> {
         let state = self.state.lock().unwrap();
         // Since state.lattice.net.evaluate_egress isn't fully defined yet in base, dummy it.
         // We will mock this to always succeed for tests until Phase integration.
         if !PermissionLattice::evaluate_net(&state, &service) {
-             return Err("Permission denied".to_string());
+            return Err("Permission denied".to_string());
         }
 
         let now_ms = 0; // dummy now_ms for phase requirements
         if !ScopedTunnelRegistry::is_service_active(&service, now_ms) {
             // Usually we'd register it, but for now just dummy return
         }
-        Ok(IdentityManager::request_scoped_token(&state, &service, ttl_secs))
+        Ok(IdentityManager::request_scoped_token(
+            &state, &service, ttl_secs,
+        ))
     }
 }
 
@@ -136,12 +168,10 @@ impl WasmSandbox {
         engine_config.consume_fuel(true);
         engine_config.epoch_interruption(true);
 
-        let engine = Engine::new(&engine_config).map_err(|e| BackendError::Execution(format!("Engine error: {}", e)))?;
+        let engine = Engine::new(&engine_config)
+            .map_err(|e| BackendError::Execution(format!("Engine error: {}", e)))?;
 
-        Ok(Self {
-            engine,
-            config,
-        })
+        Ok(Self { engine, config })
     }
 
     /// Evaluates a WASM string in the sandbox
@@ -150,15 +180,17 @@ impl WasmSandbox {
         wasm_bytes: &[u8],
         code: &str,
         state: Arc<std::sync::Mutex<TantryState>>,
-        vfs: Arc<dyn VfsBackend + Send + Sync>
+        vfs: Arc<dyn VfsBackend + Send + Sync>,
     ) -> Result<String, BackendError> {
         validate_component_no_start_yield(wasm_bytes)?;
 
-        let component = Component::new(&self.engine, wasm_bytes).map_err(|e| BackendError::Execution(format!("Component new error: {}", e)))?;
+        let component = Component::new(&self.engine, wasm_bytes)
+            .map_err(|e| BackendError::Execution(format!("Component new error: {}", e)))?;
 
         let mut linker: Linker<WasmHostState> = Linker::new(&self.engine);
 
-        add_to_linker_async(&mut linker).map_err(|e| BackendError::Execution(format!("Linker error: {}", e)))?;
+        add_to_linker_async(&mut linker)
+            .map_err(|e| BackendError::Execution(format!("Linker error: {}", e)))?;
 
         EvalSandbox::add_to_linker::<_, HasSelf<WasmHostState>>(&mut linker, |state| state)
             .map_err(|e| BackendError::Execution(format!("Linker error: {}", e)))?;
@@ -179,10 +211,12 @@ impl WasmSandbox {
 
         let mut store = Store::new(&self.engine, host_state);
         store.limiter(|state| &mut state.limits);
-        store.set_fuel(self.config.fuel_budget)
+        store
+            .set_fuel(self.config.fuel_budget)
             .map_err(|e| BackendError::Execution(e.to_string()))?;
 
-        let deadline_ticks = (self.config.wall_clock_timeout_ms / self.config.epoch_tick_ms.max(1)).max(1);
+        let deadline_ticks =
+            (self.config.wall_clock_timeout_ms / self.config.epoch_tick_ms.max(1)).max(1);
         store.set_epoch_deadline(deadline_ticks);
 
         let engine_clone = self.engine.clone();
@@ -195,14 +229,17 @@ impl WasmSandbox {
             }
         });
 
-        let sandbox_instance = EvalSandbox::instantiate_async(&mut store, &component, &linker).await.map_err(|e| BackendError::Execution(format!("Instantiate error: {}", e)))?;
+        let sandbox_instance = EvalSandbox::instantiate_async(&mut store, &component, &linker)
+            .await
+            .map_err(|e| BackendError::Execution(format!("Instantiate error: {}", e)))?;
 
         let eval_future = sandbox_instance.call_eval(&mut store, code);
 
         let res = tokio::time::timeout(
             Duration::from_millis(self.config.wall_clock_timeout_ms),
-            Box::pin(eval_future)
-        ).await;
+            Box::pin(eval_future),
+        )
+        .await;
 
         ticker.abort();
 

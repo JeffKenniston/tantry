@@ -1,8 +1,11 @@
-use crate::traits::{BackendCapabilities, DirEntryInfo, EditReceipt, GrepMatch, SandboxExecRequest, SandboxExecResult, VfsBackend, WriteReceipt};
 use crate::error::BackendError;
-use base::state::TantryState;
-use base::path::PosixPath;
+use crate::traits::{
+    BackendCapabilities, DirEntryInfo, EditReceipt, GrepMatch, SandboxExecRequest,
+    SandboxExecResult, VfsBackend, WriteReceipt,
+};
 use base::ast::FileData;
+use base::path::PosixPath;
+use base::state::TantryState;
 use chrono::Utc;
 use std::sync::Arc;
 
@@ -12,7 +15,13 @@ use base::vfs_tree::MerkleDirNode;
 pub struct StateBackend;
 
 impl StateBackend {
-    fn walk_dir(&self, node: &MerkleDirNode, matches: &mut Vec<PosixPath>, current_path: &str, matcher: &glob::Pattern) {
+    fn walk_dir(
+        &self,
+        node: &MerkleDirNode,
+        matches: &mut Vec<PosixPath>,
+        current_path: &str,
+        matcher: &glob::Pattern,
+    ) {
         for (name, child_dir) in &node.subdirs {
             let new_path = if current_path.is_empty() {
                 name.clone()
@@ -86,9 +95,20 @@ impl VfsBackend for StateBackend {
         Ok(entries)
     }
 
-    fn read_file(&self, state: &TantryState, path: &str, offset_line: Option<usize>, limit_lines: Option<usize>) -> Result<String, BackendError> {
-        let file = state.files.get(path).ok_or_else(|| BackendError::Path(format!("File not found: {}", path)))?;
-        let content = file.as_str().ok_or_else(|| BackendError::InvalidOperation("File is not valid UTF-8".to_string()))?;
+    fn read_file(
+        &self,
+        state: &TantryState,
+        path: &str,
+        offset_line: Option<usize>,
+        limit_lines: Option<usize>,
+    ) -> Result<String, BackendError> {
+        let file = state
+            .files
+            .get(path)
+            .ok_or_else(|| BackendError::Path(format!("File not found: {}", path)))?;
+        let content = file
+            .as_str()
+            .ok_or_else(|| BackendError::InvalidOperation("File is not valid UTF-8".to_string()))?;
 
         let lines: Vec<&str> = content.lines().collect();
         let start = offset_line.unwrap_or(0);
@@ -104,16 +124,39 @@ impl VfsBackend for StateBackend {
         Ok(lines[start..end].join("\n"))
     }
 
-    fn write_file(&self, state: &mut TantryState, path: &str, content: &str) -> Result<WriteReceipt, BackendError> {
-        let normalized = base::path::validate_and_normalize_path(path).map_err(|e| BackendError::Path(e.to_string()))?;
+    fn write_file(
+        &self,
+        state: &mut TantryState,
+        path: &str,
+        content: &str,
+    ) -> Result<WriteReceipt, BackendError> {
+        let normalized = base::path::validate_and_normalize_path(path)
+            .map_err(|e| BackendError::Path(e.to_string()))?;
         let file_data = Arc::new(FileData::new_utf8(content.to_string(), Utc::now()));
-        state.files.insert(normalized, file_data).map_err(|e| BackendError::Path(e.to_string()))?;
-        Ok(WriteReceipt { bytes_written: content.len() as u64 })
+        state
+            .files
+            .insert(normalized, file_data)
+            .map_err(|e| BackendError::Path(e.to_string()))?;
+        Ok(WriteReceipt {
+            bytes_written: content.len() as u64,
+        })
     }
 
-    fn edit_file(&self, state: &mut TantryState, path: &str, old_string: &str, new_string: &str, replace_all: bool) -> Result<EditReceipt, BackendError> {
-        let file = state.files.get(path).ok_or_else(|| BackendError::Path(format!("File not found: {}", path)))?;
-        let content = file.as_str().ok_or_else(|| BackendError::InvalidOperation("File is not valid UTF-8".to_string()))?;
+    fn edit_file(
+        &self,
+        state: &mut TantryState,
+        path: &str,
+        old_string: &str,
+        new_string: &str,
+        replace_all: bool,
+    ) -> Result<EditReceipt, BackendError> {
+        let file = state
+            .files
+            .get(path)
+            .ok_or_else(|| BackendError::Path(format!("File not found: {}", path)))?;
+        let content = file
+            .as_str()
+            .ok_or_else(|| BackendError::InvalidOperation("File is not valid UTF-8".to_string()))?;
 
         let occurrences = content.matches(old_string).count();
         if occurrences == 0 {
@@ -129,11 +172,17 @@ impl VfsBackend for StateBackend {
             content.replacen(old_string, new_string, 1)
         };
 
-        let normalized = base::path::validate_and_normalize_path(path).map_err(|e| BackendError::Path(e.to_string()))?;
+        let normalized = base::path::validate_and_normalize_path(path)
+            .map_err(|e| BackendError::Path(e.to_string()))?;
         let file_data = Arc::new(FileData::new_utf8(new_content, Utc::now()));
-        state.files.insert(normalized, file_data).map_err(|e| BackendError::Path(e.to_string()))?;
+        state
+            .files
+            .insert(normalized, file_data)
+            .map_err(|e| BackendError::Path(e.to_string()))?;
 
-        Ok(EditReceipt { occurrences_replaced: occurrences })
+        Ok(EditReceipt {
+            occurrences_replaced: occurrences,
+        })
     }
 
     fn delete(&self, state: &mut TantryState, path: &str) -> Result<(), BackendError> {
@@ -142,18 +191,25 @@ impl VfsBackend for StateBackend {
     }
 
     fn glob(&self, state: &TantryState, pattern: &str) -> Result<Vec<PosixPath>, BackendError> {
-        let matcher = glob::Pattern::new(pattern).map_err(|e| BackendError::InvalidOperation(e.to_string()))?;
+        let matcher = glob::Pattern::new(pattern)
+            .map_err(|e| BackendError::InvalidOperation(e.to_string()))?;
         let mut matches = Vec::new();
         self.walk_dir(&state.files.root, &mut matches, "", &matcher);
         Ok(matches)
     }
 
-    fn grep(&self, state: &TantryState, pattern: &str, path_glob: Option<&str>) -> Result<Vec<GrepMatch>, BackendError> {
+    fn grep(
+        &self,
+        state: &TantryState,
+        pattern: &str,
+        path_glob: Option<&str>,
+    ) -> Result<Vec<GrepMatch>, BackendError> {
         let paths = if let Some(g) = path_glob {
             self.glob(state, g)?
         } else {
             let mut all_paths = Vec::new();
-            let catch_all = glob::Pattern::new("**/*").map_err(|e| BackendError::InvalidOperation(e.to_string()))?;
+            let catch_all = glob::Pattern::new("**/*")
+                .map_err(|e| BackendError::InvalidOperation(e.to_string()))?;
             self.walk_dir(&state.files.root, &mut all_paths, "", &catch_all);
             all_paths
         };

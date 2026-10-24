@@ -1,12 +1,12 @@
-use data::db::DbHandle;
-use data::crypto::*;
-use data::error::DataError;
-use iam::key_hierarchy::KeyHierarchy;
 use data::audit_mmr::AuditMmrStore;
+use data::crypto::*;
+use data::db::DbHandle;
+use data::error::DataError;
 use data::vector_index::MatryoshkaVectorStore;
-use iam::{IdentityManager, AuditSthSignature};
-use std::sync::{Arc, Mutex};
+use iam::key_hierarchy::KeyHierarchy;
+use iam::{AuditSthSignature, IdentityManager};
 use rusqlite::Connection;
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn test_writer_first_dbhandle() {
@@ -17,7 +17,9 @@ fn test_writer_first_dbhandle() {
 
     // Writer initialized
     let conn = db.writer.lock().unwrap();
-    let mode: String = conn.pragma_query_value(None, "journal_mode", |r| r.get(0)).unwrap();
+    let mode: String = conn
+        .pragma_query_value(None, "journal_mode", |r| r.get(0))
+        .unwrap();
     assert_eq!(mode.to_lowercase(), "wal");
 
     // Can open reader
@@ -71,7 +73,12 @@ impl IdentityManager for MockIdentityManager {
     fn key_hierarchy(&self) -> &iam::key_hierarchy::KeyHierarchy {
         unimplemented!()
     }
-    fn sign_audit_sth(&self, tree_size: u64, timestamp_ms: i64, mmr_root_blake3: &[u8; 32]) -> Result<AuditSthSignature, iam::error::IamError> {
+    fn sign_audit_sth(
+        &self,
+        tree_size: u64,
+        timestamp_ms: i64,
+        mmr_root_blake3: &[u8; 32],
+    ) -> Result<AuditSthSignature, iam::error::IamError> {
         Ok(AuditSthSignature {
             tree_size,
             timestamp_ms,
@@ -103,7 +110,8 @@ fn test_audit_mmr() {
     let mmr = AuditMmrStore::new(db);
 
     for i in 1..=1000 {
-        mmr.append_entry(i, i * 1000, "spiffe://test", "thread1", "test", "{}").unwrap();
+        mmr.append_entry(i, i * 1000, "spiffe://test", "thread1", "test", "{}")
+            .unwrap();
     }
 
     let w = mmr.db.lock().unwrap();
@@ -121,14 +129,20 @@ fn test_audit_mmr() {
     let proof1 = mmr.generate_inclusion_proof(1).unwrap();
     let proof2 = mmr.generate_consistency_proof(1, 1000).unwrap();
     assert!(AuditMmrStore::verify_inclusion_proof(&proof1, &[0u8; 32]));
-    assert!(AuditMmrStore::verify_consistency_proof(&proof2, &[0u8; 32], &[0u8; 32]));
+    assert!(AuditMmrStore::verify_consistency_proof(
+        &proof2, &[0u8; 32], &[0u8; 32]
+    ));
 
     // Verify valid chain
     assert!(mmr.verify_all_chain_and_sths(&iam).is_ok());
 
     // Tamper test
     let w = mmr.db.lock().unwrap();
-    w.execute("UPDATE audit_log SET payload_json = '{\"tampered\": true}' WHERE seq_no = 500", []).unwrap();
+    w.execute(
+        "UPDATE audit_log SET payload_json = '{\"tampered\": true}' WHERE seq_no = 500",
+        [],
+    )
+    .unwrap();
     drop(w);
 
     let res = mmr.verify_all_chain_and_sths(&iam);

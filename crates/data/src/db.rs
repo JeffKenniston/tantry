@@ -1,6 +1,6 @@
-use std::sync::{Arc, Mutex};
-use rusqlite::{Connection, OpenFlags};
 use crate::error::DataError;
+use rusqlite::{Connection, OpenFlags};
+use std::sync::{Arc, Mutex};
 
 /// A thread-safe, writer-first initialization handle for SQLite databases ensuring WAL mode and initial schemas are set before readers are allowed.
 pub struct DbHandle {

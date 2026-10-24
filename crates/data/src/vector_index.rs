@@ -1,6 +1,6 @@
-use std::sync::{Arc, Mutex};
-use rusqlite::{params, Connection};
 use crate::error::DataError;
+use rusqlite::{Connection, params};
+use std::sync::{Arc, Mutex};
 
 /// Implements a two-stage vector database using binary quantization for coarse filtering and Int8 RaBitQ for exact rescoring.
 pub struct MatryoshkaVectorStore {
@@ -42,7 +42,8 @@ impl MatryoshkaVectorStore {
             i8_vec.push(q);
         }
 
-        let packed_sign_bytes: Vec<u8> = packed_sign.iter().flat_map(|&x| x.to_le_bytes()).collect();
+        let packed_sign_bytes: Vec<u8> =
+            packed_sign.iter().flat_map(|&x| x.to_le_bytes()).collect();
         let i8_vec_bytes: Vec<u8> = i8_vec.iter().map(|&x| x as u8).collect(); // reinterpreting i8 to u8 for storage
 
         conn.execute(
@@ -51,7 +52,8 @@ impl MatryoshkaVectorStore {
                 packed_sign_blob BLOB,
                 i8_vec_blob BLOB,
                 scale_factor REAL
-            )", []
+            )",
+            [],
         )?;
 
         conn.execute(
@@ -64,7 +66,12 @@ impl MatryoshkaVectorStore {
     }
 
     /// Executes a two-stage asymmetric search, scanning binary signs via Hamming distance before rescoring top candidates using RaBitQ cosine similarity.
-    pub fn search(&self, query: &[f32], top_k: usize, threshold: f32) -> Result<Vec<(String, f32)>, DataError> {
+    pub fn search(
+        &self,
+        query: &[f32],
+        top_k: usize,
+        threshold: f32,
+    ) -> Result<Vec<(String, f32)>, DataError> {
         let conn = self.db.lock().unwrap();
 
         let mut q_packed_sign = [0u64; 8];
@@ -77,7 +84,8 @@ impl MatryoshkaVectorStore {
         }
 
         // Retrieve candidates and stage 1 filtering
-        let mut stmt = conn.prepare("SELECT id, packed_sign_blob, i8_vec_blob, scale_factor FROM vector_index")?;
+        let mut stmt = conn
+            .prepare("SELECT id, packed_sign_blob, i8_vec_blob, scale_factor FROM vector_index")?;
         let mut rows = stmt.query([])?;
 
         let mut candidates = Vec::new();
@@ -91,7 +99,7 @@ impl MatryoshkaVectorStore {
             for i in 0..8 {
                 let start = i * 8;
                 let mut buf = [0u8; 8];
-                buf.copy_from_slice(&packed_sign_bytes[start..start+8]);
+                buf.copy_from_slice(&packed_sign_bytes[start..start + 8]);
                 candidate_packed[i] = u64::from_le_bytes(buf);
             }
 

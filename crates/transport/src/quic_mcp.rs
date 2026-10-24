@@ -2,13 +2,13 @@
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use dashmap::DashMap;
+use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use quinn::Endpoint;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::time::timeout;
-use serde::{Deserialize, Serialize};
-use ed25519_dalek::{SigningKey, Signer, VerifyingKey};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
 use crate::TransportError;
 
@@ -45,7 +45,10 @@ impl std::fmt::Debug for QuicMcpTransport {
             .field("endpoint", &self.endpoint)
             .field("http_client", &self.http_client)
             .field("protocol_cache", &self.protocol_cache)
-            .field("quic_handshake_fallback_timeout_ms", &self.quic_handshake_fallback_timeout_ms)
+            .field(
+                "quic_handshake_fallback_timeout_ms",
+                &self.quic_handshake_fallback_timeout_ms,
+            )
             .field("signing_key", &"<REDACTED>")
             .finish()
     }
@@ -53,7 +56,11 @@ impl std::fmt::Debug for QuicMcpTransport {
 
 impl QuicMcpTransport {
     /// Creates a new QuicMcpTransport
-    pub fn new(endpoint: Endpoint, http_client: reqwest::Client, quic_handshake_fallback_timeout_ms: u64) -> Self {
+    pub fn new(
+        endpoint: Endpoint,
+        http_client: reqwest::Client,
+        quic_handshake_fallback_timeout_ms: u64,
+    ) -> Self {
         // According to memory guidelines, we use rand::thread_rng() but there was a conflict.
         // Generate a random stable identity for DPoP purposes here
         let mut csprng = rand::thread_rng();
@@ -71,7 +78,10 @@ impl QuicMcpTransport {
     }
 
     /// Connects to a remote address
-    pub async fn connect(&self, remote_addr: SocketAddr) -> Result<McpWireProtocol, TransportError> {
+    pub async fn connect(
+        &self,
+        remote_addr: SocketAddr,
+    ) -> Result<McpWireProtocol, TransportError> {
         #[allow(clippy::collapsible_if)]
         if let Some(cached) = self.protocol_cache.get(&remote_addr) {
             if cached.1.elapsed() < Duration::from_secs(300) {
@@ -84,18 +94,28 @@ impl QuicMcpTransport {
         let quic_future = match quic_future_result {
             Ok(fut) => fut,
             Err(_) => {
-                tokio::time::sleep(Duration::from_millis(self.quic_handshake_fallback_timeout_ms)).await;
-                self.protocol_cache.insert(remote_addr, (McpWireProtocol::Http2, Instant::now()));
+                tokio::time::sleep(Duration::from_millis(
+                    self.quic_handshake_fallback_timeout_ms,
+                ))
+                .await;
+                self.protocol_cache
+                    .insert(remote_addr, (McpWireProtocol::Http2, Instant::now()));
                 return Ok(McpWireProtocol::Http2);
             }
         };
 
-        let protocol = match timeout(Duration::from_millis(self.quic_handshake_fallback_timeout_ms), quic_future).await {
+        let protocol = match timeout(
+            Duration::from_millis(self.quic_handshake_fallback_timeout_ms),
+            quic_future,
+        )
+        .await
+        {
             Ok(Ok(_connection)) => McpWireProtocol::QuicH3,
             _ => McpWireProtocol::Http2,
         };
 
-        self.protocol_cache.insert(remote_addr, (protocol, Instant::now()));
+        self.protocol_cache
+            .insert(remote_addr, (protocol, Instant::now()));
         Ok(protocol)
     }
 
@@ -132,7 +152,12 @@ impl QuicMcpTransport {
     }
 
     /// Sends a JSON-RPC request over MCP
-    pub async fn send_request(&self, remote_addr: SocketAddr, mut request: McpRequest, target_name: &str) -> Result<Value, TransportError> {
+    pub async fn send_request(
+        &self,
+        remote_addr: SocketAddr,
+        mut request: McpRequest,
+        target_name: &str,
+    ) -> Result<Value, TransportError> {
         let protocol = self.connect(remote_addr).await?;
 
         // Inject _meta tracking headers
@@ -154,7 +179,9 @@ impl QuicMcpTransport {
                 let url = format!("https://{}/mcp", remote_addr);
                 let proof = self.mint_dpop_proof("POST", &url);
 
-                let res = self.http_client.post(&url)
+                let res = self
+                    .http_client
+                    .post(&url)
                     .header("MCP-Protocol-Version", "2026-07-28")
                     .header("Mcp-Method", &request.method)
                     .header("Mcp-Name", target_name)
@@ -165,7 +192,9 @@ impl QuicMcpTransport {
                     .await
                     .map_err(|e| TransportError::Internal(e.to_string()))?;
 
-                res.json::<Value>().await.map_err(|e| TransportError::Internal(e.to_string()))
+                res.json::<Value>()
+                    .await
+                    .map_err(|e| TransportError::Internal(e.to_string()))
             }
             McpWireProtocol::QuicH3 => {
                 // QUIC H3 logic would go here
@@ -184,7 +213,13 @@ impl QuicMcpTransport {
     }
 
     /// Pauses/resumes a multi-round-trip request (SEP-2322 InputRequiredResult)
-    pub async fn pause_resume_request(&self, remote_addr: SocketAddr, target_name: &str, task_id: &str, resume_data: Value) -> Result<Value, TransportError> {
+    pub async fn pause_resume_request(
+        &self,
+        remote_addr: SocketAddr,
+        target_name: &str,
+        task_id: &str,
+        resume_data: Value,
+    ) -> Result<Value, TransportError> {
         let request = McpRequest {
             method: "resume".to_string(), // In SEP-2322 this method can vary, this is an abstraction
             params: serde_json::json!({
@@ -196,7 +231,13 @@ impl QuicMcpTransport {
     }
 
     /// Caches a resource (SEP-2549)
-    pub async fn cache_resource(&self, remote_addr: SocketAddr, target_name: &str, ttl_ms: u64, cache_scope: &str) -> Result<Value, TransportError> {
+    pub async fn cache_resource(
+        &self,
+        remote_addr: SocketAddr,
+        target_name: &str,
+        ttl_ms: u64,
+        cache_scope: &str,
+    ) -> Result<Value, TransportError> {
         let request = McpRequest {
             method: "cache/resource".to_string(),
             params: serde_json::json!({
@@ -208,7 +249,12 @@ impl QuicMcpTransport {
     }
 
     /// Creates a sampling message (sampling/createMessage)
-    pub async fn create_message(&self, remote_addr: SocketAddr, target_name: &str, message: Value) -> Result<Value, TransportError> {
+    pub async fn create_message(
+        &self,
+        remote_addr: SocketAddr,
+        target_name: &str,
+        message: Value,
+    ) -> Result<Value, TransportError> {
         let request = McpRequest {
             method: "sampling/createMessage".to_string(),
             params: message,
@@ -217,7 +263,12 @@ impl QuicMcpTransport {
     }
 
     /// Creates an elicitation (elicitation/create)
-    pub async fn create_elicitation(&self, remote_addr: SocketAddr, target_name: &str, elicitation: Value) -> Result<Value, TransportError> {
+    pub async fn create_elicitation(
+        &self,
+        remote_addr: SocketAddr,
+        target_name: &str,
+        elicitation: Value,
+    ) -> Result<Value, TransportError> {
         let request = McpRequest {
             method: "elicitation/create".to_string(),
             params: elicitation,

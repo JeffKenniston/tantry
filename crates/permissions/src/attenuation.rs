@@ -1,7 +1,7 @@
+use crate::capabilities::{EnvCapability, FsCapability, McpCapability, NetCapability};
+use crate::lattice::PermissionMode;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use crate::capabilities::{FsCapability, NetCapability, EnvCapability, McpCapability};
-use crate::lattice::PermissionMode;
 
 /// Represents a 4-dimensional permission lattice.
 #[derive(Debug, Clone)]

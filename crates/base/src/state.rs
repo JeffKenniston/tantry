@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
 use crate::ast::{
-    AsyncTaskHandle, ContentBlock, Message, RubricOutcome, SkillFrontmatter,
-    SubagentMode, TaskId, TodoItem,
+    AsyncTaskHandle, ContentBlock, Message, RubricOutcome, SkillFrontmatter, SubagentMode, TaskId,
+    TodoItem,
 };
-use crate::path::PosixPath;
 use crate::delta::MessageDelta;
 use crate::error::StateReducerError;
+use crate::path::PosixPath;
 use crate::typemap::StateExtensionMap;
 use crate::vfs_tree::VfsTree;
 
@@ -94,6 +94,8 @@ impl TantryState {
             }
         }
 
-        Err(StateReducerError::InvalidToolUsePatch(tool_use_id.to_string()))
+        Err(StateReducerError::InvalidToolUsePatch(
+            tool_use_id.to_string(),
+        ))
     }
 }

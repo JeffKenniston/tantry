@@ -38,13 +38,15 @@ pub fn generate_pq_extension(
     issuer_mldsa65_signing_key_bytes: &[u8],
     digest: [u8; 32],
 ) -> Result<CustomExtension, IamError> {
-    use ml_dsa::pkcs8::DecodePrivateKey;
-    use ml_dsa::signature::Signer as _;
     use ml_dsa::MlDsa65;
     use ml_dsa::SignatureEncoding;
+    use ml_dsa::pkcs8::DecodePrivateKey;
+    use ml_dsa::signature::Signer as _;
 
     let ml_sk = ml_dsa::SigningKey::<MlDsa65>::from_pkcs8_der(issuer_mldsa65_signing_key_bytes)
-        .map_err(|_| IamError::CertificateGenerationError("Invalid ML-DSA-65 secret key".to_string()))?;
+        .map_err(|_| {
+            IamError::CertificateGenerationError("Invalid ML-DSA-65 secret key".to_string())
+        })?;
 
     let sig = ml_sk.sign(&digest).to_bytes().to_vec();
 
@@ -54,8 +56,9 @@ pub fn generate_pq_extension(
         pre_tbs_blake3: digest,
     };
 
-    let encoded_payload = rmp_serde::to_vec(&payload)
-        .map_err(|e| IamError::CertificateGenerationError(format!("Failed to encode payload: {}", e)))?;
+    let encoded_payload = rmp_serde::to_vec(&payload).map_err(|e| {
+        IamError::CertificateGenerationError(format!("Failed to encode payload: {}", e))
+    })?;
 
     let oid = vec![1, 3, 6, 1, 4, 1, 99999, 1, 204];
 

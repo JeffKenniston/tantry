@@ -1,5 +1,5 @@
 use crate::error::PathValidationError;
-use crate::path::{validate_and_normalize_path, PosixPath};
+use crate::path::{PosixPath, validate_and_normalize_path};
 
 /// RuntimePlatform enum
 pub enum RuntimePlatform {
@@ -8,10 +8,7 @@ pub enum RuntimePlatform {
 }
 
 /// interpolate_env_vars fn
-pub fn interpolate_env_vars<F: Fn(&str) -> Option<String>>(
-    input: &str,
-    env_lookup: F,
-) -> String {
+pub fn interpolate_env_vars<F: Fn(&str) -> Option<String>>(input: &str, env_lookup: F) -> String {
     let mut result = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
 
@@ -68,13 +65,18 @@ impl RuntimePlatform {
         let termux_version = env_lookup("TERMUX_VERSION").unwrap_or_default();
         let prefix = env_lookup("PREFIX").unwrap_or_default();
 
-        if is_android_target || !termux_version.is_empty() || prefix.starts_with("/data/data/com.termux") {
+        if is_android_target
+            || !termux_version.is_empty()
+            || prefix.starts_with("/data/data/com.termux")
+        {
             let actual_prefix = if prefix.is_empty() {
                 "/data/data/com.termux/files/usr".to_string()
             } else {
                 prefix
             };
-            RuntimePlatform::AndroidTermux { prefix: actual_prefix }
+            RuntimePlatform::AndroidTermux {
+                prefix: actual_prefix,
+            }
         } else {
             RuntimePlatform::LinuxStandard
         }
