@@ -1,13 +1,29 @@
+use data::interaction_chain::InteractionChainStore;
 use base::state::TantryState;
-use base::vfs_tree::VfsTree;
 use crate::tool_scheduler::{BernsteinToolScheduler, ToolNode};
 use permissions::lattice::PermissionMode;
 use permissions::attenuation::PermissionLattice;
 use crate::slots::{HitlBypassSlot, TurnDeltaBufferSlot};
-use data::interaction_chain::InteractionChainStore;
 use uuid::Uuid;
 use chrono::Utc;
 use backends::merge::{merge_subagent_trees, VfsMergeReport};
+
+
+
+use base::ast::{SubagentMode, Message};
+use iam::svid::WorkloadSvid;
+use iam::IdentityManager;
+
+/// Specification for spawning a subagent.
+pub struct SubagentSpawnSpec {
+    pub name: String,
+    pub task_id: String,
+    pub requested_ttl: i64,
+    pub mode: SubagentMode,
+    pub task_prompt: Message,
+    pub requested_lattice: PermissionLattice,
+    pub tools: Vec<ToolNode>,
+}
 
 /// Outcome of a single run turn.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,14 +133,49 @@ pub fn execute_turn(
     Ok(RunOutcome::Completed)
 }
 
+
+
 /// Synchronous Subagent Fan-Out Orchestrator
 pub fn execute_subagents(
     parent_state: &mut TantryState,
-    subagents: Vec<VfsTree>
-) -> VfsMergeReport {
+    parent_svid: &WorkloadSvid,
+    identity_manager: &dyn IdentityManager,
+    parent_lattice: &PermissionLattice,
+    store: &InteractionChainStore,
+    specs: Vec<SubagentSpawnSpec>
+) -> Result<VfsMergeReport, String> {
     let mut branches = Vec::new();
-    for (i, tree) in subagents.into_iter().enumerate() {
-        branches.push((format!("subagent_{}", i), tree));
+
+    // In a real implementation this would use futures::future::join_all or rayon
+    for (i, spec) in specs.into_iter().enumerate() {
+        // 1. Mint narrowed SVID
+        let _child_svid = identity_manager.mint_subagent_svid(
+            parent_svid,
+            &spec.name,
+            &spec.task_id,
+            spec.requested_ttl,
+        ).map_err(|e| format!("Failed to mint subagent SVID: {:?}", e))?;
+
+        // 2. Narrow policy
+        let child_lattice = parent_lattice.narrow_for_subagent(&spec.requested_lattice);
+
+        // 3. Fork state
+        let mut child_state = parent_state.fork_for_subagent(
+            spec.mode,
+            format!("{}-{}", parent_state.thread_id, spec.name),
+            spec.task_prompt,
+        );
+
+        let ctx = RunContext {
+            lattice: child_lattice,
+        };
+        let mut task_ledger = TaskLedger { status: "RUNNING".to_string() };
+
+        // 4. Run child turn loops
+        // Note: For simplicity, we just execute one turn for the subagent here.
+        execute_turn(&mut child_state, &ctx, store, &mut task_ledger, spec.tools)?;
+
+        branches.push((format!("subagent_{}", i), child_state.files));
     }
 
     let report = merge_subagent_trees(&parent_state.files, branches, Utc::now());
@@ -132,7 +183,7 @@ pub fn execute_subagents(
     // Merge back into parent state
     parent_state.files = report.merged_tree.clone();
 
-    report
+    Ok(report)
 }
 
 /// Dummy engine loop to satisfy stub requirements.
