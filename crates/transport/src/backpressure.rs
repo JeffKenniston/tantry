@@ -2,6 +2,7 @@ use base::execution::StreamEvent;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
+/// Credit-Controlled Stream Publisher & Coalescing Buffer
 /// A struct representing a grant of credits from the consumer to the publisher.
 pub struct CreditGrant {
     /// The stream identifier.

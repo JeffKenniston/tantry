@@ -11,6 +11,7 @@ blake3 = "1.5"
 ed25519-dalek = { version = "3.0.0", features = ["rand_core", "pkcs8"] }
 tokio = { version = "1", features = ["full"] }
 ml-dsa = "0.1.1"
+rand = "0.8.5"
 
 [dev-dependencies]
 proptest = "1"
