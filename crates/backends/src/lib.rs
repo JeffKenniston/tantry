@@ -1,3 +1,4 @@
+pub mod merge;
 pub mod error;
 pub mod traits;
 pub mod state_backend;
