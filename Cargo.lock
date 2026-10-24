@@ -5126,6 +5126,7 @@ dependencies = [
  "dashmap",
  "ed25519-dalek",
  "eventsource-stream",
+ "futures",
  "futures-util",
  "ml-dsa",
  "permissions",
