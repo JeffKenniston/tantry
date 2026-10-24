@@ -12,6 +12,9 @@ ed25519-dalek = { version = "3.0.0", features = ["rand_core", "pkcs8"] }
 tokio = { version = "1", features = ["full"] }
 ml-dsa = "0.1.1"
 rand = "0.8.5"
+zenoh = "1.10.1"
+permissions = { version = "0.1.0", path = "../permissions" }
+thiserror = "2.0"
 
 [dev-dependencies]
 proptest = "1"
