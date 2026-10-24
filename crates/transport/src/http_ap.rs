@@ -1,4 +1,4 @@
-/// Agent Protocol HTTP Transport Module
+//! Agent Protocol HTTP Transport Module
 
 use reqwest::Client;
 use serde_json::Value;

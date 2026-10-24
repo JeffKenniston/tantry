@@ -51,7 +51,7 @@ impl WireEnvelope {
         hasher.update(traceparent.as_bytes());
         hasher.update(&timestamp_ms.to_be_bytes());
         hasher.update(payload_bytes);
-        hasher.finalize().into()
+        hasher.finalize()
     }
 
     /// Constructs and cryptographically signs a new `WireEnvelope` using the provided keys.
@@ -128,10 +128,8 @@ impl WireEnvelope {
         }
 
         // Verify ML-DSA-65 signature if required or provided
-        if require_pq_hybrid_signatures {
-            if self.mldsa65_sig.is_none() {
-                return Err(ExtensionError::DeserializationFailed("Missing ML-DSA-65 signature when required".to_string()));
-            }
+        if require_pq_hybrid_signatures && self.mldsa65_sig.is_none() {
+            return Err(ExtensionError::DeserializationFailed("Missing ML-DSA-65 signature when required".to_string()));
         }
 
         if let Some(sig_bytes) = &self.mldsa65_sig {
