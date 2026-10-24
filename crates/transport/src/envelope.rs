@@ -1,5 +1,6 @@
 use bytes::Bytes;
-use ed25519_dalek::{Verifier, Signature, SigningKey, VerifyingKey};
+use ed25519_dalek::{Verifier, Signature, SigningKey, VerifyingKey, Signer};
+use base::error::ExtensionError;
 use uuid::Uuid;
 use ml_dsa::MlDsa65;
 use ml_dsa::SignatureEncoding;
@@ -63,7 +64,7 @@ impl WireEnvelope {
         payload_bytes: Bytes,
         ed25519_key: &SigningKey,
         mldsa65_key: Option<&ml_dsa::SigningKey<MlDsa65>>,
-    ) -> Self {
+    ) -> Result<Self, base::error::ExtensionError> {
         let hash = Self::compute_hash(
             &envelope_id,
             &sender_spiffe_id,
@@ -71,7 +72,7 @@ impl WireEnvelope {
             timestamp_ms,
             &payload_bytes,
         );
-        let digest_bytes = digest.as_bytes();
+        let digest_bytes = hash.as_bytes();
 
         let ed25519_sig = ed25519_key.sign(digest_bytes).to_bytes().to_vec();
 
@@ -83,7 +84,7 @@ impl WireEnvelope {
             None => None,
         };
 
-        Ok(Self {
+        Ok(WireEnvelope {
             envelope_id,
             sender_spiffe_id,
             traceparent,
@@ -101,9 +102,9 @@ impl WireEnvelope {
         ed25519_pub: &VerifyingKey,
         mldsa65_pub: Option<&ml_dsa::VerifyingKey<MlDsa65>>,
         require_pq_hybrid_signatures: bool,
-    ) -> Result<(), EnvelopeError> {
+    ) -> Result<(), base::error::ExtensionError> {
         if require_pq_hybrid_signatures && self.mldsa65_sig.is_none() {
-            return Err(EnvelopeError::MissingPqSignature);
+            return Err(base::error::ExtensionError::DeserializationFailed("Missing ML-DSA-65 signature when required".to_string()));
         }
 
         let hash = Self::compute_hash(
@@ -113,7 +114,7 @@ impl WireEnvelope {
             self.timestamp_ms,
             &self.payload_bytes,
         );
-        let digest_bytes = digest.as_bytes();
+        let digest_bytes = hash.as_bytes();
 
         // Verify Ed25519 signature
         if self.ed25519_sig.len() != 64 {
