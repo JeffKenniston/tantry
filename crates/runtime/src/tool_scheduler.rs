@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 /// Represents a node in the Bernstein conflict graph for tool execution.
 #[derive(Debug)]
+#[derive(Clone)]
 pub struct ToolNode {
     /// Internal index of the tool in the current turn.
     pub id: usize,
