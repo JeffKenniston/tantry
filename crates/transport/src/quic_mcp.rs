@@ -157,6 +157,7 @@ impl QuicMcpTransport {
         remote_addr: SocketAddr,
         mut request: McpRequest,
         target_name: &str,
+        inbound_headers: Option<&reqwest::header::HeaderMap>,
     ) -> Result<Value, TransportError> {
         let protocol = self.connect(remote_addr).await?;
 
@@ -179,14 +180,25 @@ impl QuicMcpTransport {
                 let url = format!("https://{}/mcp", remote_addr);
                 let proof = self.mint_dpop_proof("POST", &url);
 
-                let res = self
+                // Anti-Token-Passthrough Guard: We never forward Authorization header
+                let mut req_builder = self
                     .http_client
                     .post(&url)
                     .header("MCP-Protocol-Version", "2026-07-28")
                     .header("Mcp-Method", &request.method)
                     .header("Mcp-Name", target_name)
                     .header("Accept", "application/json, text/event-stream")
-                    .header("DPoP", proof)
+                    .header("DPoP", proof);
+
+                if let Some(headers) = inbound_headers {
+                    for (k, v) in headers.iter() {
+                        if k.as_str().to_lowercase() != "authorization" {
+                            req_builder = req_builder.header(k.clone(), v.clone());
+                        }
+                    }
+                }
+
+                let res = req_builder
                     .json(&request)
                     .send()
                     .await
@@ -209,7 +221,7 @@ impl QuicMcpTransport {
             method: "server/discover".to_string(),
             params: serde_json::json!({}),
         };
-        self.send_request(remote_addr, request, "discover").await
+        self.send_request(remote_addr, request, "discover", None).await
     }
 
     /// Pauses/resumes a multi-round-trip request (SEP-2322 InputRequiredResult)
@@ -227,7 +239,7 @@ impl QuicMcpTransport {
                 "resumeData": resume_data
             }),
         };
-        self.send_request(remote_addr, request, target_name).await
+        self.send_request(remote_addr, request, target_name, None).await
     }
 
     /// Caches a resource (SEP-2549)
@@ -245,7 +257,7 @@ impl QuicMcpTransport {
                 "cacheScope": cache_scope
             }),
         };
-        self.send_request(remote_addr, request, target_name).await
+        self.send_request(remote_addr, request, target_name, None).await
     }
 
     /// Creates a sampling message (sampling/createMessage)
@@ -254,12 +266,16 @@ impl QuicMcpTransport {
         remote_addr: SocketAddr,
         target_name: &str,
         message: Value,
+        recursion_depth: u32,
     ) -> Result<Value, TransportError> {
+        if recursion_depth > 2 {
+            return Err(TransportError::Internal("sampling/createMessage recursion limit exceeded".to_string()));
+        }
         let request = McpRequest {
             method: "sampling/createMessage".to_string(),
             params: message,
         };
-        self.send_request(remote_addr, request, target_name).await
+        self.send_request(remote_addr, request, target_name, None).await
     }
 
     /// Creates an elicitation (elicitation/create)
@@ -273,6 +289,6 @@ impl QuicMcpTransport {
             method: "elicitation/create".to_string(),
             params: elicitation,
         };
-        self.send_request(remote_addr, request, target_name).await
+        self.send_request(remote_addr, request, target_name, None).await
     }
 }

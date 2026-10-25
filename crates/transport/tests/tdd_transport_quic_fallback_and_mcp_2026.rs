@@ -113,3 +113,26 @@ async fn test_mcp_headers_and_dpop() {
     let proof = transport.mint_dpop_proof("POST", "https://example.com");
     assert!(!proof.is_empty());
 }
+
+#[tokio::test]
+async fn test_mcp_sampling_create_message_recursion_limit() {
+    let endpoint = Endpoint::client("[::]:0".parse().unwrap()).unwrap();
+    let http_client = reqwest::Client::new();
+    let transport = QuicMcpTransport::new(endpoint, http_client, 250);
+
+    let res = transport
+        .create_message(
+            "192.0.2.1:12345".parse().unwrap(),
+            "target",
+            serde_json::json!({}),
+            3,
+        )
+        .await;
+
+    assert!(res.is_err());
+    if let Err(transport::TransportError::Internal(msg)) = res {
+        assert!(msg.contains("recursion limit exceeded"));
+    } else {
+        panic!("Expected internal error for recursion limit");
+    }
+}
