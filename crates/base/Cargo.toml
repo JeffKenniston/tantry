@@ -5,3 +5,5 @@ edition = "2024"
 rust-version = "1.85"
 
 [dependencies]
+thiserror = "2.0.21"
+uuid = { version = "1.26.1", features = ["v7"] }
