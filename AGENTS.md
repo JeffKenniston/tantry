@@ -32,6 +32,8 @@ Dependencies flow strictly top-down with zero circularity. Never add a dependenc
 | 12 | tantry | Compile-time typestate TantryBuilder, 10-stage compilation. |
 | 13 | cli | clap 4.5 CLI & 60fps responsive ratatui TUI. |
 
+Every crate has a spec file named by crate (e.g., `base.md`, `iam.md`) located in the `specs/` directory.
+
 ## 3. Non-Negotiable Coding Rules
  * Never Name a Crate core: Crate 1 is crates/base. Never create or import a workspace crate named core, as it collides with Rust's built-in ::core.
  * Production-grade/ready code & implementations: No mocks, "hacks", TODO comments, or structural simplifications are permitted in code intended for the final compilation gate.
