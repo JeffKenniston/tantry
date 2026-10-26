@@ -30,7 +30,7 @@ impl SpireSocketIdentityManager {
         .map_err(|e| IamError::SpireSocketUnavailable(e.to_string()))?;
 
         let (tx, rx) = watch::channel(());
-        let active_svid = Arc::new(RwLock::new(None));
+        let active_svid: Arc<RwLock<Option<WorkloadSvid>>> = Arc::new(RwLock::new(None));
         let historical_svids = Arc::new(RwLock::new(VecDeque::with_capacity(16)));
 
         let active_clone = Arc::clone(&active_svid);
@@ -38,7 +38,24 @@ impl SpireSocketIdentityManager {
 
         tokio::spawn(async move {
             loop {
-                sleep(Duration::from_secs(3600)).await;
+                let sleep_duration = {
+                    let current = active_clone.read().await;
+                    if let Some(svid) = &*current {
+                        let ttl = svid.expires_at.timestamp() - svid.issued_at.timestamp();
+                        let target = svid.issued_at.timestamp() + (ttl as f64 * 0.8) as i64;
+                        let now = chrono::Utc::now().timestamp();
+
+                        if target > now {
+                            Duration::from_secs((target - now) as u64)
+                        } else {
+                            Duration::from_secs(60) // Retry soon if already past rotation threshold
+                        }
+                    } else {
+                        Duration::from_secs(3600)
+                    }
+                };
+
+                sleep(sleep_duration).await;
 
                 let mut current = active_clone.write().await;
                 if let Some(svid) = current.take() {
@@ -99,13 +116,32 @@ impl crate::IdentityManager for SpireSocketIdentityManager {
     }
 
     fn verify_audit_sth(&self, sth: &crate::ca::AuditSthSignature) -> Result<(), IamError> {
-        let svid = self
-            .current_svid()
-            .ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
-        crate::ca::verify_audit_sth(
-            sth,
-            &svid.ed25519_public_key,
-            &svid.mldsa65_verifying_key_bytes,
-        )
+        if let Some(svid) = self.current_svid() {
+            if crate::ca::verify_audit_sth(
+                sth,
+                &svid.ed25519_public_key,
+                &svid.mldsa65_verifying_key_bytes,
+            ).is_ok() {
+                return Ok(());
+            }
+        }
+
+        let history = if let Ok(guard) = self.historical_svids.try_read() {
+            guard.clone()
+        } else {
+            return Err(IamError::SpireSocketUnavailable("No active svid".into()));
+        };
+
+        for svid in history.iter().rev() {
+            if crate::ca::verify_audit_sth(
+                sth,
+                &svid.ed25519_public_key,
+                &svid.mldsa65_verifying_key_bytes,
+            ).is_ok() {
+                return Ok(());
+            }
+        }
+
+        Err(IamError::SpireSocketUnavailable("No active svid".into()))
     }
 }

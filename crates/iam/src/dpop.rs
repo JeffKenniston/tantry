@@ -197,6 +197,32 @@ pub fn verify_dpop_proof(
         .get("jti")
         .and_then(|v| v.as_str())
         .ok_or_else(|| IamError::DpopValidationFailed("Missing jti".to_string()))?;
+
+    if replay_cache.len() > 1000 {
+        // Enforce bound by dropping expired entries. To avoid dropping arbitrary valid nonces,
+        // we collect expired keys in a separate pass.
+        let mut keys_to_remove = Vec::new();
+        for entry in replay_cache.iter() {
+            if (now - *entry.value()).abs() > 60 {
+                keys_to_remove.push(entry.key().clone());
+            }
+        }
+        for k in keys_to_remove {
+            replay_cache.remove(&k);
+        }
+
+        // If after pruning expired entries the cache is still somehow larger than 1000,
+        // it means we have >1000 valid DPoP tokens in a 60 second window.
+        // We will randomly drop to enforce the 1000 limit. (LRU would require a different data structure).
+        while replay_cache.len() > 1000 {
+            if let Some(k) = replay_cache.iter().next().map(|e| e.key().clone()) {
+                replay_cache.remove(&k);
+            } else {
+                break;
+            }
+        }
+    }
+
     if replay_cache.insert(jti.to_string(), now).is_some() {
         return Err(IamError::DpopReplayDetected(jti.to_string()));
     }
