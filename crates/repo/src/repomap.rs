@@ -1,7 +1,7 @@
 use base::error::ExtensionError;
 use base::typemap::{CodecTag, SlotVisibility, StateSlot};
 
-/// A token-budgeted skeletonized `RepoMap` slot.
+/// Phase 2: A token-budgeted skeletonized `RepoMap` slot.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SkeletonRepoMapSlot {
     /// The maximum number of tokens allowed.

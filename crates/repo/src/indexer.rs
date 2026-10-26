@@ -2,7 +2,7 @@ use base::vfs_tree::VfsTree;
 use rusqlite::{Connection, Result};
 use std::collections::HashSet;
 
-/// Workspace indexer for checking dirty files against SQLite state.
+/// Phase 1: Workspace indexer for checking dirty files against SQLite state.
 pub struct Indexer {
     conn: Connection,
 }

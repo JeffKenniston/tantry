@@ -11,7 +11,7 @@ pub struct RepoEngineConfig {
     pub db_path: String,
 }
 
-/// The RepoEngine Transactional Orchestrator.
+/// Phase 3: The RepoEngine Transactional Orchestrator.
 pub struct RepoEngine {
     config: RepoEngineConfig,
     pool: ThreadPool,
