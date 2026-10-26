@@ -46,8 +46,8 @@ pub fn merge_subagent_trees(
     branches: Vec<(String, VfsTree)>,
     now: DateTime<Utc>,
 ) -> VfsMergeReport {
-    let mut report = VfsMergeReport::default();
-    report.merged_tree = base.clone();
+    let mut report = VfsMergeReport { merged_tree: base.clone(), ..Default::default() };
+
 
     let mut path_ops: HashMap<String, Vec<(String, BranchOp)>> = HashMap::new();
 
@@ -136,9 +136,12 @@ pub fn merge_subagent_trees(
             let (b1, op1) = &ops[0];
             let (b2, op2) = &ops[1];
 
-            if let (BranchOp::Modify(d1), BranchOp::Modify(d2)) = (op1, op2) {
-                if d1.is_utf8 && d2.is_utf8 {
-                    if let Some(base_data) = base.get(&path) {
+            #[allow(clippy::collapsible_if)]
+        if let (BranchOp::Modify(d1), BranchOp::Modify(d2)) = (op1, op2) {
+                #[allow(clippy::collapsible_if)]
+            if d1.is_utf8 && d2.is_utf8 {
+                    #[allow(clippy::collapsible_if)]
+                if let Some(base_data) = base.get(&path) {
                         if base_data.is_utf8 {
                             let str_base = std::str::from_utf8(&base_data.content).unwrap_or("");
                             let str1 = std::str::from_utf8(&d1.content).unwrap_or("");
@@ -243,12 +246,16 @@ fn three_way_merge(base: &str, a: &str, b: &str) -> Option<String> {
             k += 1;
         } else {
             if i >= base_lines.len() {
-                if al.is_some() && bl2.is_none() {
-                    merged.push(*al.unwrap());
-                    j += 1;
-                } else if bl2.is_some() && al.is_none() {
-                    merged.push(*bl2.unwrap());
-                    k += 1;
+                if let Some(a) = al {
+                    if bl2.is_none() {
+                        merged.push(*a);
+                        j += 1;
+                    }
+                } else if let Some(b) = bl2 {
+                    if al.is_none() {
+                        merged.push(*b);
+                        k += 1;
+                    }
                 } else {
                     return None;
                 }
@@ -321,6 +328,7 @@ fn cst_merge(base: &str, a: &str, b: &str, path: &str) -> Option<String> {
             }
         }
 
+        #[allow(clippy::collapsible_if)]
         if let Some(t_merged) = parser.parse(&result, None) {
             if !t_merged.root_node().has_error() {
                 return Some(result);

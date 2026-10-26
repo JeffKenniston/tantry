@@ -215,6 +215,7 @@ async fn test_scoped_tunnel_registry_host_matching() {
 #[test]
 fn test_key_hierarchy() {
     let mut kek = [0u8; 32];
+    #[allow(clippy::needless_range_loop)]
     for i in 0..32 {
         kek[i] = i as u8;
     }

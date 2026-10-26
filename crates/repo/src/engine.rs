@@ -71,6 +71,7 @@ impl RepoEngine {
                     let mut imports = Vec::new();
                     let mut complexity = 0;
 
+                    #[allow(clippy::collapsible_if)]
                     if let Some(file_data) = vfs.get(&file_path) {
                         if let Some(source) = file_data.as_str() {
                             let parser = crate::parser::Parser::new();
@@ -185,6 +186,7 @@ impl RepoEngine {
                                     }
 
                                     // References (basic heuristic)
+                                    #[allow(clippy::collapsible_if)]
                                     if kind == "identifier" {
                                         if let Ok(text) = node.utf8_text(source.as_bytes()) {
                                             refs.push(crate::scope_graph::SymbolRef {
@@ -201,6 +203,7 @@ impl RepoEngine {
                                     }
 
                                     // Imports
+                                    #[allow(clippy::collapsible_if)]
                                     if kind == "use_declaration" || kind == "import_statement" {
                                         if let Ok(text) = node.utf8_text(source.as_bytes()) {
                                             imports.push(crate::scope_graph::ImportEdge {

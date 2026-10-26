@@ -105,6 +105,7 @@ impl GraphCentrality {
             }
 
             for edge in &self.edges {
+                #[allow(clippy::collapsible_if)]
                 if edge.callee_id == current_node {
                     if !visited.contains(&edge.caller_id) {
                         visited.insert(edge.caller_id.clone());

@@ -37,7 +37,7 @@ impl StateBackend {
             self.walk_dir(child_dir, matches, &new_path, matcher);
         }
 
-        for (name, _) in &node.files {
+        for name in node.files.keys() {
             let new_path = if current_path.is_empty() {
                 name.clone()
             } else {
@@ -78,7 +78,7 @@ impl VfsBackend for StateBackend {
         }
 
         let mut entries = Vec::new();
-        for (name, _) in &current_dir.subdirs {
+        for name in current_dir.subdirs.keys() {
             entries.push(DirEntryInfo {
                 name: name.clone(),
                 is_dir: true,
@@ -216,6 +216,7 @@ impl VfsBackend for StateBackend {
 
         let mut grep_matches = Vec::new();
         for path in paths {
+            #[allow(clippy::collapsible_if)]
             if let Some(file_data) = state.files.get(&path) {
                 if let Ok(content_str) = std::str::from_utf8(&file_data.content) {
                     for (i, line) in content_str.lines().enumerate() {
