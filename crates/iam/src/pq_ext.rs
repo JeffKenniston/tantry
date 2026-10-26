@@ -62,6 +62,7 @@ pub fn generate_pq_extension(
 
     let oid = vec![1, 3, 6, 1, 4, 1, 99999, 1, 204];
 
-    let ext = CustomExtension::from_oid_content(&oid, encoded_payload);
+    let mut ext = CustomExtension::from_oid_content(&oid, encoded_payload);
+    ext.set_criticality(false);
     Ok(ext)
 }

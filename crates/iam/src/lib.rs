@@ -16,6 +16,14 @@ pub use spire::*;
 pub use svid::*;
 pub use tunnel_grant::*;
 
+use base::error::ExtensionError;
+#[allow(unused_imports)]
+use base::path::PosixPath;
+
+
+use base::typemap::{CodecTag, SlotVisibility, StateSlot};
+
+
 pub trait IdentityManager: Send + Sync {
     fn current_svid(&self) -> Option<WorkloadSvid> {
         None
@@ -117,19 +125,19 @@ pub struct WorkloadIdentitySlot {
     pub traceparent: Option<String>,
 }
 
-impl base::typemap::StateSlot for WorkloadIdentitySlot {
+impl StateSlot for WorkloadIdentitySlot {
     const WIRE_KEY: &'static str = "tantry.iam.workload_identity";
-    const VISIBILITY: base::typemap::SlotVisibility = base::typemap::SlotVisibility::Shared;
-    const CODEC_TAG: base::typemap::CodecTag = base::typemap::CodecTag::MessagePackNamed;
+    const VISIBILITY: SlotVisibility = SlotVisibility::Shared;
+    const CODEC_TAG: CodecTag = CodecTag::MessagePackNamed;
 
-    fn encode_payload(&self) -> Result<Vec<u8>, base::error::ExtensionError> {
+    fn encode_payload(&self) -> Result<Vec<u8>, ExtensionError> {
         rmp_serde::to_vec_named(self)
-            .map_err(|e| base::error::ExtensionError::SerializationFailed(e.to_string()))
+            .map_err(|e| ExtensionError::SerializationFailed(e.to_string()))
     }
 
-    fn decode_payload(bytes: &[u8]) -> Result<Self, base::error::ExtensionError> {
+    fn decode_payload(bytes: &[u8]) -> Result<Self, ExtensionError> {
         rmp_serde::from_slice(bytes)
-            .map_err(|e| base::error::ExtensionError::DeserializationFailed(e.to_string()))
+            .map_err(|e| ExtensionError::DeserializationFailed(e.to_string()))
     }
 }
 
