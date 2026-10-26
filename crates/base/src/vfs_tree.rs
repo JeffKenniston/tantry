@@ -288,3 +288,9 @@ impl VfsTree {
         (deltas, nodes_visited)
     }
 }
+
+impl Default for VfsTree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
