@@ -7,6 +7,9 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 /// LlmProvider trait
+pub type StreamEventResult = Result<StreamEvent, CognitiveError>;
+pub type PinnedStream = Pin<Box<dyn Stream<Item = StreamEventResult> + Send>>;
+
 pub trait LlmProvider: Send + Sync {
     /// complete method
     fn complete(&self, req: ModelRequest) -> Result<ModelResponse, CognitiveError>;
@@ -55,7 +58,9 @@ impl SpeculativeCascadeVerifier {
                         check_buffer.push_str(text_delta);
 
                         let mut has_malformed = false;
+                        #[allow(clippy::collapsible_if)]
                         if check_buffer.contains("```json\n{\n") {
+                            #[allow(clippy::collapsible_if)]
                             if tokens_checked >= 64 {
                                 if let Some(start) = check_buffer.find("```json\n") {
                                     let content = &check_buffer[start + 8..];
@@ -86,11 +91,7 @@ impl SpeculativeCascadeVerifier {
                                         } else {
                                             if c == '"' && !is_escaped {
                                                 in_string = false;
-                                            } else if c == '\\' && !is_escaped {
-                                                is_escaped = true;
-                                            } else {
-                                                is_escaped = false;
-                                            }
+                                            } else { is_escaped = c == '\\' && !is_escaped; }
                                         }
                                     }
 

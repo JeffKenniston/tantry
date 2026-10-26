@@ -456,6 +456,7 @@ impl AuditMmrStore {
             .unwrap()
             .as_millis() as i64;
 
+        #[allow(clippy::unnecessary_cast)]
         iam.sign_audit_sth(tree_size, timestamp_ms as i64, &mmr_root)
             .map_err(|e| DataError::Serialization(format!("STH Sign Error: {:?}", e)))
     }

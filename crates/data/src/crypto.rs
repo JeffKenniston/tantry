@@ -65,7 +65,7 @@ pub fn encrypt_envelope_xchacha20(
 
     let payload = chacha20poly1305::aead::Payload {
         msg: &compressed,
-        aad: aad,
+        aad,
     };
 
     let ciphertext = cipher
@@ -181,11 +181,11 @@ pub fn get_or_provision_key_epoch(
                 "SELECT epoch_salt FROM key_epochs WHERE thread_id = ?1 AND key_epoch = ?2",
             )?;
             let mut epoch_arr = [0u8; 32];
-            if let Some(r) = epoch_stmt
+            #[allow(clippy::collapsible_if)]
+            if let Ok(r) = epoch_stmt
                 .query_row(rusqlite::params![thread_id, key_epoch], |r| {
                     r.get::<_, Vec<u8>>(0)
                 })
-                .ok()
             {
                 if r.len() == 32 {
                     epoch_arr.copy_from_slice(&r);

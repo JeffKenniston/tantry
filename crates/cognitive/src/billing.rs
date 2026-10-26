@@ -120,6 +120,7 @@ impl BudgetLeaseGuard {
     }
 
     /// Post-Call Settlement & Signed 90% Webhook (`settle`):
+    #[allow(clippy::too_many_arguments)]
     pub fn settle(
         mut self,
         n_in: i64,
@@ -143,6 +144,7 @@ impl BudgetLeaseGuard {
             .settle_budget(&self.task_id, self.lease_micros, actual_cost_micros, 0.9)
             .map_err(|e| CognitiveError::DatabaseError(e.to_string()))?;
 
+        #[allow(clippy::collapsible_if)]
         if should_fire_webhook {
             if let (Some(url), Some(svid)) = (webhook_url, svid) {
                 let task_opt = self.ledger.get_task(&self.task_id).unwrap_or(None);

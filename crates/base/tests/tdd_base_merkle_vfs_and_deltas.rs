@@ -91,7 +91,7 @@ fn test_message_delta_apply() {
     let evicted = MessageDelta::apply(&mut messages, delta_patch).unwrap();
     assert_eq!(evicted.len(), 1);
     assert_eq!(evicted[0].id, id_to_patch);
-    assert_eq!(messages[1].metadata.contains_key("patched"), true);
+    assert!(messages[1].metadata.contains_key("patched"));
 
     // CompactRange
     let summary = Message::system("summary".to_string(), None);
@@ -242,18 +242,18 @@ fn test_interpolate_env_vars() {
     };
 
     // Basic substitution
-    let res = interpolate_env_vars("${PREFIX}/var/lib/tantry", &env_lookup);
+    let res = interpolate_env_vars("${PREFIX}/var/lib/tantry", env_lookup);
     assert_eq!(res, "/data/data/com.termux/files/usr/var/lib/tantry");
 
     // Default fallback when env is missing
-    let res2 = interpolate_env_vars("${MISSING:-/usr}/bin/jailer", &env_lookup);
+    let res2 = interpolate_env_vars("${MISSING:-/usr}/bin/jailer", env_lookup);
     assert_eq!(res2, "/usr/bin/jailer");
 
     // Default fallback when env is present but empty
-    let res3 = interpolate_env_vars("${EMPTY_VAR:-/usr}/bin/jailer", &env_lookup);
+    let res3 = interpolate_env_vars("${EMPTY_VAR:-/usr}/bin/jailer", env_lookup);
     assert_eq!(res3, "/usr/bin/jailer");
 
     // Missing without default (should be stripped or left empty? spec says interpolate env vars, if missing standard shell replaces with empty)
-    let res4 = interpolate_env_vars("${MISSING_NO_DEFAULT}/bin", &env_lookup);
+    let res4 = interpolate_env_vars("${MISSING_NO_DEFAULT}/bin", env_lookup);
     assert_eq!(res4, "/bin");
 }

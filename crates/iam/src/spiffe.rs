@@ -30,10 +30,17 @@ impl SpiffeId {
             ));
         }
 
-        for segment in uri.path_segments().unwrap_or("".split('/')) {
-            if segment == "." || segment == ".." {
+        let segments: Vec<&str> = uri.path_segments().unwrap_or("".split('/')).collect();
+        if segments.len() < 4 || segments[0] != "agent" || segments[2] != "task" {
+            return Err(IamError::InvalidSpiffeId(
+                "Path must follow /agent/{agent_name}/task/{task_id}".to_string(),
+            ));
+        }
+
+        for segment in segments {
+            if segment == "." || segment == ".." || segment.is_empty() {
                 return Err(IamError::InvalidSpiffeId(
-                    "Path segments cannot be . or ..".to_string(),
+                    "Path segments cannot be empty, ., or ..".to_string(),
                 ));
             }
         }
@@ -58,7 +65,12 @@ impl SpiffeId {
         ));
         new_uri.set_path(&path);
 
-        let expected_prefix = format!("{}/subagent/", self.uri.as_str());
+        let mut base_str = self.uri.as_str().to_string();
+        if base_str.ends_with('/') {
+            base_str.pop();
+        }
+        let expected_prefix = format!("{}/subagent/", base_str);
+
         if !new_uri.as_str().starts_with(&expected_prefix) {
             return Err(IamError::HierarchyViolation {
                 parent: self.uri.to_string(),

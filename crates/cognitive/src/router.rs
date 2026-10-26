@@ -108,12 +108,14 @@ pub fn generate_context_vector(
 /// Gauss-Jordan inversion of 12x12 matrix with partial pivoting and Tikhonov jitter.
 fn invert_matrix(mut a: [[f64; 12]; 12]) -> [[f64; 12]; 12] {
     let mut inv = [[0.0; 12]; 12];
-    for i in 0..12 {
+    #[allow(clippy::needless_range_loop)]
+            for i in 0..12 {
         inv[i][i] = 1.0;
         a[i][i] += 1e-6; // Tikhonov jitter
     }
 
-    for i in 0..12 {
+    #[allow(clippy::needless_range_loop)]
+            for i in 0..12 {
         let mut pivot = i;
         for j in i + 1..12 {
             if a[j][i].abs() > a[pivot][i].abs() {
@@ -174,6 +176,7 @@ impl Router {
 
         for tier in tiers {
             let mut a = [[0.0; 12]; 12];
+            #[allow(clippy::needless_range_loop)]
             for i in 0..12 {
                 a[i][i] = 1.0;
             }
@@ -184,6 +187,7 @@ impl Router {
     }
 
     /// Evaluates safety guardrails and applies the 12D Disjoint LinUCB + Projected Thompson Sampling algorithm to select the optimal `ModelTier`.
+    #[allow(clippy::too_many_arguments)]
     pub fn select_arm(
         &self,
         context_x: [f64; 12],
@@ -232,6 +236,7 @@ impl Router {
 
             // Calculate theta_hat = A^-1 * b
             let mut theta_hat = [0.0; 12];
+            #[allow(clippy::needless_range_loop)]
             for i in 0..12 {
                 for j in 0..12 {
                     theta_hat[i] += a_inv[i][j] * b[j];
@@ -242,6 +247,7 @@ impl Router {
             let mut dot_product = 0.0;
             let mut variance = 0.0;
 
+            #[allow(clippy::needless_range_loop)]
             for i in 0..12 {
                 dot_product += theta_hat[i] * context_x[i];
                 let mut temp = 0.0;
@@ -272,6 +278,7 @@ impl Router {
     /// Updates the covariance matrix and reward vector for a given arm using the observed context and composite reward.
     pub fn update_arm(&mut self, arm: ModelTier, context_x: [f64; 12], reward: f64) {
         if let Some((a, b)) = self.arms.get_mut(arm.as_str()) {
+            #[allow(clippy::needless_range_loop)]
             for i in 0..12 {
                 for j in 0..12 {
                     a[i][j] += context_x[i] * context_x[j];
