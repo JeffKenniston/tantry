@@ -1,0 +1,13 @@
+[package]
+name = "iam"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base = { path = "../base" }
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
+blake3 = "1.5"
+rmp-serde = "1.3"
+serde = { version = "1.0", features = ["derive"] }
+rcgen = "0.13"
+thiserror = "2.0"
