@@ -14,32 +14,8 @@ use wasmtime_wasi::{
 use crate::egress_proxy::ScopedTunnelRegistry;
 use base::path::validate_and_normalize_path;
 // Dummy types to satisfy Phase 3 specs when specific dependencies are out of scope
-pub struct PermissionLattice {}
-impl PermissionLattice {
-    pub fn evaluate_fs(_state: &TantryState, _path: &str, _op: &str) -> bool {
-        true
-    }
-    pub fn evaluate_net(_state: &TantryState, _service: &str) -> bool {
-        true
-    }
-}
 
-pub struct RepoEngine {}
-impl RepoEngine {
-    pub fn query_symbols(_state: &TantryState, _query: &str) -> String {
-        "[]".to_string()
-    }
-    pub fn blast_radius(_state: &TantryState, _symbol: &str) -> String {
-        "[]".to_string()
-    }
-}
 
-pub struct IdentityManager {}
-impl IdentityManager {
-    pub fn request_scoped_token(_state: &TantryState, _service: &str, _ttl_secs: u64) -> String {
-        "token".to_string()
-    }
-}
 
 /// WasmHostState struct
 pub struct WasmHostState {
@@ -79,7 +55,7 @@ impl tantry::runtime::fs::Host for WasmHostState {
             .map_err(|e| e.to_string())?
             .to_string();
         let state = self.state.lock().unwrap();
-        if !PermissionLattice::evaluate_fs(&state, &normalized, "read") {
+        if state.extensions.get::<iam::WorkloadIdentitySlot>().is_none() /* mock permission check */ {
             return Err("Permission denied".to_string());
         }
         self.vfs
@@ -91,7 +67,7 @@ impl tantry::runtime::fs::Host for WasmHostState {
             .map_err(|e| e.to_string())?
             .to_string();
         let mut state = self.state.lock().unwrap();
-        if !PermissionLattice::evaluate_fs(&state, &normalized, "write") {
+        if state.extensions.get::<iam::WorkloadIdentitySlot>().is_none() /* mock permission check */ {
             return Err("Permission denied".to_string());
         }
         self.vfs
@@ -104,7 +80,7 @@ impl tantry::runtime::fs::Host for WasmHostState {
             .map_err(|e| e.to_string())?
             .to_string();
         let state = self.state.lock().unwrap();
-        if !PermissionLattice::evaluate_fs(&state, &normalized, "read") {
+        if state.extensions.get::<iam::WorkloadIdentitySlot>().is_none() /* mock permission check */ {
             return Err("Permission denied".to_string());
         }
         self.vfs
@@ -115,13 +91,13 @@ impl tantry::runtime::fs::Host for WasmHostState {
 }
 
 impl tantry::runtime::graph::Host for WasmHostState {
-    async fn query_symbols(&mut self, query: String) -> Result<String, String> {
-        let state = self.state.lock().unwrap();
-        Ok(RepoEngine::query_symbols(&state, &query))
+    async fn query_symbols(&mut self, _query: String) -> Result<String, String> {
+        let _state = self.state.lock().unwrap();
+        Ok("[]".to_string())
     }
-    async fn blast_radius(&mut self, symbol: String) -> Result<String, String> {
-        let state = self.state.lock().unwrap();
-        Ok(RepoEngine::blast_radius(&state, &symbol))
+    async fn blast_radius(&mut self, _symbol: String) -> Result<String, String> {
+        let _state = self.state.lock().unwrap();
+        Ok("[]".to_string())
     }
 }
 
@@ -129,12 +105,12 @@ impl tantry::runtime::tunnel::Host for WasmHostState {
     async fn request_scoped_token(
         &mut self,
         service: String,
-        ttl_secs: u64,
+        _ttl_secs: u64,
     ) -> Result<String, String> {
         let state = self.state.lock().unwrap();
         // Since state.lattice.net.evaluate_egress isn't fully defined yet in base, dummy it.
         // We will mock this to always succeed for tests until Phase integration.
-        if !PermissionLattice::evaluate_net(&state, &service) {
+        if state.extensions.get::<iam::WorkloadIdentitySlot>().is_none() /* mock permission check */ {
             return Err("Permission denied".to_string());
         }
 
@@ -142,9 +118,7 @@ impl tantry::runtime::tunnel::Host for WasmHostState {
         if !ScopedTunnelRegistry::is_service_active(&service, now_ms) {
             // Usually we'd register it, but for now just dummy return
         }
-        Ok(IdentityManager::request_scoped_token(
-            &state, &service, ttl_secs,
-        ))
+        Ok("token".to_string())
     }
 }
 

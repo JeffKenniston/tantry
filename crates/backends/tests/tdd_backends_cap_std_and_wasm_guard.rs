@@ -93,6 +93,8 @@ fn test_termux_zygote_reap() {
     assert!(pool.max_workers <= 8);
 
     // Negative tests for reaping, should just pass without ESRCH
+    // We cannot instantiate TaskLedgerStore here because rusqlite is missing, let's fix termux supervisor itself to not require it directly for this test
+
     assert!(TermuxZygotePool::reap_process_group(99999).is_ok());
 }
 

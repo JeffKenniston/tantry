@@ -28,7 +28,7 @@ pub struct HostCapabilityProbe;
 
 impl HostCapabilityProbe {
     /// Detect optimal sandbox tier
-    pub fn detect(_config: &SandboxesConfig, platform: &RuntimePlatform) -> IsolationTier {
+    pub fn detect(_config: &SandboxesConfig, platform: &RuntimePlatform, _svid: &permissions::ext::SpiffeId) -> IsolationTier {
         if let Ok(_file) = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
