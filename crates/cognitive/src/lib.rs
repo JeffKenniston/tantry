@@ -5,7 +5,10 @@ pub mod semantic_cache;
 pub mod tokenizer;
 pub mod cascade;
 
-use base::execution::{ModelRequest, ModelResponse};
+
+pub use cascade::{LlmProvider, SpeculativeCascadeVerifier};
+pub use base::execution::{ModelRequest, ModelResponse, StreamEvent, ModelTier};
+
 use base::state::TantryState;
 use base::ast::McpSamplingDepthSlot;
 use data::task_ledger::TaskLedgerStore;
