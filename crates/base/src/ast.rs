@@ -18,8 +18,8 @@ pub type TaskId = String;
 pub struct McpSamplingDepthSlot { pub depth: u32 }
 
 impl crate::typemap::StateSlot for McpSamplingDepthSlot {
-    const WIRE_KEY: &'static str = "tantry.cognitive.mcp_sampling_depth";
-    const VISIBILITY: crate::typemap::SlotVisibility = crate::typemap::SlotVisibility::Private;
+    const WIRE_KEY: &'static str = "tantry.runtime.mcp_sampling_depth";
+    const VISIBILITY: crate::typemap::SlotVisibility = crate::typemap::SlotVisibility::Shared;
     const CODEC_TAG: crate::typemap::CodecTag = crate::typemap::CodecTag::RkyvAligned;
 
     fn encode_payload(&self) -> Result<Vec<u8>, crate::error::ExtensionError> {
