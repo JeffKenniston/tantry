@@ -17,3 +17,5 @@ mod tests {
         assert_eq!(result, 4);
     }
 }
+pub mod ast; pub mod vfs_tree;
+pub mod delta;
