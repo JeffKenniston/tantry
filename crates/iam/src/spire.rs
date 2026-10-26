@@ -11,12 +11,15 @@ use crate::tunnel_grant::ScopedTunnelRegistry;
 use crate::ca::SovereignCaIdentityManager;
 use tokio::time::Duration;
 
+use dashmap::DashMap;
+
 pub struct SpireSocketIdentityManager {
     pub socket_path: String,
     pub svid_rx: watch::Receiver<Option<Arc<WorkloadSvid>>>,
     pub historical_keys: Arc<RwLock<VecDeque<(Arc<WorkloadSvid>, i64)>>>, // (svid, expires_at)
     pub registry: Arc<ScopedTunnelRegistry>,
     pub keys: Arc<KeyHierarchy>,
+    pub dpop_cache: Arc<DashMap<String, i64>>,
 }
 
 impl SpireSocketIdentityManager {
@@ -103,6 +106,7 @@ impl SpireSocketIdentityManager {
             historical_keys,
             registry,
             keys,
+            dpop_cache: Arc::new(DashMap::new()),
         })
     }
 }
@@ -112,6 +116,7 @@ pub struct DualModeIdentityProvider {
     pub fallback: Option<SovereignCaIdentityManager>,
     pub registry: Arc<ScopedTunnelRegistry>,
     pub keys: Arc<KeyHierarchy>,
+    pub dpop_cache: Arc<DashMap<String, i64>>,
 }
 
 impl DualModeIdentityProvider {
@@ -141,6 +146,7 @@ impl DualModeIdentityProvider {
             fallback,
             registry,
             keys,
+            dpop_cache: Arc::new(DashMap::new()),
         }
     }
 }
@@ -148,6 +154,51 @@ impl DualModeIdentityProvider {
 impl IdentityManager for SpireSocketIdentityManager {
     fn current_svid(&self) -> Option<Arc<WorkloadSvid>> {
         self.svid_rx.borrow().clone()
+    }
+
+    fn verify_dpop_proof(&self, proof: &str, htm: &str, htu: &str, access_token: &str) -> Result<(), IamError> {
+        crate::dpop::verify_dpop_proof(proof, htm, htu, Some(access_token), &self.dpop_cache)
+    }
+
+    fn request_scoped_tunnel_token(&self, service_name: &str, ttl_secs: i64) -> Result<Arc<crate::tunnel_grant::ScopedTunnelGrant>, IamError> {
+        let svid = self.current_svid().ok_or(IamError::MasterKeyUnavailable)?;
+        self.registry.issue_grant(&svid, service_name, ttl_secs)
+    }
+
+    fn verify_scoped_tunnel_token(&self, token: &str) -> Result<Arc<crate::tunnel_grant::ScopedTunnelGrant>, IamError> {
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() != 3 {
+            return Err(IamError::Ed25519VerificationFailed);
+        }
+        let claims_bytes = base64::Engine::decode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            parts[1]
+        ).map_err(|_| IamError::Ed25519VerificationFailed)?;
+        let claims: serde_json::Value = serde_json::from_slice(&claims_bytes).map_err(|_| IamError::Ed25519VerificationFailed)?;
+
+        let expected_aud = claims["aud"][0].as_str().ok_or(IamError::Ed25519VerificationFailed)?;
+
+        let hist = self.historical_keys.read().unwrap();
+        for (svid, _) in hist.iter() {
+            if let Ok(grant) = self.registry.verify_token(token, &svid.ed25519_public_key, &svid.mldsa65_verifying_key_bytes, expected_aud, true) {
+                return Ok(grant);
+            }
+        }
+        Err(IamError::Ed25519VerificationFailed)
+    }
+
+    fn is_service_tunnel_active(&self, host_or_authority: &str) -> bool {
+        self.registry.is_service_active(host_or_authority)
+    }
+
+    fn verify_audit_sth(&self, sth: &crate::audit_sth::AuditSthSignature) -> Result<(), IamError> {
+        let hist = self.historical_keys.read().unwrap();
+        for (svid, _) in hist.iter() {
+            if let Ok(()) = crate::audit_sth::verify_audit_sth(sth, &svid.ed25519_public_key, &svid.mldsa65_verifying_key_bytes) {
+                return Ok(());
+            }
+        }
+        Err(IamError::Ed25519VerificationFailed)
     }
 
     fn key_hierarchy(&self) -> Arc<KeyHierarchy> {
@@ -166,6 +217,47 @@ impl IdentityManager for DualModeIdentityProvider {
             return fallback.current_svid();
         }
         None
+    }
+
+    fn verify_dpop_proof(&self, proof: &str, htm: &str, htu: &str, access_token: &str) -> Result<(), IamError> {
+        crate::dpop::verify_dpop_proof(proof, htm, htu, Some(access_token), &self.dpop_cache)
+    }
+
+    fn request_scoped_tunnel_token(&self, service_name: &str, ttl_secs: i64) -> Result<Arc<crate::tunnel_grant::ScopedTunnelGrant>, IamError> {
+        let svid = self.current_svid().ok_or(IamError::MasterKeyUnavailable)?;
+        self.registry.issue_grant(&svid, service_name, ttl_secs)
+    }
+
+    fn verify_scoped_tunnel_token(&self, token: &str) -> Result<Arc<crate::tunnel_grant::ScopedTunnelGrant>, IamError> {
+        if let Some(primary) = &self.primary {
+            if let Ok(res) = primary.verify_scoped_tunnel_token(token) {
+                return Ok(res);
+            }
+        }
+        if let Some(fallback) = &self.fallback {
+            if let Ok(res) = fallback.verify_scoped_tunnel_token(token) {
+                return Ok(res);
+            }
+        }
+        Err(IamError::TunnelGrantExpiredOrInvalid("Could not verify tunnel token".to_string()))
+    }
+
+    fn is_service_tunnel_active(&self, host_or_authority: &str) -> bool {
+        self.registry.is_service_active(host_or_authority)
+    }
+
+    fn verify_audit_sth(&self, sth: &crate::audit_sth::AuditSthSignature) -> Result<(), IamError> {
+        if let Some(primary) = &self.primary {
+            if let Ok(()) = primary.verify_audit_sth(sth) {
+                return Ok(());
+            }
+        }
+        if let Some(fallback) = &self.fallback {
+            if let Ok(()) = fallback.verify_audit_sth(sth) {
+                return Ok(());
+            }
+        }
+        Err(IamError::Ed25519VerificationFailed)
     }
 
     fn key_hierarchy(&self) -> Arc<KeyHierarchy> {

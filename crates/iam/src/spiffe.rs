@@ -23,11 +23,16 @@ impl SpiffeId {
         let mut parts = without_scheme.split('/');
         let trust_domain = parts.next().ok_or_else(|| IamError::InvalidSpiffeId("Missing trust domain".to_string()))?;
 
-        if trust_domain.is_empty() {
-            return Err(IamError::InvalidSpiffeId("Empty trust domain".to_string()));
+        if trust_domain.is_empty() || trust_domain.len() > 255 {
+            return Err(IamError::InvalidSpiffeId("Invalid trust domain".to_string()));
         }
 
-        // Simple RFC 3986 trust domain check (just alphanum, -, . for now, but not checking strictly unless needed)
+        for c in trust_domain.chars() {
+            if !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.') {
+                return Err(IamError::InvalidSpiffeId("Trust domain contains invalid characters".to_string()));
+            }
+        }
+
         // Ensure no empty segments and no . or ..
         for segment in parts {
             if segment.is_empty() {
