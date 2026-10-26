@@ -3,6 +3,15 @@ use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
 
 /// Implements a two-stage vector database using binary quantization for coarse filtering and Int8 RaBitQ for exact rescoring.
+pub const VECTOR_INDEX_DDL: &str = "
+CREATE TABLE IF NOT EXISTS vector_index (
+    id TEXT PRIMARY KEY,
+    packed_sign_blob BLOB NOT NULL,
+    i8_vec_blob BLOB NOT NULL,
+    scale_factor REAL NOT NULL
+);
+";
+
 pub struct MatryoshkaVectorStore {
     /// The thread-safe SQLite connection pool shared by all operations in this store.
     pub db: Arc<Mutex<Connection>>,
@@ -10,8 +19,9 @@ pub struct MatryoshkaVectorStore {
 
 impl MatryoshkaVectorStore {
     /// Initializes a new MatryoshkaVectorStore wrapping the provided database connection.
-    pub fn new(db: Arc<Mutex<Connection>>) -> Self {
-        Self { db }
+    pub fn new(path: &str) -> Result<Self, DataError> {
+        let handle = crate::db::DbHandle::new(path, VECTOR_INDEX_DDL)?;
+        Ok(Self { db: handle.writer })
     }
 
     /// Normalizes, quantizes (1-bit and Int8), and persists a dense embedding vector into the store.

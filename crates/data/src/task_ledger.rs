@@ -4,6 +4,25 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Manages persistent storage for agent task budgets, lifecycle states, and contextual multi-armed bandit (LinUCB) models.
+pub const TASK_LEDGER_DDL: &str = "
+CREATE TABLE IF NOT EXISTS task_ledger (
+    task_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    spent_budget_micros INTEGER NOT NULL,
+    reserved_budget_micros INTEGER NOT NULL,
+    hard_budget_micros INTEGER NOT NULL,
+    webhook_90_fired INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS linucb_bandit_arms (
+    arm_tier TEXT PRIMARY KEY,
+    matrix_a_blob BLOB NOT NULL,
+    vector_b_blob BLOB NOT NULL,
+    pull_count INTEGER NOT NULL DEFAULT 0,
+    updated_at_ms INTEGER NOT NULL
+);
+";
+
 pub struct TaskLedgerStore {
     /// The thread-safe SQLite connection pool shared by all operations in this store.
     pub db: Arc<Mutex<Connection>>,
@@ -43,8 +62,9 @@ pub struct LinUcbArm {
 
 impl TaskLedgerStore {
     /// Initializes a new TaskLedgerStore wrapping the provided database connection.
-    pub fn new(db: Arc<Mutex<Connection>>) -> Self {
-        Self { db }
+    pub fn new(path: &str) -> Result<Self, DataError> {
+        let handle = crate::db::DbHandle::new(path, TASK_LEDGER_DDL)?;
+        Ok(Self { db: handle.writer })
     }
 
     /// Inserts a new pending task into the ledger with a predefined hard budget.

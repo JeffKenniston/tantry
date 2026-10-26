@@ -5,8 +5,6 @@ use data::error::DataError;
 use data::vector_index::MatryoshkaVectorStore;
 use iam::key_hierarchy::KeyHierarchy;
 use iam::{AuditSthSignature, IdentityManager};
-use rusqlite::Connection;
-use std::sync::{Arc, Mutex};
 
 #[test]
 fn test_writer_first_dbhandle() {
@@ -94,29 +92,14 @@ impl IdentityManager for MockIdentityManager {
 
 #[test]
 fn test_audit_mmr() {
-    let tmp = std::env::temp_dir().join("test_audit.sqlite");
-    let _ = std::fs::remove_file(&tmp);
-    let writer = Connection::open(tmp.to_str().unwrap()).unwrap();
-    writer.pragma_update(None, "journal_mode", "WAL").unwrap();
-    writer.execute_batch("BEGIN TRANSACTION;").unwrap();
-
-    writer.execute_batch("
-        CREATE TABLE audit_log (seq_no INTEGER PRIMARY KEY, timestamp_ms INTEGER, spiffe_id TEXT, thread_id TEXT, event_kind TEXT, payload_json TEXT, entry_hash BLOB);
-        CREATE TABLE audit_mmr_nodes (mmr_pos INTEGER PRIMARY KEY, height INTEGER, node_hash BLOB, seq_no INTEGER);
-        CREATE TABLE audit_signed_tree_heads (tree_size INTEGER PRIMARY KEY, timestamp_ms INTEGER, mmr_root_blake3 BLOB, ed25519_sig BLOB, mldsa65_sig BLOB);
-    ").unwrap();
-
-    let db = Arc::new(Mutex::new(writer));
-    let mmr = AuditMmrStore::new(db);
+    let mmr = AuditMmrStore::new("file:audit_test?mode=memory&cache=shared").unwrap();
 
     for i in 1..=1000 {
         mmr.append_entry(i, i * 1000, "spiffe://test", "thread1", "test", "{}")
             .unwrap();
     }
 
-    let w = mmr.db.lock().unwrap();
-    w.execute("COMMIT", []).unwrap();
-    drop(w);
+    // DDL already commits natively.
     let iam = MockIdentityManager;
     let sth = mmr.record_signed_tree_head(&iam).unwrap();
     assert_eq!(sth.tree_size, 1000);
@@ -151,13 +134,7 @@ fn test_audit_mmr() {
 
 #[test]
 fn test_quantized_vec() {
-    let tmp = std::env::temp_dir().join("test_vec.sqlite");
-    let _ = std::fs::remove_file(&tmp);
-    let writer = Connection::open(tmp.to_str().unwrap()).unwrap();
-    writer.pragma_update(None, "journal_mode", "WAL").unwrap();
-    writer.execute_batch("BEGIN TRANSACTION;").unwrap();
-    let db = Arc::new(Mutex::new(writer));
-    let store = MatryoshkaVectorStore::new(db);
+    let store = MatryoshkaVectorStore::new("file:vec_test?mode=memory&cache=shared").unwrap();
 
     let vec1: Vec<f32> = vec![0.1, 0.2, 0.3, -0.4];
     let vec2: Vec<f32> = vec![-0.1, -0.2, -0.3, 0.4];
