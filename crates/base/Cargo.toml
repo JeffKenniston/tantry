@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+rpds = "1.1"
 thiserror = "1"
 uuid = { version = "1", features = ["v7", "serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
