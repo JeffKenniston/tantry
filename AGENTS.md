@@ -35,7 +35,7 @@ Dependencies flow strictly top-down with zero circularity. Never add a dependenc
 
 ## 3. Non-Negotiable Coding Rules
  * Never Name a Crate core: Crate 1 is crates/base. Never create or import a workspace crate named core, as it collides with Rust's built-in ::core.
- * Production-grade/ready code & implementations: No mocks, "hacks", TODO comments, or structural simplifications are permitted in code intended for the final compilation gate.
+ * Production-grade/ready code & implementations: No mocks, "hacks", TODO comments, unimplemented, or simplifications are permitted in code. No skipping ANYTHING, all traits/structs/functions/logic/etc. must be fully implemented!
  * Zero Panic Placeholders: Never commit panic-inducing macros or empty structures; all temporary scaffolding, todo!(), and unimplemented!() hooks must be fully implemented before staging.
  * Strict Error Propagation: Forbid the use of .unwrap() or .expect() on Option and Result types; every potential failure path must be explicitly mapped to a custom domain error type via idiomatic Result propagation.
  * Exhaustive Match Handling: Avoid wildcard match arms (_) when matching on local or internal domain enums; compile-time exhaustiveness checks must be strictly leveraged to catch unhandled states and edge cases.
