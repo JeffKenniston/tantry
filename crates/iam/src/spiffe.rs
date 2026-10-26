@@ -65,3 +65,9 @@ impl SpiffeId {
         Self::parse(&child_uri)
     }
 }
+
+impl std::fmt::Display for SpiffeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.uri)
+    }
+}
