@@ -86,7 +86,7 @@ pub enum ContentBlock {
     ToolUse {
         tool_call_id: ToolCallId,
         name: String,
-        input: BTreeMap<String, String>, // Using BTreeMap for simplicity in stub
+        input: serde_json::Value, // Using BTreeMap for simplicity in stub
     },
     ToolResult {
         tool_call_id: ToolCallId,
@@ -219,4 +219,4 @@ impl FileData {
 #[derive(Debug, Clone)] pub struct AsyncTaskStatus;
 #[derive(Debug, Clone)] pub struct AsyncTaskHandle;
 #[derive(Debug, Clone)] pub struct RubricOutcome;
-#[derive(Debug, Clone)] pub struct SubagentMode;
+#[derive(Debug, Clone)] pub enum SubagentMode { Isolated, Fork }
