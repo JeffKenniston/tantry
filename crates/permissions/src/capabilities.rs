@@ -1,7 +1,8 @@
-use crate::ext::{ScopedTunnelRegistry, SpiffeId};
 use crate::glob_dfa::{CompiledFsAutomaton, FsOperation};
 use crate::lattice::PermissionMode;
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use iam::spiffe::SpiffeId;
+use iam::ScopedTunnelRegistry;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;

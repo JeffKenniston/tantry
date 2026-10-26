@@ -1,7 +1,7 @@
-use crate::ext::SpiffeId;
 use crate::lattice::PermissionMode;
 use bitflags::bitflags;
 use globset::{Glob, GlobSet, GlobSetBuilder};
+use iam::spiffe::SpiffeId;
 use serde::{Deserialize, Serialize};
 
 bitflags! {
