@@ -1,13 +1,18 @@
 pub mod billing;
+pub mod cascade;
 pub mod error;
 pub mod router;
 pub mod semantic_cache;
 pub mod tokenizer;
-pub mod cascade;
 
-use base::execution::{ModelRequest, ModelResponse};
-use base::state::TantryState;
+use crate::error::CognitiveError;
 use base::ast::McpSamplingDepthSlot;
+use base::execution::{ModelRequest, ModelResponse};
+
+pub use cascade::{LlmProvider, SpeculativeCascadeVerifier};
+pub use base::execution::{ModelRequest, ModelResponse, StreamEvent, ModelTier};
+
+use base::state::TantryState;
 use data::task_ledger::TaskLedgerStore;
 use std::sync::Arc;
 use crate::error::CognitiveError;
@@ -25,7 +30,7 @@ pub fn execute_mcp_sampling_request(
     if let Some(slot) = state.extensions.get::<McpSamplingDepthSlot>() {
         depth = slot.depth;
     }
-    
+
     if depth >= 2 {
         return Err(CognitiveError::McpSamplingRecursionLimitExceeded(depth));
     }
@@ -36,10 +41,10 @@ pub fn execute_mcp_sampling_request(
     let guard = crate::billing::BillingEnforcer::new(ledger_store).acquire_lease_fixed(task_id, lease_micros)?;
 
     let res = provider.complete(req);
-    
+
     if res.is_ok() {
         let _ = guard.settle(0, 0, 0, 0, 0, 0, None, 0, None);
     }
-    
+
     res
 }

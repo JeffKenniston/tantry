@@ -163,7 +163,6 @@ pub enum PromptBlock {
     },
 }
 
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 /// ModelRequest struct
 pub struct ModelRequest {

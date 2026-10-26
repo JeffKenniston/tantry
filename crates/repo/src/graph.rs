@@ -15,7 +15,7 @@ pub struct SymbolEdge {
     pub file_path: String,
 }
 
-/// Damped Katz Centrality Blast Radius calculator.
+/// Phase 2: Damped Katz Centrality Blast Radius calculator.
 pub struct GraphCentrality {
     edges: Vec<SymbolEdge>,
 }
@@ -105,6 +105,7 @@ impl GraphCentrality {
             }
 
             for edge in &self.edges {
+                #[allow(clippy::collapsible_if)]
                 if edge.callee_id == current_node {
                     if !visited.contains(&edge.caller_id) {
                         visited.insert(edge.caller_id.clone());
@@ -121,26 +122,54 @@ impl GraphCentrality {
     /// Hybrid Symbol Search using FTS5 and Vector Store logic via Reciprocal Rank Fusion.
     pub fn search_symbols_hybrid(
         &self,
-        bm25_ranks: &std::collections::HashMap<String, usize>,
-        vec_ranks: &std::collections::HashMap<String, usize>,
-    ) -> Vec<String> {
-        let mut rrf_scores: std::collections::HashMap<&str, f64> = std::collections::HashMap::new();
+        db_conn: &rusqlite::Connection,
+        query_text: &str,
+        query_embedding: &[f32],
+        vector_store: &data::vector_index::MatryoshkaVectorStore,
+        top_k: usize,
+    ) -> Result<Vec<String>, String> {
+        // 1. BM25 FTS5 Search
+        let mut bm25_ranks = std::collections::HashMap::new();
+        let mut stmt = db_conn.prepare(
+            "SELECT symbol_id FROM symbols_fts WHERE symbols_fts MATCH ? ORDER BY rank LIMIT ?"
+        ).map_err(|e| e.to_string())?;
+
+        let mut rows = stmt.query(rusqlite::params![query_text, top_k as i64]).map_err(|e| e.to_string())?;
+        let mut rank = 1;
+        while let Some(row) = rows.next().map_err(|e| e.to_string())? {
+            let symbol_id: String = row.get(0).map_err(|e| e.to_string())?;
+            bm25_ranks.insert(symbol_id, rank);
+            rank += 1;
+        }
+
+        // 2. Vector Search using MatryoshkaVectorStore
+        let vector_results = vector_store.search(query_embedding, top_k, 0.0)
+            .map_err(|e| e.to_string())?;
+
+        let mut vec_ranks = std::collections::HashMap::new();
+        for (i, (symbol_id, _)) in vector_results.into_iter().enumerate() {
+            vec_ranks.insert(symbol_id, i + 1);
+        }
+
+        // 3. Reciprocal Rank Fusion
+        let mut rrf_scores: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
         let k = 60.0;
 
         for (sym, rank) in bm25_ranks {
-            let score = 1.0 / (k + *rank as f64);
+            let score = 1.0 / (k + rank as f64);
             *rrf_scores.entry(sym).or_insert(0.0) += score;
         }
 
         for (sym, rank) in vec_ranks {
-            let score = 1.0 / (k + *rank as f64);
+            let score = 1.0 / (k + rank as f64);
             *rrf_scores.entry(sym).or_insert(0.0) += score;
         }
 
-        let mut sorted: Vec<(&&str, &f64)> = rrf_scores.iter().collect();
-        sorted.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let mut sorted: Vec<(String, f64)> = rrf_scores.into_iter().collect();
+        sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        sorted.into_iter().map(|(s, _)| s.to_string()).collect()
+        let res = sorted.into_iter().map(|(s, _)| s).take(top_k).collect();
+        Ok(res)
     }
 
     /// Computes a risk score based on Katz centrality, affected files, and mutation type.

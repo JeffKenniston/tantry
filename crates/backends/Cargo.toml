@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+iam = { path = "../iam" }
+permissions = { path = "../permissions" }
+data = { path = "../data" }
+repo = { path = "../repo" }
 base = { path = "../base" }
 cap-std = "3.4.1"
 thiserror = "1"

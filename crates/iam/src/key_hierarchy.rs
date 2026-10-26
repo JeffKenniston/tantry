@@ -6,6 +6,9 @@ use zeroize::Zeroizing;
 
 pub const HKDF_DEK_DOMAIN_INFO: &[u8] = b"tantry-sqlite-aead-dek-v3";
 
+pub type MasterKey = Zeroizing<[u8; 32]>;
+pub type DekKey = Zeroizing<[u8; 32]>;
+
 pub struct KeyHierarchy {
     root_kek: Zeroizing<[u8; 32]>,
     thread_cache: DashMap<String, DashMap<u32, Zeroizing<[u8; 32]>>>,

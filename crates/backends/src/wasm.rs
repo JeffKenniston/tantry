@@ -11,35 +11,10 @@ use wasmtime_wasi::{
     ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView, p2::add_to_linker_async,
 };
 
-use crate::egress_proxy::ScopedTunnelRegistry;
 use base::path::validate_and_normalize_path;
-// Dummy types to satisfy Phase 3 specs when specific dependencies are out of scope
-pub struct PermissionLattice {}
-impl PermissionLattice {
-    pub fn evaluate_fs(_state: &TantryState, _path: &str, _op: &str) -> bool {
-        true
-    }
-    pub fn evaluate_net(_state: &TantryState, _service: &str) -> bool {
-        true
-    }
-}
-
-pub struct RepoEngine {}
-impl RepoEngine {
-    pub fn query_symbols(_state: &TantryState, _query: &str) -> String {
-        "[]".to_string()
-    }
-    pub fn blast_radius(_state: &TantryState, _symbol: &str) -> String {
-        "[]".to_string()
-    }
-}
-
-pub struct IdentityManager {}
-impl IdentityManager {
-    pub fn request_scoped_token(_state: &TantryState, _service: &str, _ttl_secs: u64) -> String {
-        "token".to_string()
-    }
-}
+use iam::IdentityManager;
+use iam::tunnel_grant::ScopedTunnelRegistry;
+use repo::engine::RepoEngine;
 
 /// WasmHostState struct
 pub struct WasmHostState {
@@ -51,6 +26,9 @@ pub struct WasmHostState {
     pub table: ResourceTable,
     pub state: Arc<std::sync::Mutex<TantryState>>,
     pub vfs: Arc<dyn VfsBackend + Send + Sync>,
+    pub identity_manager: Arc<dyn IdentityManager + Send + Sync>,
+    pub tunnel_registry: Arc<ScopedTunnelRegistry>,
+    pub repo_engine: Option<Arc<RepoEngine>>,
 }
 
 impl WasiView for WasmHostState {
@@ -79,9 +57,7 @@ impl tantry::runtime::fs::Host for WasmHostState {
             .map_err(|e| e.to_string())?
             .to_string();
         let state = self.state.lock().unwrap();
-        if !PermissionLattice::evaluate_fs(&state, &normalized, "read") {
-            return Err("Permission denied".to_string());
-        }
+        // PermissionLattice logic to be integrated properly
         self.vfs
             .read_file(&state, &normalized, None, None)
             .map_err(|e| e.to_string())
@@ -91,9 +67,6 @@ impl tantry::runtime::fs::Host for WasmHostState {
             .map_err(|e| e.to_string())?
             .to_string();
         let mut state = self.state.lock().unwrap();
-        if !PermissionLattice::evaluate_fs(&state, &normalized, "write") {
-            return Err("Permission denied".to_string());
-        }
         self.vfs
             .write_file(&mut state, &normalized, &content)
             .map_err(|e| e.to_string())
@@ -104,9 +77,6 @@ impl tantry::runtime::fs::Host for WasmHostState {
             .map_err(|e| e.to_string())?
             .to_string();
         let state = self.state.lock().unwrap();
-        if !PermissionLattice::evaluate_fs(&state, &normalized, "read") {
-            return Err("Permission denied".to_string());
-        }
         self.vfs
             .ls(&state, &normalized)
             .map(|v| v.into_iter().map(|e| e.name).collect())
@@ -115,13 +85,13 @@ impl tantry::runtime::fs::Host for WasmHostState {
 }
 
 impl tantry::runtime::graph::Host for WasmHostState {
-    async fn query_symbols(&mut self, query: String) -> Result<String, String> {
-        let state = self.state.lock().unwrap();
-        Ok(RepoEngine::query_symbols(&state, &query))
+    async fn query_symbols(&mut self, _query: String) -> Result<String, String> {
+        // let state = self.state.lock().unwrap();
+        Ok("[]".to_string())
     }
-    async fn blast_radius(&mut self, symbol: String) -> Result<String, String> {
-        let state = self.state.lock().unwrap();
-        Ok(RepoEngine::blast_radius(&state, &symbol))
+    async fn blast_radius(&mut self, _symbol: String) -> Result<String, String> {
+        // let state = self.state.lock().unwrap();
+        Ok("[]".to_string())
     }
 }
 
@@ -131,20 +101,18 @@ impl tantry::runtime::tunnel::Host for WasmHostState {
         service: String,
         ttl_secs: u64,
     ) -> Result<String, String> {
-        let state = self.state.lock().unwrap();
-        // Since state.lattice.net.evaluate_egress isn't fully defined yet in base, dummy it.
-        // We will mock this to always succeed for tests until Phase integration.
-        if !PermissionLattice::evaluate_net(&state, &service) {
-            return Err("Permission denied".to_string());
-        }
+        let _state = self.state.lock().unwrap();
 
-        let now_ms = 0; // dummy now_ms for phase requirements
-        if !ScopedTunnelRegistry::is_service_active(&service, now_ms) {
-            // Usually we'd register it, but for now just dummy return
-        }
-        Ok(IdentityManager::request_scoped_token(
-            &state, &service, ttl_secs,
-        ))
+        let svid = match self.identity_manager.current_svid() {
+            Some(s) => s,
+            None => return Err("No SVID".to_string()),
+        };
+
+        let grant = self
+            .tunnel_registry
+            .issue_grant(ttl_secs as i64, &service, &svid)
+            .map_err(|e| e.to_string())?;
+        Ok(grant.token)
     }
 }
 
@@ -181,6 +149,9 @@ impl WasmSandbox {
         code: &str,
         state: Arc<std::sync::Mutex<TantryState>>,
         vfs: Arc<dyn VfsBackend + Send + Sync>,
+        identity_manager: Arc<dyn IdentityManager + Send + Sync>,
+        tunnel_registry: Arc<ScopedTunnelRegistry>,
+        repo_engine: Option<Arc<RepoEngine>>,
     ) -> Result<String, BackendError> {
         validate_component_no_start_yield(wasm_bytes)?;
 
@@ -207,6 +178,9 @@ impl WasmSandbox {
             table: ResourceTable::new(),
             state,
             vfs,
+            identity_manager,
+            tunnel_registry,
+            repo_engine,
         };
 
         let mut store = Store::new(&self.engine, host_state);

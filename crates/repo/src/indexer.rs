@@ -2,7 +2,7 @@ use base::vfs_tree::VfsTree;
 use rusqlite::{Connection, Result};
 use std::collections::HashSet;
 
-/// Workspace indexer for checking dirty files against SQLite state.
+/// Phase 1: Workspace indexer for checking dirty files against SQLite state.
 pub struct Indexer {
     conn: Connection,
 }
@@ -43,6 +43,7 @@ impl Indexer {
 
         let mut db_dirs = std::collections::HashMap::new();
         let mut db_files = std::collections::HashMap::new();
+        #[allow(clippy::manual_flatten)]
         for row in rows {
             if let Ok((path, is_dir, hash)) = row {
                 if is_dir == 1 {
@@ -61,13 +62,14 @@ impl Indexer {
             let hash = node.subtree_blake3.to_vec();
 
             // Pruning step for O(log N) complexity:
+            #[allow(clippy::collapsible_if)]
             if let Some(db_hash) = db_dirs.get(&path) {
                 if db_hash == &hash {
                     // Tree hasn't changed. We can skip checking files and subdirectories.
                     // However, we still need to record the files so they aren't marked as deleted.
                     let mut collect_queue = vec![(path.clone(), node)];
                     while let Some((cp, n)) = collect_queue.pop() {
-                        for (fnm, _) in &n.files {
+                        for fnm in n.files.keys() {
                             let fp = if cp.is_empty() {
                                 fnm.clone()
                             } else {
@@ -137,7 +139,7 @@ impl Indexer {
             let mut queue = vec![(String::from(""), &vfs.root)];
             while let Some((path, node)) = queue.pop() {
                 vfs_paths.insert(path.clone());
-                for (file_name, _) in &node.files {
+                for file_name in node.files.keys() {
                     let file_path = if path.is_empty() {
                         file_name.clone()
                     } else {

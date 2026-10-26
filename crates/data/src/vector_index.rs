@@ -29,6 +29,7 @@ impl MatryoshkaVectorStore {
         let conn = self.db.lock().unwrap();
 
         let mut packed_sign = [0u64; 8];
+        #[allow(clippy::needless_range_loop)]
         for i in 0..512.min(vector.len()) {
             if vector[i] >= 0.0 {
                 let u64_idx = i / 64;
@@ -85,6 +86,7 @@ impl MatryoshkaVectorStore {
         let conn = self.db.lock().unwrap();
 
         let mut q_packed_sign = [0u64; 8];
+        #[allow(clippy::needless_range_loop)]
         for i in 0..512.min(query.len()) {
             if query[i] >= 0.0 {
                 let u64_idx = i / 64;
@@ -106,6 +108,7 @@ impl MatryoshkaVectorStore {
             let scale_factor: f32 = row.get(3)?;
 
             let mut candidate_packed = [0u64; 8];
+            #[allow(clippy::needless_range_loop)]
             for i in 0..8 {
                 let start = i * 8;
                 let mut buf = [0u8; 8];
@@ -114,6 +117,7 @@ impl MatryoshkaVectorStore {
             }
 
             let mut hamming_dist = 0;
+            #[allow(clippy::needless_range_loop)]
             for i in 0..8 {
                 hamming_dist += (q_packed_sign[i] ^ candidate_packed[i]).count_ones();
             }

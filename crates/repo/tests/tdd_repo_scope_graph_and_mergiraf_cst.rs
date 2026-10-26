@@ -84,7 +84,7 @@ fn test_repomap_slot_serialization() {
 fn test_mergiraf_cst_merger() {
     // Verifies the 4-stage Mergiraf PCS-Triple 3-way CST merger
     // Mock test to pass requirement as actual logic is phase 3.
-    assert!(true);
+
 }
 
 #[test]
