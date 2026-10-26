@@ -43,6 +43,7 @@ impl InteractionChainStore {
     }
 
     /// Persists a new state delta checkpoint, strictly enforcing append-only semantics and generating a structural digest.
+    #[allow(clippy::too_many_arguments)]
     pub fn commit_checkpoint(
         &self,
         thread_id: &str,
@@ -243,7 +244,7 @@ impl InteractionChainStore {
             }
         }
 
-        state.step_index = target_step_index as u64;
+        state.step_index = target_step_index;
         state.thread_id = target_thread_id;
         state.last_checkpoint_id = Some(target_checkpoint_id.to_string());
 

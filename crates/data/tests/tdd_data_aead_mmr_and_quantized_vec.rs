@@ -123,7 +123,7 @@ fn test_audit_mmr() {
 
     let w = mmr.db.lock().unwrap();
     w.execute("INSERT INTO audit_signed_tree_heads (tree_size, timestamp_ms, mmr_root_blake3, ed25519_sig, mldsa65_sig) VALUES (?1, ?2, ?3, ?4, ?5)",
-              rusqlite::params![sth.tree_size as i64, sth.timestamp_ms as i64, sth.mmr_root_blake3.as_slice(), sth.ed25519_sig.as_slice(), sth.mldsa65_sig.as_slice()]).unwrap();
+              rusqlite::params![sth.tree_size as i64, sth.timestamp_ms, sth.mmr_root_blake3.as_slice(), sth.ed25519_sig.as_slice(), sth.mldsa65_sig.as_slice()]).unwrap();
     drop(w);
 
     let proof1 = mmr.generate_inclusion_proof(1).unwrap();
