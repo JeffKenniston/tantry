@@ -1,7 +1,7 @@
 use crate::CstDiagnostic;
 use tree_sitter::Tree;
 
-/// Synchronously extracts diagnostics from a parsed CST by walking the syntax tree.
+/// Phase 1: Synchronously extracts diagnostics from a parsed CST by walking the syntax tree.
 /// Returns a list of `CstDiagnostic` where nodes are marked as errors or missing.
 pub fn check_cst_diagnostics(path: &str, tree: &Tree, source: &str) -> Vec<CstDiagnostic> {
     let mut diagnostics = Vec::new();

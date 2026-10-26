@@ -2,7 +2,7 @@ use base::path::PosixPath;
 use dashmap::DashMap;
 use tree_sitter::{InputEdit, Language, Parser as TsParser, Point, Tree};
 
-/// An incremental `tree-sitter` parser for parsing syntax trees.
+/// Phase 1: An incremental `tree-sitter` parser for parsing syntax trees.
 pub struct Parser {
     cache: DashMap<(PosixPath, [u8; 32]), Tree>,
 }

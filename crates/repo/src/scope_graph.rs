@@ -96,7 +96,7 @@ pub struct ImportEdge {
     pub is_wildcard: bool,
 }
 
-/// A 3-Pass Lexical Scope-Graph for cross-file symbol resolution.
+/// Phase 2: A 3-Pass Lexical Scope-Graph for cross-file symbol resolution.
 pub struct ScopeGraph {
     /// Map of symbol ID to symbol definitions.
     pub definitions: HashMap<String, SymbolDef>,
