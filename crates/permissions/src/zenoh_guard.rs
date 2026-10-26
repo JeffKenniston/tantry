@@ -1,5 +1,5 @@
-use crate::ext::SpiffeId;
 use crate::lattice::PermissionMode;
+use iam::spiffe::SpiffeId;
 
 /// Evaluates whether a given Zenoh key expression is permitted for a given SPIFFE ID.
 ///
