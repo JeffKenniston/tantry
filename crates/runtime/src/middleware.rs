@@ -1,25 +1,28 @@
+use async_trait::async_trait;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use async_trait::async_trait;
 
-use base::ast::{ToolCallId, ToolArtifact};
+use base::ast::{ToolArtifact, ToolCallId};
+use base::execution::LoopDirective;
 use base::execution::{ModelRequest, ModelResponse, ModelTier};
 use base::state::TantryState;
-use base::execution::LoopDirective;
+use cognitive::cascade::LlmProvider;
+use data::DataStoreManager;
 use iam::IdentityManager;
 use permissions::attenuation::PermissionLattice;
 use permissions::lattice::PermissionMode;
-use data::DataStoreManager;
-use cognitive::cascade::LlmProvider;
 use transport::zenoh_bus::ZenohBusTransport;
 
 use crate::error::RuntimeError;
 
 pub type NextModelCall<'a> = Box<
-    dyn FnOnce(&'a mut TantryState, ModelRequest) -> Pin<
-            Box<dyn Future<Output = Result<ModelResponse, RuntimeError>> + Send + 'a>,
-        > + Send
+    dyn FnOnce(
+            &'a mut TantryState,
+            ModelRequest,
+        )
+            -> Pin<Box<dyn Future<Output = Result<ModelResponse, RuntimeError>> + Send + 'a>>
+        + Send
         + 'a,
 >;
 
@@ -53,14 +56,18 @@ pub struct TurnExecutionContext {
 pub trait AgentMiddleware: Send + Sync {
     fn name(&self) -> &'static str;
 
-    fn canonical_slot(&self) -> Option<u8> { None }
+    fn canonical_slot(&self) -> Option<u8> {
+        None
+    }
 
-    fn tools(&self) -> Vec<ToolDefinition> { Vec::new() }
+    fn tools(&self) -> Vec<ToolDefinition> {
+        Vec::new()
+    }
 
     async fn before_agent(
         &self,
         _state: &mut TantryState,
-        _ctx: &TurnExecutionContext
+        _ctx: &TurnExecutionContext,
     ) -> Result<(), RuntimeError> {
         Ok(())
     }
@@ -70,7 +77,7 @@ pub trait AgentMiddleware: Send + Sync {
         state: &'a mut TantryState,
         req: ModelRequest,
         _ctx: &'a TurnExecutionContext,
-        next: NextModelCall<'a>
+        next: NextModelCall<'a>,
     ) -> Result<ModelResponse, RuntimeError> {
         next(state, req).await
     }
@@ -81,7 +88,7 @@ pub trait AgentMiddleware: Send + Sync {
         _tool_use_id: &ToolCallId,
         _tool_name: &str,
         _tool_input: &serde_json::Value,
-        _ctx: &TurnExecutionContext
+        _ctx: &TurnExecutionContext,
     ) -> Result<Option<PermissionMode>, RuntimeError> {
         Ok(None)
     }
@@ -92,7 +99,7 @@ pub trait AgentMiddleware: Send + Sync {
         _tool_use_id: &ToolCallId,
         _tool_name: &str,
         _tool_input: &serde_json::Value,
-        _ctx: &TurnExecutionContext
+        _ctx: &TurnExecutionContext,
     ) -> Result<Option<ToolExecutionOutput>, RuntimeError> {
         Ok(None)
     }
@@ -100,7 +107,7 @@ pub trait AgentMiddleware: Send + Sync {
     async fn after_agent(
         &self,
         _state: &mut TantryState,
-        _ctx: &TurnExecutionContext
+        _ctx: &TurnExecutionContext,
     ) -> Result<LoopDirective, RuntimeError> {
         Ok(LoopDirective::FinishTurn)
     }

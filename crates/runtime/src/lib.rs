@@ -1,20 +1,20 @@
-pub mod slots;
 pub mod error;
 pub mod middleware;
 pub mod observability;
+pub mod slots;
 
-pub use middleware::{AgentMiddleware, NextModelCall, TurnExecutionContext, ToolDefinition, ToolExecutionOutput};
 pub use error::RuntimeError;
+pub use middleware::{
+    AgentMiddleware, NextModelCall, ToolDefinition, ToolExecutionOutput, TurnExecutionContext,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use base::typemap::{StateExtensionMap, DefaultExtensionRegistryImpl};
-        use std::collections::BTreeSet;
+    use base::typemap::{DefaultExtensionRegistryImpl, StateExtensionMap};
+    use std::collections::BTreeSet;
     use uuid::Uuid;
-
-
 
     #[test]
     fn test_slots_roundtrip() {
@@ -23,10 +23,16 @@ mod tests {
 
         let mut map = StateExtensionMap::new();
 
-        let mut bypass = slots::HitlBypassSlot { approved_tool_use_ids: BTreeSet::new() };
-        bypass.approved_tool_use_ids.insert(Uuid::now_v7().to_string());
+        let mut bypass = slots::HitlBypassSlot {
+            approved_tool_use_ids: BTreeSet::new(),
+        };
+        bypass
+            .approved_tool_use_ids
+            .insert(Uuid::now_v7().to_string());
 
-        let delta = slots::TurnDeltaBufferSlot { message_deltas: vec![] };
+        let delta = slots::TurnDeltaBufferSlot {
+            message_deltas: vec![],
+        };
         let depth = slots::McpSamplingDepthSlot { depth: 1 };
 
         map.insert(bypass.clone());
@@ -37,9 +43,18 @@ mod tests {
         let mut deserialized = StateExtensionMap::new();
         deserialized.hydrate_all(&serialized, &registry).unwrap();
 
-        assert_eq!(deserialized.get::<slots::HitlBypassSlot>().unwrap(), &bypass);
-        assert_eq!(deserialized.get::<slots::TurnDeltaBufferSlot>().unwrap(), &delta);
-        assert_eq!(deserialized.get::<slots::McpSamplingDepthSlot>().unwrap(), &depth);
+        assert_eq!(
+            deserialized.get::<slots::HitlBypassSlot>().unwrap(),
+            &bypass
+        );
+        assert_eq!(
+            deserialized.get::<slots::TurnDeltaBufferSlot>().unwrap(),
+            &delta
+        );
+        assert_eq!(
+            deserialized.get::<slots::McpSamplingDepthSlot>().unwrap(),
+            &depth
+        );
 
         // test fork_shared_only
         let shared = map.fork_shared_only();
@@ -55,8 +70,17 @@ mod tests {
 
         metrics.microvm_snapshot_pool_available.set(5);
         metrics.zenoh_task_queue_depth.inc();
-        metrics.token_spend_micros_total.with_label_values(&["tenant1", "frontier"]).inc_by(100);
-        metrics.kv_cache_hit_ratio.with_label_values(&["openai", "frontier"]).observe(0.8);
-        metrics.vfs_merge_conflicts_total.with_label_values(&["fast_path"]).inc();
+        metrics
+            .token_spend_micros_total
+            .with_label_values(&["tenant1", "frontier"])
+            .inc_by(100);
+        metrics
+            .kv_cache_hit_ratio
+            .with_label_values(&["openai", "frontier"])
+            .observe(0.8);
+        metrics
+            .vfs_merge_conflicts_total
+            .with_label_values(&["fast_path"])
+            .inc();
     }
 }

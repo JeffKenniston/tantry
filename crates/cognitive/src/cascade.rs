@@ -1,9 +1,9 @@
-use std::pin::Pin;
-use futures::Stream;
-use base::execution::{ModelRequest, ModelResponse, StreamEvent, ModelTier};
-use crate::error::CognitiveError;
 use crate::billing::BudgetLeaseGuard;
+use crate::error::CognitiveError;
+use base::execution::{ModelRequest, ModelResponse, ModelTier, StreamEvent};
+use futures::Stream;
 use futures::stream::StreamExt;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 /// LlmProvider trait
@@ -14,7 +14,13 @@ pub trait LlmProvider: Send + Sync {
     /// complete method
     fn complete(&self, req: ModelRequest) -> Result<ModelResponse, CognitiveError>;
     /// stream_complete method
-    fn stream_complete(&self, req: ModelRequest) -> Result<PinnedStream, CognitiveError>;
+    fn stream_complete(
+        &self,
+        req: ModelRequest,
+    ) -> Result<
+        Pin<Box<dyn Stream<Item = Result<StreamEvent, CognitiveError>> + Send>>,
+        CognitiveError,
+    >;
 }
 
 /// SpeculativeCascadeVerifier
@@ -32,9 +38,12 @@ impl SpeculativeCascadeVerifier {
         req: ModelRequest,
         guard: Arc<Mutex<BudgetLeaseGuard>>,
         target_tier: ModelTier,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent, CognitiveError>> + Send>>, CognitiveError> {
+    ) -> Result<
+        Pin<Box<dyn Stream<Item = Result<StreamEvent, CognitiveError>> + Send>>,
+        CognitiveError,
+    > {
         let mut stream = self.provider.stream_complete(req.clone())?;
-        
+
         let mut tokens_checked = 0;
         let mut first_events = Vec::new();
         let mut needs_escalation = false;
@@ -54,7 +63,7 @@ impl SpeculativeCascadeVerifier {
                             #[allow(clippy::collapsible_if)]
                             if tokens_checked >= 64 {
                                 if let Some(start) = check_buffer.find("```json\n") {
-                                    let content = &check_buffer[start+8..];
+                                    let content = &check_buffer[start + 8..];
 
                                     // Parse iteratively rather than using the naive trailing } logic
                                     // that breaks on nested JSON braces.
@@ -88,7 +97,9 @@ impl SpeculativeCascadeVerifier {
 
                                     if found_end {
                                         let json_str = &content[..parse_end_idx];
-                                        if serde_json::from_str::<serde_json::Value>(json_str).is_err() {
+                                        if serde_json::from_str::<serde_json::Value>(json_str)
+                                            .is_err()
+                                        {
                                             has_malformed = true;
                                         }
                                     }
@@ -102,9 +113,8 @@ impl SpeculativeCascadeVerifier {
                         }
                     }
                     first_events.push(Ok(event));
-                    
-                    #[allow(clippy::collapsible_if)]
-                            if tokens_checked >= 64 {
+
+                    if tokens_checked >= 64 {
                         break;
                     }
                 }
@@ -114,7 +124,7 @@ impl SpeculativeCascadeVerifier {
                 }
             }
         }
-        
+
         if needs_escalation {
             {
                 let mut guard_lock = guard.lock().unwrap();
@@ -127,16 +137,18 @@ impl SpeculativeCascadeVerifier {
             req2.target_tier = target_tier;
             let stream2 = self.provider.stream_complete(req2)?;
             let mapped_stream = stream2.map(move |res| {
-                let _g = guard.clone(); 
+                let _g = guard.clone();
                 res
             });
             return Ok(Box::pin(mapped_stream));
         }
-        
-        let remaining_stream = futures::stream::iter(first_events).chain(stream).map(move |res| {
-            let _g = guard.clone();
-            res
-        });
+
+        let remaining_stream = futures::stream::iter(first_events)
+            .chain(stream)
+            .map(move |res| {
+                let _g = guard.clone();
+                res
+            });
         Ok(Box::pin(remaining_stream))
     }
 }

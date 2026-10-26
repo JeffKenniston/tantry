@@ -1,20 +1,21 @@
 pub mod billing;
+pub mod cascade;
 pub mod error;
 pub mod router;
 pub mod semantic_cache;
 pub mod tokenizer;
-pub mod cascade;
 
+use crate::error::CognitiveError;
+use base::ast::McpSamplingDepthSlot;
+use base::execution::{ModelRequest, ModelResponse};
 
 pub use cascade::{LlmProvider, SpeculativeCascadeVerifier};
 pub use base::execution::{ModelRequest, ModelResponse, StreamEvent, ModelTier};
 
 use base::state::TantryState;
-use base::ast::McpSamplingDepthSlot;
 use data::task_ledger::TaskLedgerStore;
-use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
-use crate::error::CognitiveError;
+use std::sync::{Arc, Mutex};
 
 /// execute_mcp_sampling_request fn
 pub fn execute_mcp_sampling_request(
@@ -29,21 +30,24 @@ pub fn execute_mcp_sampling_request(
     if let Some(slot) = state.extensions.get::<McpSamplingDepthSlot>() {
         depth = slot.depth;
     }
-    
+
     if depth >= 2 {
         return Err(CognitiveError::McpSamplingRecursionLimitExceeded(depth));
     }
-    
-    state.extensions.insert(McpSamplingDepthSlot { depth: depth + 1 });
-    
+
+    state
+        .extensions
+        .insert(McpSamplingDepthSlot { depth: depth + 1 });
+
     let ledger_store = Arc::new(TaskLedgerStore::new(conn));
-    let guard = crate::billing::BillingEnforcer::new(ledger_store).acquire_lease_fixed(task_id, lease_micros)?;
+    let guard = crate::billing::BillingEnforcer::new(ledger_store)
+        .acquire_lease_fixed(task_id, lease_micros)?;
 
     let res = provider.complete(req);
-    
+
     if res.is_ok() {
         let _ = guard.settle(0, 0, 0, 0, 0, 0, None, 0, None);
     }
-    
+
     res
 }

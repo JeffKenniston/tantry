@@ -12,10 +12,22 @@ pub type ToolCallId = String;
 /// TaskId type
 pub type TaskId = String;
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq, Eq))]
 /// McpSamplingDepthSlot struct
-pub struct McpSamplingDepthSlot { pub depth: u32 }
+pub struct McpSamplingDepthSlot {
+    pub depth: u32,
+}
 
 impl crate::typemap::StateSlot for McpSamplingDepthSlot {
     const WIRE_KEY: &'static str = "tantry.runtime.mcp_sampling_depth";
@@ -23,13 +35,16 @@ impl crate::typemap::StateSlot for McpSamplingDepthSlot {
     const CODEC_TAG: crate::typemap::CodecTag = crate::typemap::CodecTag::RkyvAligned;
 
     fn encode_payload(&self) -> Result<Vec<u8>, crate::error::ExtensionError> {
-        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(self).map_err(|e| crate::error::ExtensionError::SerializationFailed(e.to_string()))?;
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(self)
+            .map_err(|e| crate::error::ExtensionError::SerializationFailed(e.to_string()))?;
         Ok(bytes.into_vec())
     }
 
     fn decode_payload(bytes: &[u8]) -> Result<Self, crate::error::ExtensionError> {
-        let archived = rkyv::access::<rkyv::Archived<Self>, rkyv::rancor::Error>(bytes).map_err(|e| crate::error::ExtensionError::SerializationFailed(e.to_string()))?;
-        let deserialized: Self = rkyv::deserialize::<Self, rkyv::rancor::Error>(archived).map_err(|e| crate::error::ExtensionError::SerializationFailed(e.to_string()))?;
+        let archived = rkyv::access::<rkyv::Archived<Self>, rkyv::rancor::Error>(bytes)
+            .map_err(|e| crate::error::ExtensionError::SerializationFailed(e.to_string()))?;
+        let deserialized: Self = rkyv::deserialize::<Self, rkyv::rancor::Error>(archived)
+            .map_err(|e| crate::error::ExtensionError::SerializationFailed(e.to_string()))?;
         Ok(deserialized)
     }
 }

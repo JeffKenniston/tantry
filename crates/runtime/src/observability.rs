@@ -1,6 +1,6 @@
-use prometheus::{IntGauge, IntCounterVec, HistogramVec, Registry, Opts, HistogramOpts};
-use std::sync::OnceLock;
+use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, IntGauge, Opts, Registry};
 use std::future::Future;
+use std::sync::OnceLock;
 
 #[derive(Clone)]
 pub struct RuntimeMetrics {
@@ -19,14 +19,15 @@ impl RuntimeMetrics {
         )?;
         registry.register(Box::new(microvm_snapshot_pool_available.clone()))?;
 
-        let zenoh_task_queue_depth = IntGauge::new(
-            "tantry_zenoh_task_queue_depth",
-            "Depth of Zenoh task queue",
-        )?;
+        let zenoh_task_queue_depth =
+            IntGauge::new("tantry_zenoh_task_queue_depth", "Depth of Zenoh task queue")?;
         registry.register(Box::new(zenoh_task_queue_depth.clone()))?;
 
         let token_spend_micros_total = IntCounterVec::new(
-            Opts::new("tantry_token_spend_micros_total", "Total token spend in micros"),
+            Opts::new(
+                "tantry_token_spend_micros_total",
+                "Total token spend in micros",
+            ),
             &["tenant_id", "model_tier"],
         )?;
         registry.register(Box::new(token_spend_micros_total.clone()))?;
@@ -38,7 +39,10 @@ impl RuntimeMetrics {
         registry.register(Box::new(kv_cache_hit_ratio.clone()))?;
 
         let vfs_merge_conflicts_total = IntCounterVec::new(
-            Opts::new("tantry_vfs_merge_conflicts_total", "Total VFS merge conflicts"),
+            Opts::new(
+                "tantry_vfs_merge_conflicts_total",
+                "Total VFS merge conflicts",
+            ),
             &["resolution_stage"],
         )?;
         registry.register(Box::new(vfs_merge_conflicts_total.clone()))?;
