@@ -47,14 +47,20 @@ impl BillingEnforcer {
 
     /// Pre-Flight Lease (`acquire_lease`): Computes worst-case estimated cost,
     /// reserves it in the ledger, and returns a RAII BudgetLeaseGuard.
-    pub fn acquire_lease_fixed(&self, task_id: &str, lease_micros: i64) -> Result<BudgetLeaseGuard, CognitiveError> {
-        self.ledger.try_reserve_budget(task_id, lease_micros).map_err(|e| {
-            if e.to_string().contains("Budget exhausted") {
-                CognitiveError::BudgetExhausted(e.to_string())
-            } else {
-                CognitiveError::DatabaseError(e.to_string())
-            }
-        })?;
+    pub fn acquire_lease_fixed(
+        &self,
+        task_id: &str,
+        lease_micros: i64,
+    ) -> Result<BudgetLeaseGuard, CognitiveError> {
+        self.ledger
+            .try_reserve_budget(task_id, lease_micros)
+            .map_err(|e| {
+                if e.to_string().contains("Budget exhausted") {
+                    CognitiveError::BudgetExhausted(e.to_string())
+                } else {
+                    CognitiveError::DatabaseError(e.to_string())
+                }
+            })?;
 
         Ok(BudgetLeaseGuard {
             ledger: self.ledger.clone(),
@@ -177,7 +183,8 @@ impl BudgetLeaseGuard {
                         // For simplicity in this implementation, we re-use the minting logic for DPoP with a different audience/subject or specific claims
                         // Since DPoP proof is a JWT, we will mint a second JWT for the DPoP header
                         // Use iam's DPoP proof minting
-                        if let Ok(dpop_proof) = iam::dpop::mint_dpop_proof(svid, "POST", url, None) {
+                        if let Ok(dpop_proof) = iam::dpop::mint_dpop_proof(svid, "POST", url, None)
+                        {
                             if let Ok(client) = reqwest::blocking::Client::builder()
                                 .timeout(std::time::Duration::from_millis(webhook_timeout_ms))
                                 .build()

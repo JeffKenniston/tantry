@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
 use base::ast::ToolCallId;
 use base::delta::MessageDelta;
-use base::typemap::{StateSlot, SlotVisibility, CodecTag};
 use base::error::ExtensionError;
+use base::typemap::{CodecTag, SlotVisibility, StateSlot};
 use rkyv::{Archive, Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HitlBypassSlot {
@@ -16,11 +16,13 @@ impl StateSlot for HitlBypassSlot {
     const CODEC_TAG: CodecTag = CodecTag::MessagePackNamed;
 
     fn encode_payload(&self) -> Result<Vec<u8>, ExtensionError> {
-        rmp_serde::to_vec_named(self).map_err(|e| ExtensionError::SerializationFailed(e.to_string()))
+        rmp_serde::to_vec_named(self)
+            .map_err(|e| ExtensionError::SerializationFailed(e.to_string()))
     }
 
     fn decode_payload(bytes: &[u8]) -> Result<Self, ExtensionError> {
-        rmp_serde::from_slice(bytes).map_err(|e| ExtensionError::DeserializationFailed(e.to_string()))
+        rmp_serde::from_slice(bytes)
+            .map_err(|e| ExtensionError::DeserializationFailed(e.to_string()))
     }
 }
 
@@ -35,15 +37,27 @@ impl StateSlot for TurnDeltaBufferSlot {
     const CODEC_TAG: CodecTag = CodecTag::MessagePackNamed;
 
     fn encode_payload(&self) -> Result<Vec<u8>, ExtensionError> {
-        rmp_serde::to_vec_named(self).map_err(|e| ExtensionError::SerializationFailed(e.to_string()))
+        rmp_serde::to_vec_named(self)
+            .map_err(|e| ExtensionError::SerializationFailed(e.to_string()))
     }
 
     fn decode_payload(bytes: &[u8]) -> Result<Self, ExtensionError> {
-        rmp_serde::from_slice(bytes).map_err(|e| ExtensionError::DeserializationFailed(e.to_string()))
+        rmp_serde::from_slice(bytes)
+            .map_err(|e| ExtensionError::DeserializationFailed(e.to_string()))
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Archive, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    Archive,
+    Serialize,
+    Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq, Eq))]
 pub struct McpSamplingDepthSlot {
     pub depth: u8,
@@ -69,7 +83,17 @@ impl StateSlot for McpSamplingDepthSlot {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Archive, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    Archive,
+    Serialize,
+    Deserialize,
+)]
 #[rkyv(derive(Debug, PartialEq, Eq))]
 pub struct SubagentDepthSlot {
     pub depth: u8,

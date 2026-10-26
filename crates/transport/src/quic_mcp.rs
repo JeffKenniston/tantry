@@ -221,7 +221,8 @@ impl QuicMcpTransport {
             method: "server/discover".to_string(),
             params: serde_json::json!({}),
         };
-        self.send_request(remote_addr, request, "discover", None).await
+        self.send_request(remote_addr, request, "discover", None)
+            .await
     }
 
     /// Pauses/resumes a multi-round-trip request (SEP-2322 InputRequiredResult)
@@ -239,7 +240,8 @@ impl QuicMcpTransport {
                 "resumeData": resume_data
             }),
         };
-        self.send_request(remote_addr, request, target_name, None).await
+        self.send_request(remote_addr, request, target_name, None)
+            .await
     }
 
     /// Caches a resource (SEP-2549)
@@ -257,7 +259,8 @@ impl QuicMcpTransport {
                 "cacheScope": cache_scope
             }),
         };
-        self.send_request(remote_addr, request, target_name, None).await
+        self.send_request(remote_addr, request, target_name, None)
+            .await
     }
 
     /// Creates a sampling message (sampling/createMessage)
@@ -269,13 +272,16 @@ impl QuicMcpTransport {
         recursion_depth: u32,
     ) -> Result<Value, TransportError> {
         if recursion_depth > 2 {
-            return Err(TransportError::Internal("sampling/createMessage recursion limit exceeded".to_string()));
+            return Err(TransportError::Internal(
+                "sampling/createMessage recursion limit exceeded".to_string(),
+            ));
         }
         let request = McpRequest {
             method: "sampling/createMessage".to_string(),
             params: message,
         };
-        self.send_request(remote_addr, request, target_name, None).await
+        self.send_request(remote_addr, request, target_name, None)
+            .await
     }
 
     /// Creates an elicitation (elicitation/create)
@@ -289,6 +295,7 @@ impl QuicMcpTransport {
             method: "elicitation/create".to_string(),
             params: elicitation,
         };
-        self.send_request(remote_addr, request, target_name, None).await
+        self.send_request(remote_addr, request, target_name, None)
+            .await
     }
 }
