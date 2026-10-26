@@ -6,6 +6,37 @@ use rusqlite::{Connection, params};
 use std::sync::{Arc, Mutex};
 
 /// Provides append-only, time-travel-capable storage for agent interaction checkpoints and messages.
+pub const INTERACTION_CHAIN_DDL: &str = "
+CREATE TABLE IF NOT EXISTS key_epochs (
+    thread_id TEXT NOT NULL,
+    key_epoch INTEGER NOT NULL,
+    epoch_salt BLOB NOT NULL,
+    thread_salt BLOB,
+    shredded INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (thread_id, key_epoch)
+);
+CREATE TABLE IF NOT EXISTS interaction_checkpoints (
+    checkpoint_id TEXT PRIMARY KEY,
+    previous_checkpoint_id TEXT,
+    thread_id TEXT NOT NULL,
+    step_index INTEGER NOT NULL,
+    key_epoch INTEGER NOT NULL,
+    message_delta_aead BLOB,
+    file_deltas_aead BLOB,
+    extension_slots_aead BLOB,
+    todos_json TEXT,
+    async_tasks_json TEXT,
+    UNIQUE(thread_id, step_index)
+);
+CREATE TABLE IF NOT EXISTS archived_messages (
+    message_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    key_epoch INTEGER NOT NULL,
+    message_aead BLOB NOT NULL,
+    archived_at_ms INTEGER NOT NULL
+);
+";
+
 pub struct InteractionChainStore {
     /// The thread-safe SQLite connection pool shared by all operations in this store.
     pub db: Arc<Mutex<Connection>>,
@@ -38,8 +69,9 @@ struct RawCheckpointRow {
 
 impl InteractionChainStore {
     /// Initializes a new InteractionChainStore wrapping the provided database connection.
-    pub fn new(db: Arc<Mutex<Connection>>) -> Self {
-        Self { db }
+    pub fn new(path: &str) -> Result<Self, DataError> {
+        let handle = crate::db::DbHandle::new(path, INTERACTION_CHAIN_DDL)?;
+        Ok(Self { db: handle.writer })
     }
 
     /// Persists a new state delta checkpoint, strictly enforcing append-only semantics and generating a structural digest.

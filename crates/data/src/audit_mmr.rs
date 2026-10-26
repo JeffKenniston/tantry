@@ -4,6 +4,31 @@ use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 
 /// Implements an RFC 6962 compliant Merkle Mountain Range (MMR) for tamper-evident, append-only audit logging.
+pub const AUDIT_MMR_DDL: &str = "
+CREATE TABLE IF NOT EXISTS audit_log (
+    seq_no INTEGER PRIMARY KEY,
+    timestamp_ms INTEGER NOT NULL,
+    spiffe_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    event_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    entry_hash BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS audit_mmr_nodes (
+    mmr_pos INTEGER PRIMARY KEY,
+    height INTEGER NOT NULL,
+    node_hash BLOB NOT NULL,
+    seq_no INTEGER
+);
+CREATE TABLE IF NOT EXISTS audit_signed_tree_heads (
+    tree_size INTEGER PRIMARY KEY,
+    timestamp_ms INTEGER NOT NULL,
+    mmr_root_blake3 BLOB NOT NULL,
+    ed25519_sig BLOB NOT NULL,
+    mldsa65_sig BLOB NOT NULL
+);
+";
+
 pub struct AuditMmrStore {
     /// The thread-safe SQLite connection pool shared by all operations in this store.
     pub db: Arc<Mutex<Connection>>,
@@ -11,8 +36,9 @@ pub struct AuditMmrStore {
 
 impl AuditMmrStore {
     /// Initializes a new AuditMmrStore wrapping the provided database connection.
-    pub fn new(db: Arc<Mutex<Connection>>) -> Self {
-        Self { db }
+    pub fn new(path: &str) -> Result<Self, DataError> {
+        let handle = crate::db::DbHandle::new(path, AUDIT_MMR_DDL)?;
+        Ok(Self { db: handle.writer })
     }
 
     /// Appends a new event to the audit log, chaining its linear hash to the previous entry.

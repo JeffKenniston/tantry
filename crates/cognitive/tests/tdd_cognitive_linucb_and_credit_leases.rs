@@ -100,28 +100,11 @@ fn tdd_cognitive_linucb_and_credit_leases() {
 fn test_billing_concurrent() {
     use cognitive::billing::BillingEnforcer;
     use data::task_ledger::TaskLedgerStore;
-    use rusqlite::Connection;
-    use std::sync::{Arc, Mutex};
+
+    use std::sync::Arc;
     use std::thread;
 
-    let db = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
-    db.lock()
-        .unwrap()
-        .execute(
-            "CREATE TABLE task_ledger (
-            task_id TEXT PRIMARY KEY,
-            status TEXT NOT NULL,
-            spent_budget_micros INTEGER NOT NULL,
-            reserved_budget_micros INTEGER NOT NULL,
-            hard_budget_micros INTEGER NOT NULL,
-            webhook_90_fired INTEGER NOT NULL,
-            updated_at_ms INTEGER NOT NULL
-        )",
-            [],
-        )
-        .unwrap();
-
-    let ledger = Arc::new(TaskLedgerStore::new(db));
+    let ledger = Arc::new(TaskLedgerStore::new("file:cognitive_test?mode=memory&cache=shared").unwrap());
     let task_id = "test_task";
     ledger.create_task(task_id, 15).unwrap();
 
