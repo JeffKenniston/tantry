@@ -1,8 +1,0 @@
-Implement 22-Tool Bernstein Dependency-DAG Scheduler and update TurnExecutionContext
-
-- Updates `TurnExecutionContext` in `crates/runtime/src/middleware.rs` with `backend`, `publisher` (CreditControlledPublisher), and `metrics`.
-- Implements `ToolAccessClassifier` and `paths_intersect` in `crates/runtime/src/tool_scheduler.rs`.
-- Implements `BernsteinToolScheduler::partition_into_waves` for Kahn's topological sort based on R/W footprints.
-- Implements `BernsteinToolScheduler::execute_waves` for concurrent execution, state isolation, and VFS reconciliation.
-- Exposes `tool_scheduler` module in `crates/runtime/src/lib.rs`.
-- Updates `classify_tool_footprint` in `crates/base/src/tools_meta.rs` to map missing `path` arguments to `None`.
