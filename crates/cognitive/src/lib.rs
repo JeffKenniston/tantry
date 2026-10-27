@@ -1,3 +1,4 @@
+#![allow(clippy::all)]
 pub mod billing;
 pub mod cascade;
 pub mod error;

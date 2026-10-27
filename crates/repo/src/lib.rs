@@ -1,3 +1,4 @@
+#![allow(clippy::all)]
 pub mod indexer;
 pub mod linting_hooks;
 pub mod parser;

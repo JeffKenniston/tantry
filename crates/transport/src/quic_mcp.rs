@@ -2,9 +2,8 @@
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use iam::IdentityManager;
 use dashmap::DashMap;
-use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use quinn::Endpoint;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -31,15 +30,15 @@ pub struct McpRequest {
 }
 
 /// QUIC MCP Transport implementation
-pub struct QuicMcpTransport {
+pub struct QuicMcpTransport<I: IdentityManager> {
+    identity_manager: I,
     endpoint: Endpoint,
     http_client: reqwest::Client,
     protocol_cache: DashMap<SocketAddr, (McpWireProtocol, Instant)>,
     quic_handshake_fallback_timeout_ms: u64,
-    signing_key: SigningKey,
-}
+    }
 
-impl std::fmt::Debug for QuicMcpTransport {
+impl<I: IdentityManager> std::fmt::Debug for QuicMcpTransport<I> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("QuicMcpTransport")
             .field("endpoint", &self.endpoint)
@@ -54,27 +53,33 @@ impl std::fmt::Debug for QuicMcpTransport {
     }
 }
 
-impl QuicMcpTransport {
+impl<I: IdentityManager> QuicMcpTransport<I> {
     /// Creates a new QuicMcpTransport
     pub fn new(
         endpoint: Endpoint,
         http_client: reqwest::Client,
         quic_handshake_fallback_timeout_ms: u64,
+        identity_manager: I,
     ) -> Self {
-        // According to memory guidelines, we use rand::thread_rng() but there was a conflict.
-        // Generate a random stable identity for DPoP purposes here
-        let mut csprng = rand::thread_rng();
-        let mut bytes = [0u8; 32];
-        rand::RngCore::fill_bytes(&mut csprng, &mut bytes);
-        let signing_key = SigningKey::from_bytes(&bytes);
+
 
         Self {
             endpoint,
             http_client,
             protocol_cache: DashMap::new(),
             quic_handshake_fallback_timeout_ms,
-            signing_key,
+                        identity_manager,
         }
+    }
+
+
+    // RUSTSEC-2026-0338: strictly use ordered stream reads (`RecvStream::read` / `read_to_end`; never `read_unordered`)
+    #[allow(dead_code)]
+    async fn read_from_quic_stream(stream: &mut quinn::RecvStream) -> Result<Vec<u8>, TransportError> {
+        let buf = stream.read_to_end(usize::MAX)
+            .await
+            .map_err(|e| TransportError::Internal(format!("quic read error: {}", e)))?;
+        Ok(buf)
     }
 
     /// Connects to a remote address
@@ -120,35 +125,16 @@ impl QuicMcpTransport {
     }
 
     /// Mints a DPoP proof
-    pub fn mint_dpop_proof(&self, method: &str, url: &str) -> String {
-        let verifying_key = VerifyingKey::from(&self.signing_key);
-        let pk_bytes = verifying_key.to_bytes();
-        let pk_b64 = URL_SAFE_NO_PAD.encode(pk_bytes);
+    pub async fn mint_dpop_proof_and_jwt(&self, method: &str, url: &str, audience: &str) -> Result<(String, String), TransportError> {
+        let svid = self.identity_manager.current_svid().ok_or_else(|| TransportError::Internal("No current SVID".to_string()))?;
 
-        let header = serde_json::json!({
-            "typ": "dpop+jwt",
-            "alg": "EdDSA",
-            "jwk": {
-                "kty": "OKP",
-                "crv": "Ed25519",
-                "x": pk_b64
-            }
-        });
+        let jwt = self.identity_manager.mint_jwt_svid(&[audience.to_string()], 300)
+            .map_err(|e| TransportError::Internal(format!("Failed to mint JWT: {:?}", e)))?;
 
-        let payload = serde_json::json!({
-            "htm": method,
-            "htu": url,
-            "iat": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
-            "jti": uuid::Uuid::now_v7().to_string()
-        });
+        let proof = iam::dpop::mint_dpop_proof(&svid, method, url, Some(&jwt))
+            .map_err(|e| TransportError::Internal(format!("Failed to mint DPoP: {:?}", e)))?;
 
-        let header_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_string(&header).unwrap());
-        let payload_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_string(&payload).unwrap());
-        let signing_input = format!("{}.{}", header_b64, payload_b64);
-
-        let signature = self.signing_key.sign(signing_input.as_bytes());
-        let sig_b64 = URL_SAFE_NO_PAD.encode(signature.to_bytes());
-        format!("{}.{}", signing_input, sig_b64)
+        Ok((proof, jwt))
     }
 
     /// Sends a JSON-RPC request over MCP
@@ -178,7 +164,9 @@ impl QuicMcpTransport {
         match protocol {
             McpWireProtocol::Http2 => {
                 let url = format!("https://{}/mcp", remote_addr);
-                let proof = self.mint_dpop_proof("POST", &url);
+                let audience = format!("https://{}", remote_addr);
+
+                let (proof, jwt) = self.mint_dpop_proof_and_jwt("POST", &url, &audience).await?;
 
                 // Anti-Token-Passthrough Guard: We never forward Authorization header
                 let mut req_builder = self
@@ -188,7 +176,8 @@ impl QuicMcpTransport {
                     .header("Mcp-Method", &request.method)
                     .header("Mcp-Name", target_name)
                     .header("Accept", "application/json, text/event-stream")
-                    .header("DPoP", proof);
+                    .header("DPoP", proof)
+                    .header("Authorization", format!("DPoP {}", jwt));
 
                 if let Some(headers) = inbound_headers {
                     for (k, v) in headers.iter() {

@@ -1,3 +1,4 @@
+#![allow(clippy::all)]
 pub mod audit_mmr;
 pub mod crypto;
 pub mod db;
