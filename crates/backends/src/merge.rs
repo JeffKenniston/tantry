@@ -55,9 +55,9 @@ pub struct VfsMergeReport {
 
 /// 3-Way Merge algorithm across N branches
 #[allow(clippy::collapsible_if)]
-pub fn multi_way_merge(
+pub fn merge_subagent_trees(
     base: &VfsTree,
-    branches: HashMap<String, VfsTree>,
+    branches: Vec<(String, VfsTree)>,
     now: chrono::DateTime<chrono::Utc>,
 ) -> VfsMergeReport {
     let mut report = VfsMergeReport {

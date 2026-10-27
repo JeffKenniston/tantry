@@ -1,7 +1,7 @@
 
 use base::ast::{ContentBlock, ExecuteArtifact, Message, TodoItem, TodoStatus, ToolArtifact, ToolCallId, AsyncTaskHandle, AsyncTaskStatus};
 use base::delta::{FileDelta, MessageDelta};
-use base::execution::{ApprovalDecision, LoopDirective, ModelRequest, ModelResponse, StreamEvent};
+use base::execution::{ApprovalDecision, LoopDirective, ModelRequest, StreamEvent};
 use base::state::TantryState;
 use base::vfs_tree::VfsTree;
 use chrono::Utc;
@@ -48,158 +48,172 @@ impl RuntimeEngine {
 
         let max_steps_per_turn = 50;
         let mut steps = 0;
+        let mut cumulative_usage = base::execution::TokenUsage::default();
 
-        loop {
+                loop {
+            let _step_start_vfs = state.files.clone();
             if steps >= max_steps_per_turn {
                 break;
             }
             steps += 1;
 
-            let req = ModelRequest {
-                messages: state.messages.clone(),
-                target_tier: ctx.default_model_tier.clone(),
-            };
-
-            let provider = ctx.llm_provider.clone();
-            let mut publisher_opt = ctx.publisher.clone();
-            let _tier = ctx.default_model_tier.clone();
-
-            let mut inner: NextModelCall = Box::new(move |_st, r| {
-                Box::pin(async move {
-                    if let Some(pub_handle) = &mut publisher_opt {
-                        let mut stream = provider.stream_complete(r)?;
-                        let mut content_buffer = String::new();
-                        while let Some(res) = stream.next().await {
-                            let evt = res?;
-                            if let StreamEvent::ModelDelta { ref text_delta, .. } = evt {
-                                content_buffer.push_str(text_delta);
-                            }
-                            if let Some(arc_mut) = Arc::get_mut(pub_handle) {
-                                arc_mut.publish_event(evt);
-                            }
-                        }
-
-                        Ok(ModelResponse {
-                            content: content_buffer.clone(),
-                            assistant_message: Message::assistant(vec![ContentBlock::Text {
-                                text: content_buffer,
-                                cache_control: None,
-                            }]),
-                            usage: base::execution::TokenUsage::default(),
-                        })
-                    } else {
-                        provider.complete(r).map_err(Into::into)
-                    }
-                })
-            });
-
-
-
-            // We need a way to reference self.middlewares over lifetime 'a. But execute_turn takes `&self`.
-            // We can't use self.middlewares safely if the future is Send + 'static. But it's Send + 'a!
-            // Wait! NextModelCall<'a> is tied to 'a. The closure can capture `mw: &'a Arc<dyn AgentMiddleware>`.
-            for mw in self.middlewares.iter().rev() {
-                let next = inner;
-                inner = Box::new(move |st, r| {
-                    Box::pin(async move { mw.wrap_model_call(st, r, ctx, next).await })
-                });
-            }
-
-
-
-            let response = inner(&mut state, req).await?;
-            let assistant_msg = response.assistant_message;
-            state.messages.push(assistant_msg.clone());
-            if let Some(mut delta) = state.extensions.get::<TurnDeltaBufferSlot>().cloned() {
-                delta
-                    .message_deltas
-                    .push(MessageDelta::Append(vec![assistant_msg.clone()]));
-                state.extensions.insert(delta);
-            }
-
-            ctx.metrics
-                .kv_cache_hit_ratio
-                .with_label_values(&["llm", ctx.default_model_tier.as_str()])
-                .observe(
-                    response.usage.cached_tokens as f64
-                        / (response.usage.input_tokens.max(1) as f64),
-                );
-            ctx.metrics
-                .token_spend_micros_total
-                .with_label_values(&[&ctx.tenant_id.clone(), &ctx.default_model_tier.as_str().to_string()])
-                .inc_by(response.usage.input_tokens + response.usage.output_tokens);
-
+            let is_resuming_hitl = state.extensions.get::<HitlBypassSlot>().is_some();
             let mut calls = Vec::new();
-            for block in &assistant_msg.content {
-                if let ContentBlock::ToolUse { id, name, input } = block {
-                    let footprint = ToolAccessClassifier::classify(name, input);
-                    calls.push(ToolUseCall {
-                        tool_use_id: id.clone(),
-                        tool_name: name.clone(),
-                        tool_input: input.clone(),
-                        footprint,
-                    });
+
+            if is_resuming_hitl {
+                if let Some(last_msg) = state.messages.last() {
+                    for block in &last_msg.content {
+                        if let ContentBlock::ToolUse { id, name, input } = block {
+                            let footprint = ToolAccessClassifier::classify(name, input);
+                            calls.push(ToolUseCall {
+                                tool_use_id: id.clone(),
+                                tool_name: name.clone(),
+                                tool_input: input.clone(),
+                                footprint,
+                            });
+                        }
+                    }
                 }
             }
 
-            let hitl_bypass = state.extensions.get::<HitlBypassSlot>().cloned();
-            let mut interrupted = false;
-            let mut pending_tools = Vec::new();
+            if !is_resuming_hitl {
+                let req = ModelRequest {
+                    messages: state.messages.clone(),
+                    target_tier: ctx.default_model_tier.clone(),
+                };
+
+                let provider = ctx.llm_provider.clone();
+                let mut publisher_opt = ctx.publisher.clone();
+                let _tier = ctx.default_model_tier.clone();
+
+                let mut inner: NextModelCall = Box::new(move |_st, r| {
+                    Box::pin(async move {
+                        if let Some(pub_handle) = &mut publisher_opt {
+                            let mut stream = provider.stream_complete(r.clone())?;
+                            while let Some(res) = stream.next().await {
+                                let evt = res?;
+                                if let StreamEvent::ModelDelta { .. } = evt {
+                                    pub_handle.publish_event(evt);
+                                }
+                            }
+
+                            // Now get the full structured response
+                            provider.complete(r).map_err(Into::into)
+                        } else {
+                            provider.complete(r).map_err(Into::into)
+                        }
+                    })
+                });
+
+                for mw in self.middlewares.iter().rev() {
+                    let next = inner;
+                    inner = Box::new(move |st, r| {
+                        Box::pin(async move { mw.wrap_model_call(st, r, ctx, next).await })
+                    });
+                }
+
+                let response = inner(&mut state, req).await?;
+                let assistant_msg = response.assistant_message;
+                state.messages.push(assistant_msg.clone());
+                if let Some(mut delta) = state.extensions.get::<TurnDeltaBufferSlot>().cloned() {
+                    delta
+                        .message_deltas
+                        .push(MessageDelta::Append(vec![assistant_msg.clone()]));
+                    state.extensions.insert(delta);
+                }
+
+                cumulative_usage.input_tokens += response.usage.input_tokens;
+                cumulative_usage.cached_tokens += response.usage.cached_tokens;
+                cumulative_usage.output_tokens += response.usage.output_tokens;
+
+                ctx.metrics
+                    .kv_cache_hit_ratio
+                    .with_label_values(&["llm", ctx.default_model_tier.as_str()])
+                    .observe(
+                        response.usage.cached_tokens as f64
+                            / (response.usage.input_tokens.max(1) as f64),
+                    );
+                ctx.metrics
+                    .token_spend_micros_total
+                    .with_label_values(&[&ctx.tenant_id.clone(), &ctx.default_model_tier.as_str().to_string()])
+                    .inc_by(response.usage.input_tokens + response.usage.output_tokens);
+
+                for block in &assistant_msg.content {
+                    if let ContentBlock::ToolUse { id, name, input } = block {
+                        let footprint = ToolAccessClassifier::classify(name, input);
+                        calls.push(ToolUseCall {
+                            tool_use_id: id.clone(),
+                            tool_name: name.clone(),
+                            tool_input: input.clone(),
+                            footprint,
+                        });
+                    }
+                }
+            }
+                        let hitl_bypass = state.extensions.get::<HitlBypassSlot>().cloned();
+            let mut permitted_calls: Vec<ToolUseCall> = Vec::new();
+            let mut denied_results: Vec<Message> = Vec::new();
+            let mut pending_tools: Vec<ToolCallId> = Vec::new();
 
             for call in &calls {
                 let bypassed = hitl_bypass
                     .as_ref()
                     .map_or(false, |b| b.approved_tool_use_ids.contains(&call.tool_use_id));
 
-                if !bypassed {
-                    if let Some(mode) = ctx.permission_lattice.interrupt_on_tools.get(&call.tool_name) {
-                        let mode = mode.clone();
-                        if mode == PermissionMode::Deny {
-                            state.messages.push(Message::tool_result(
-                                call.tool_use_id.clone(),
-                                true,
-                                "Permission denied by policy lattice".to_string(),
-                                None,
-                            ));
-                            continue;
-                        }
-                        if mode == PermissionMode::Interrupt {
-                            interrupted = true;
+                let mut effective_mode = PermissionMode::Allow;
+
+                if let Some(mode) = ctx.permission_lattice.interrupt_on_tools.get(&call.tool_name) {
+                    effective_mode = effective_mode.join(mode.clone());
+                }
+
+                for mw in &self.middlewares {
+                    if let Some(mode) = mw
+                        .evaluate_tool_permission(
+                            &state,
+                            &call.tool_use_id,
+                            &call.tool_name,
+                            &call.tool_input,
+                            ctx,
+                        )
+                        .await?
+                    {
+                        effective_mode = effective_mode.join(mode);
+                    }
+                }
+
+                if bypassed && effective_mode == PermissionMode::Interrupt {
+                    effective_mode = PermissionMode::Allow;
+                }
+
+                match effective_mode {
+                    PermissionMode::Deny => {
+                        let deny_msg = Message::tool_result(
+                            call.tool_use_id.clone(),
+                            true,
+                            "Permission denied by policy lattice".to_string(),
+                            None,
+                        );
+                        denied_results.push(deny_msg);
+                    }
+                    PermissionMode::Interrupt => {
+                        if !pending_tools.contains(&call.tool_use_id) {
                             pending_tools.push(call.tool_use_id.clone());
                         }
                     }
-
-                    for mw in &self.middlewares {
-                        if let Some(mode) = mw
-                            .evaluate_tool_permission(
-                                &state,
-                                &call.tool_use_id,
-                                &call.tool_name,
-                                &call.tool_input,
-                                ctx,
-                            )
-                            .await?
-                        {
-                            if mode == PermissionMode::Deny {
-                                state.messages.push(Message::tool_result(
-                                    call.tool_use_id.clone(),
-                                    true,
-                                    "Permission denied by policy lattice".to_string(),
-                                    None,
-                                ));
-                                break;
-                            }
-                            if mode == PermissionMode::Interrupt {
-                                interrupted = true;
-                                pending_tools.push(call.tool_use_id.clone());
-                                break;
-                            }
-                        }
+                    PermissionMode::Allow => {
+                        permitted_calls.push(call.clone());
                     }
                 }
             }
 
-            if interrupted {
+            if !denied_results.is_empty() {
+                state.messages.extend(denied_results.clone());
+                if let Some(mut delta) = state.extensions.get::<TurnDeltaBufferSlot>().cloned() {
+                    delta.message_deltas.push(MessageDelta::Append(denied_results));
+                    state.extensions.insert(delta);
+                }
+            }
+            if !pending_tools.is_empty() {
                 let head = ctx
                     .data_stores
                     .interaction_chain
@@ -244,59 +258,70 @@ impl RuntimeEngine {
                 ).map_err(|e| RuntimeError::Data(e))?;
                 state.last_checkpoint_id = Some(cp_id.clone());
 
-                if let Some(mut pub_handle) = ctx.publisher.clone() {
-                    if let Some(arc_mut) = Arc::get_mut(&mut pub_handle) {
-                        arc_mut.publish_event(StreamEvent::Interrupted {
+                if let Some(pub_handle) = ctx.publisher.clone() {
+                    pub_handle.publish_event(StreamEvent::Interrupted {
                             thread_id: state.thread_id.clone(),
                             checkpoint_id: cp_id,
                             pending_tools,
                         });
-                    }
                 }
 
                 return Ok(TurnExecutionOutcome::Interrupted);
             }
 
-            if !calls.is_empty() {
-                if let Some(mut pub_handle) = ctx.publisher.clone() {
-                    if let Some(arc_mut) = Arc::get_mut(&mut pub_handle) {
-                        arc_mut.publish_event(StreamEvent::ToolCallStart {
-                            tool_use_id: calls[0].tool_use_id.clone(),
-                            name: calls[0].tool_name.clone(),
+                        if pending_tools.is_empty() && !permitted_calls.is_empty() {
+                if let Some(pub_handle) = ctx.publisher.clone() {
+                    for c in &permitted_calls {
+                        pub_handle.publish_event(StreamEvent::ToolCallStart {
+                            tool_use_id: c.tool_use_id.clone(),
+                            name: c.tool_name.clone(),
                         });
                     }
                 }
 
-                let _mws_clone = self.middlewares.clone();
+                let mws = &self.middlewares;
                 let tool_res = BernsteinToolScheduler::execute_waves(
                     &mut state,
-                    &calls,
+                    &permitted_calls,
                     ctx,
                     &ctx.metrics,
-                    |st, call| {
-                        let tool_use_id = call.tool_use_id.clone();
+                    |mut st, call| {
                         Box::pin(async move {
-                            let msg = Message::tool_result(
-                                tool_use_id.clone(),
-                                false,
-                                "executed".to_string(),
-                                None,
-                            );
-                            (Ok(msg), st)
+                            match execute_single_tool(
+                                &mut st,
+                                &call.tool_use_id,
+                                &call.tool_name,
+                                &call.tool_input,
+                                ctx,
+                                mws,
+                            )
+                            .await
+                            {
+                                Ok(out) => {
+                                    let msg = Message::tool_result(
+                                        call.tool_use_id.clone(),
+                                        out.is_error,
+                                        out.raw_output,
+                                        out.artifact,
+                                    );
+                                    (Ok(msg), st)
+                                }
+                                Err(e) => (Err(e), st),
+                            }
                         })
                     },
                 )
                 .await?;
 
-                if let Some(mut pub_handle) = ctx.publisher.clone() {
-                    if let Some(arc_mut) = Arc::get_mut(&mut pub_handle) {
-                        if let ContentBlock::ToolResult {
+                if let Some(pub_handle) = ctx.publisher.clone() {
+                    for msg in &tool_res {
+                        if let Some(ContentBlock::ToolResult {
                             tool_use_id,
                             is_error,
                             ..
-                        } = &tool_res[0].content[0]
+                        }) = msg.content.get(0)
                         {
-                            arc_mut.publish_event(StreamEvent::ToolCallEnd {
+                            pub_handle.publish_event(StreamEvent::ToolCallEnd {
                                 tool_use_id: tool_use_id.clone(),
                                 is_error: *is_error,
                             });
@@ -369,13 +394,11 @@ impl RuntimeEngine {
                 if should_continue {
                     continue;
                 } else {
-                    if let Some(mut pub_handle) = ctx.publisher.clone() {
-                        if let Some(arc_mut) = Arc::get_mut(&mut pub_handle) {
-                            arc_mut.publish_event(StreamEvent::TurnComplete {
+                    if let Some(pub_handle) = ctx.publisher.clone() {
+                        pub_handle.publish_event(StreamEvent::TurnComplete {
                                 step_index: state.step_index,
-                                usage: base::execution::TokenUsage::default(),
+                                usage: cumulative_usage.clone(),
                             });
-                        }
                     }
                     return Ok(TurnExecutionOutcome::Completed(state));
                 }
@@ -651,7 +674,7 @@ pub async fn execute_single_tool(
             let content = tool_input.get("content").and_then(|v| v.as_str()).unwrap_or("");
             state.memory_contents.insert(path.to_string(), content.to_string());
 
-            match ctx.backend.write_file(state, "/memories/AGENTS.md", content) {
+            match ctx.backend.write_file(state, path, content) {
                 Ok(_) => Ok(ToolExecutionOutput { raw_output: "Memory updated.".to_string(), is_error: false, artifact: None }),
                 Err(e) => Ok(ToolExecutionOutput { raw_output: format!("Failed to write to VFS: {}", e), is_error: true, artifact: None })
             }

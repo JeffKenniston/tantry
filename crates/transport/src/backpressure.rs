@@ -16,7 +16,7 @@ pub struct CreditControlledPublisher {
     /// The current number of available credits.
     pub credits: Arc<AtomicU32>,
     /// The pending StreamEvent slot for coalescing ModelDelta events.
-    pub pending: Option<StreamEvent>,
+    pub pending: std::sync::Mutex<Option<StreamEvent>>,
 }
 
 impl CreditControlledPublisher {
@@ -24,16 +24,16 @@ impl CreditControlledPublisher {
     pub fn new(initial_credits: u32) -> Self {
         Self {
             credits: Arc::new(AtomicU32::new(initial_credits)),
-            pending: None,
+            pending: std::sync::Mutex::new(None),
         }
     }
 
     /// Flushes any pending event if credits are available.
-    pub fn flush(&mut self) -> Option<StreamEvent> {
+    pub fn flush(&self) -> Option<StreamEvent> {
         let current_credits = self.credits.load(Ordering::SeqCst);
-        if current_credits > 0 && self.pending.is_some() {
+        if current_credits > 0 && self.pending.lock().unwrap().is_some() {
             if self.credits.fetch_sub(1, Ordering::SeqCst) > 0 {
-                return self.pending.take();
+                return self.pending.lock().unwrap().take();
             } else {
                 self.credits.fetch_add(1, Ordering::SeqCst);
             }
@@ -42,7 +42,7 @@ impl CreditControlledPublisher {
     }
 
     /// Grants additional credits to the publisher and flushes any pending coalesced event.
-    pub fn on_credit_granted(&mut self, grant: CreditGrant) -> Option<StreamEvent> {
+    pub fn on_credit_granted(&self, grant: CreditGrant) -> Option<StreamEvent> {
         self.credits
             .fetch_add(grant.additional_credits, Ordering::SeqCst);
         self.flush()
@@ -50,13 +50,13 @@ impl CreditControlledPublisher {
 
     /// Attempts to publish an event.
     /// Returns a list of events that should be sent out immediately.
-    pub fn publish_event(&mut self, event: StreamEvent) -> Vec<StreamEvent> {
+    pub fn publish_event(&self, event: StreamEvent) -> Vec<StreamEvent> {
         let mut out = Vec::<StreamEvent>::new();
         let is_lifecycle = !matches!(event, StreamEvent::ModelDelta { .. });
 
         if is_lifecycle {
             // Lifecycle events flush any pending coalesced ModelDelta first.
-            if let Some(pending_delta) = self.pending.take() {
+            if let Some(pending_delta) = self.pending.lock().unwrap().take() {
                 if self.credits.load(Ordering::SeqCst) > 0 {
                     self.credits.fetch_sub(1, Ordering::SeqCst);
                 }
@@ -68,18 +68,18 @@ impl CreditControlledPublisher {
                 self.credits.fetch_sub(1, Ordering::SeqCst);
                 out.push(event);
             } else {
-                self.pending = Some(event);
+                *self.pending.lock().unwrap() = Some(event);
             }
         } else {
             // ModelDelta
-            if self.credits.load(Ordering::SeqCst) > 0 && self.pending.is_none() {
+            if self.credits.load(Ordering::SeqCst) > 0 && self.pending.lock().unwrap().is_none() {
                 self.credits.fetch_sub(1, Ordering::SeqCst);
                 out.push(event);
             } else if self.credits.load(Ordering::SeqCst) > 0 {
                 // If credits > 0 but we have a pending event, flush the pending one,
                 // consume credit, and process this event recursively or put it out.
                 // Actually `flush()` does this, but we'll do it manually.
-                let pending_ev = self.pending.take().unwrap();
+                let pending_ev = self.pending.lock().unwrap().take().unwrap();
                 self.credits.fetch_sub(1, Ordering::SeqCst);
                 out.push(pending_ev);
 
@@ -87,26 +87,20 @@ impl CreditControlledPublisher {
                     self.credits.fetch_sub(1, Ordering::SeqCst);
                     out.push(event);
                 } else {
-                    self.pending = Some(event);
+                    *self.pending.lock().unwrap() = Some(event);
                 }
             } else {
                 // Credits == 0
-                if let Some(ref mut pending) = self.pending {
-                    // Try to coalesce in place
+                let mut p_guard = self.pending.lock().unwrap();
+                if let Some(ref mut pending) = *p_guard {
                     let res = pending.coalesce_in_place(event);
                     if let Err(uncoalesced) = res {
-                        // This implies `pending` was a lifecycle event.
-                        // But lifecycle events should never be pending if a delta comes in
-                        // because lifecycle events don't coalesce. If one is pending, flush it
-                        // immediately (without credit) and buffer the ModelDelta?
-                        // "Lifecycle events NEVER coalesce or drop; if a lifecycle event arrives while a coalesced ModelDelta is buffered, flushes the coalesced ModelDelta immediately before queuing the lifecycle event."
-                        // It does NOT say lifecycle events wait for credit. It says they flush the coalesced delta.
-                        let pending_lifecycle = self.pending.take().unwrap();
+                        let pending_lifecycle = p_guard.take().unwrap();
                         out.push(pending_lifecycle);
-                        self.pending = Some(uncoalesced);
+                        *p_guard = Some(uncoalesced);
                     }
                 } else {
-                    self.pending = Some(event);
+                    *self.pending.lock().unwrap() = Some(event);
                 }
             }
         }
@@ -122,7 +116,7 @@ mod tests {
 
     #[test]
     fn test_credit_exhaustion_and_coalescing() {
-        let mut publisher = CreditControlledPublisher::new(1);
+        let publisher = CreditControlledPublisher::new(1);
 
         let e1 = StreamEvent::ModelDelta {
             text_delta: "A".to_string(),
@@ -148,7 +142,7 @@ mod tests {
         if let Some(StreamEvent::ModelDelta {
             text_delta,
             reasoning_delta,
-        }) = &publisher.pending
+        }) = publisher.pending.lock().unwrap().clone()
         {
             assert_eq!(text_delta, "BC");
             assert_eq!(reasoning_delta.as_ref().unwrap(), "R1");
@@ -168,13 +162,13 @@ mod tests {
             panic!("Expected ModelDelta");
         }
 
-        assert!(publisher.pending.is_none());
+        assert!(publisher.pending.lock().unwrap().is_none());
         assert_eq!(publisher.credits.load(Ordering::SeqCst), 0);
     }
 
     #[test]
     fn test_lifecycle_events_flush_pending_delta() {
-        let mut publisher = CreditControlledPublisher::new(0);
+        let publisher = CreditControlledPublisher::new(0);
 
         let e1 = StreamEvent::ModelDelta {
             text_delta: "A".to_string(),
@@ -203,8 +197,8 @@ mod tests {
             panic!("Expected forced flush of ModelDelta");
         }
 
-        assert!(publisher.pending.is_some());
-        if let StreamEvent::TurnComplete { .. } = publisher.pending.as_ref().unwrap() {
+        assert!(publisher.pending.lock().unwrap().is_some());
+        if let StreamEvent::TurnComplete { .. } = publisher.pending.lock().unwrap().as_ref().unwrap() {
         } else {
             panic!("Expected TurnComplete buffered");
         }
