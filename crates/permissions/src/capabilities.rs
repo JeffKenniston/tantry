@@ -311,6 +311,18 @@ pub enum McpCapability {
 
 impl McpCapability {
     /// Returns the maximum spend in microseconds.
+    /// Returns the effective maximum spend in microseconds.
+    pub fn effective_max_spend_micros(&self) -> u64 {
+        match self {
+            Self::Base {
+                effective_max_spend_micros, ..
+            } => *effective_max_spend_micros,
+            Self::Composite {
+                effective_max_spend_micros, ..
+            } => *effective_max_spend_micros,
+        }
+    }
+
     pub fn max_spend_micros(&self) -> u64 {
         match self {
             Self::Base {

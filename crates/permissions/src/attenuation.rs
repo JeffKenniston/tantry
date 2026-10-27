@@ -21,9 +21,9 @@ pub struct PermissionLattice {
 impl PermissionLattice {
     /// Constructs a composite lattice where every evaluation query computes the pointwise least upper bound.
     /// This enforces the pointwise join attenuation law $\text{Effective}(x) = \mathcal{P}_{\text{parent}}(x) \sqcup \mathcal{C}_{\text{child}}(x)$.
-    pub fn narrow_for_subagent(&self, child_requested: &PermissionLattice) -> PermissionLattice {
+    pub fn narrow_for_subagent(&self, child: &PermissionLattice) -> PermissionLattice {
         let mut new_interrupt = self.interrupt_on_tools.clone();
-        for (k, v) in &child_requested.interrupt_on_tools {
+        for (k, v) in &child.interrupt_on_tools {
             new_interrupt
                 .entry(k.clone())
                 .and_modify(|existing| *existing = existing.join(*v))
@@ -31,26 +31,26 @@ impl PermissionLattice {
         }
 
         let effective_max = std::cmp::min(
-            self.mcp.max_spend_micros(),
-            child_requested.mcp.max_spend_micros(),
+            self.mcp.effective_max_spend_micros(),
+            child.mcp.effective_max_spend_micros(),
         );
 
         PermissionLattice {
             fs: FsCapability::Composite {
                 parent: Arc::new(self.fs.clone()),
-                child: Arc::new(child_requested.fs.clone()),
+                child: Arc::new(child.fs.clone()),
             },
             net: NetCapability::Composite {
                 parent: Arc::new(self.net.clone()),
-                child: Arc::new(child_requested.net.clone()),
+                child: Arc::new(child.net.clone()),
             },
             env: EnvCapability::Composite {
                 parent: Arc::new(self.env.clone()),
-                child: Arc::new(child_requested.env.clone()),
+                child: Arc::new(child.env.clone()),
             },
             mcp: McpCapability::Composite {
                 parent: Arc::new(self.mcp.clone()),
-                child: Arc::new(child_requested.mcp.clone()),
+                child: Arc::new(child.mcp.clone()),
                 max_spend_micros: effective_max,
                 effective_max_spend_micros: effective_max,
             },
