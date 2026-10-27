@@ -1,0 +1,56 @@
+[system]
+trust_domain = "tantry.internal"
+spire_socket_path = "${PREFIX:-}/run/spire/sockets/agent.sock"
+enable_embedded_sovereign_ca_fallback = true
+require_pq_hybrid_signatures = true
+data_dir = "${PREFIX:-}/var/lib/tantry/data"
+cache_dir = "${PREFIX:-}/var/lib/tantry/cache"
+verify_sigstore_bundles = true
+strict_posix_paths = false
+
+[cognitive]
+default_provider = "google_genai"
+semantic_cache_similarity_threshold = 0.95
+semantic_cache_max_entries = 10000
+enable_linucb_bandit_routing = true
+
+[cognitive.tiers]
+frontier_deep = "gemini:gemini-2.5-pro"
+reasoning_pro = "gemini:gemini-2.5-pro"
+fast_execution = "gemini:gemini-2.5-flash"
+compact_lite = "gemini:gemini-2.5-flash"
+
+[billing]
+webhook_url = "https://billing.tantry.internal/webhook"
+soft_warning_ratio = 0.8
+hard_stop_ratio = 1.0
+webhook_timeout_ms = 5000
+
+[sandboxes]
+preferred_isolation_mode = "wasm_only"
+max_workers = 4
+
+[sandboxes.wasm]
+max_memory_bytes = 104857600
+fuel_budget = 1000000
+epoch_tick_ms = 10
+wall_clock_timeout_ms = 30000
+
+[sandboxes.firecracker]
+jailer_binary = "${PREFIX:-}/usr/bin/jailer"
+firecracker_binary = "${PREFIX:-}/usr/bin/firecracker"
+kernel_image = "${PREFIX:-}/var/lib/tantry/vmlinux"
+egress_proxy_listen_addr = "127.0.0.1:9090"
+enable_vsock = true
+
+[sandboxes.termux_proot]
+proot_binary = "${PREFIX:-}/usr/bin/proot"
+rootfs_dir = "${PREFIX:-}/var/lib/tantry/rootfs"
+uds_control_socket_dir = "${PREFIX:-}/tmp/tantry_uds"
+bind_mount_cwd = true
+
+[transport]
+zenoh_listen_endpoints = ["tcp/0.0.0.0:7447", "quic/0.0.0.0:7447"]
+quic_mcp_listen_addr = "0.0.0.0:4433"
+quic_handshake_fallback_timeout_ms = 2000
+mcp_protocol_version = "2026-07-28"

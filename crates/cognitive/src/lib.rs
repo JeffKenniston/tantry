@@ -6,12 +6,11 @@ pub mod router;
 pub mod semantic_cache;
 pub mod tokenizer;
 
-use crate::error::CognitiveError;
 use base::ast::McpSamplingDepthSlot;
 use base::execution::{ModelRequest, ModelResponse};
 
 pub use cascade::{LlmProvider, SpeculativeCascadeVerifier};
-pub use base::execution::{ModelRequest, ModelResponse, StreamEvent, ModelTier};
+pub use base::execution::{StreamEvent, ModelTier};
 
 use base::state::TantryState;
 use data::task_ledger::TaskLedgerStore;

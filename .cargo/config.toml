@@ -1,0 +1,21 @@
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = "symbols"
+panic = "abort"
+
+[target.aarch64-linux-android]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld", "-C", "link-arg=-Wl,--threads=4,--no-keep-memory", "-C", "target-cpu=generic", "-C", "target-feature=+neon,+crc,+crypto,+dotprod"]
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-feature=+avx2,+fma,+aes,+sse4.2"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "target-feature=+neon,+crc,+crypto,+dotprod"]

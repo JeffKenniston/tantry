@@ -1,4 +1,4 @@
-use permissions::ext::SpiffeId;
+use iam::spiffe::SpiffeId;
 use permissions::lattice::PermissionMode;
 use permissions::zenoh_guard::evaluate_zenoh_topic;
 use thiserror::Error;
