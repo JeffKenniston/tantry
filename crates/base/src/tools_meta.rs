@@ -3,6 +3,7 @@ use crate::path::PosixPath;
 use crate::vfs_tree::VfsTree;
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
+use serde_json::Value;
 
 /// TOOL_WRITE_TODOS const
 pub const TOOL_WRITE_TODOS: &str = "write_todos";
@@ -132,6 +133,14 @@ impl ToolAccessFootprint {
             },
         }
     }
+}
+
+pub fn classify_tool_footprint(tool_name: &str, input: &Value) -> ToolAccessFootprint {
+    let path_arg = input
+        .get("path")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    ToolAccessFootprint::for_tool(tool_name, path_arg)
 }
 
 /// maybe_offload_tool_output fn

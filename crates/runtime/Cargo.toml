@@ -7,6 +7,7 @@ edition = "2024"
 async-trait = "0.1.92"
 backends = { version = "0.1.0", path = "../backends" }
 base = { version = "0.1.0", path = "../base" }
+chrono = "0.4.45"
 cognitive = { version = "0.1.0", path = "../cognitive" }
 data = { version = "0.1.0", path = "../data" }
 futures = "0.3.34"
