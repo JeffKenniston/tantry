@@ -1,9 +1,9 @@
 use base::execution::ModelTier;
-use cognitive::router::{Router, generate_context_vector};
+use cognitive::router::{CognitiveRouter, generate_context_vector};
 
 #[test]
 fn tdd_cognitive_linucb_and_credit_leases() {
-    let mut router = Router::new();
+    let mut router = CognitiveRouter::new();
 
     let ctx_override =
         generate_context_vector(1000, 0.1, false, 0, 10, 0, false, 0.9, 5, true, false);
@@ -98,7 +98,7 @@ fn tdd_cognitive_linucb_and_credit_leases() {
 
 #[test]
 fn test_billing_concurrent() {
-    use cognitive::billing::BillingEnforcer;
+    use cognitive::billing::CreditLeaseEnforcer;
     use data::task_ledger::TaskLedgerStore;
 
     use std::sync::Arc;
@@ -112,7 +112,7 @@ fn test_billing_concurrent() {
     for _ in 0..16 {
         let l = ledger.clone();
         handles.push(thread::spawn(move || {
-            let enforcer = BillingEnforcer::new(l);
+            let enforcer = CreditLeaseEnforcer::new(l);
             if let Ok(guard) = enforcer.acquire_lease(task_id, 1000, 0, 1000, 0) {
                 let _ = guard.settle(1000, 0, 0, 1000, 0, 0, None, 0, None);
             }

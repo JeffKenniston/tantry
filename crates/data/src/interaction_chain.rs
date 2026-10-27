@@ -224,7 +224,7 @@ impl InteractionChainStore {
             let (epoch_salt, thread_salt) =
                 crate::crypto::get_or_provision_key_epoch(&conn, &row.thread_id, row.key_epoch)?;
             let dek = key_hierarchy
-                .derive_dek_from_salts(row.key_epoch, &epoch_salt, &row.thread_id, &thread_salt)
+                .derive_thread_dek(&row.thread_id, row.key_epoch, &epoch_salt, &thread_salt)
                 .map(|z| *z)
                 .unwrap_or([0u8; 32]);
 

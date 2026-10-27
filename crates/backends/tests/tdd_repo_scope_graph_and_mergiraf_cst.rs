@@ -1,4 +1,4 @@
-use backends::merge::{VfsMergeConflict, merge_subagent_trees};
+use backends::merge::{VfsMergeConflict, multi_way_merge as merge_subagent_trees};
 use base::ast::FileData;
 use base::vfs_tree::VfsTree;
 use chrono::Utc;
@@ -30,10 +30,9 @@ fn test_mergiraf_cst_merger() {
         .insert("/src/main.rs".to_string(), b_rs_data)
         .unwrap();
 
-    let branches = vec![
-        ("BranchA".to_string(), branch_a),
-        ("BranchB".to_string(), branch_b),
-    ];
+    let mut branches = std::collections::HashMap::new();
+    branches.insert("BranchA".to_string(), branch_a);
+    branches.insert("BranchB".to_string(), branch_b);
 
     let report = merge_subagent_trees(&base_tree, branches, now);
 
@@ -59,10 +58,9 @@ fn test_mergiraf_cst_merger() {
         .insert("/src/main.rs".to_string(), d_rs_data)
         .unwrap();
 
-    let branches2 = vec![
-        ("BranchC".to_string(), branch_c),
-        ("BranchD".to_string(), branch_d),
-    ];
+    let mut branches2 = std::collections::HashMap::new();
+    branches2.insert("BranchC".to_string(), branch_c);
+    branches2.insert("BranchD".to_string(), branch_d);
     let report2 = merge_subagent_trees(&base_tree, branches2, now);
 
     assert!(report2.stage3_conflicts > 0);
@@ -75,8 +73,8 @@ fn test_mergiraf_cst_merger() {
     } = &report2.conflicts[0]
     {
         assert_eq!(path, "/src/main.rs");
-        assert_eq!(branch_a, "BranchC");
-        assert_eq!(branch_b, "BranchD");
+        assert!(branch_a == "BranchC" || branch_a == "BranchD");
+        assert!(branch_b == "BranchC" || branch_b == "BranchD");
     } else {
         panic!("Expected WriteWriteConflict");
     }
