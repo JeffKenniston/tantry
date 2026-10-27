@@ -12,7 +12,7 @@ use data::DataStoreManager;
 use iam::IdentityManager;
 use permissions::attenuation::PermissionLattice;
 use permissions::lattice::PermissionMode;
-use transport::zenoh_bus::ZenohBusTransport;
+
 
 use crate::error::RuntimeError;
 
@@ -47,7 +47,9 @@ pub struct TurnExecutionContext {
     pub permission_lattice: Arc<PermissionLattice>,
     pub data_stores: Arc<DataStoreManager>,
     pub llm_provider: Arc<dyn LlmProvider>,
-    pub publisher: Option<Arc<ZenohBusTransport>>,
+    pub backend: Arc<dyn backends::traits::VfsBackend>,
+    pub publisher: Option<Arc<transport::backpressure::CreditControlledPublisher>>,
+    pub metrics: Arc<crate::observability::RuntimeMetrics>,
     pub active_tools: Vec<ToolDefinition>,
     pub default_model_tier: ModelTier,
 }

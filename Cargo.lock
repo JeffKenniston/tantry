@@ -3951,6 +3951,7 @@ dependencies = [
  "async-trait",
  "backends",
  "base",
+ "chrono",
  "cognitive",
  "data",
  "futures",
