@@ -9,7 +9,7 @@ pub mod quic_mcp;
 /// Transport crate zenoh_bus module
 pub mod zenoh_bus;
 
-use permissions::ext::SpiffeId;
+use iam::spiffe::SpiffeId;
 use permissions::lattice::PermissionMode;
 use permissions::zenoh_guard::evaluate_zenoh_topic;
 use thiserror::Error;
