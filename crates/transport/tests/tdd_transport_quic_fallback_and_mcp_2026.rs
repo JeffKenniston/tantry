@@ -5,7 +5,7 @@ use transport::quic_mcp::{McpWireProtocol, QuicMcpTransport};
 
 #[test]
 fn test_credit_backpressure_coalescing() {
-    let mut publisher = CreditControlledPublisher::new(0);
+    let publisher = CreditControlledPublisher::new(0);
 
     // Initial state: 0 credits.
 
@@ -51,7 +51,7 @@ fn test_credit_backpressure_coalescing() {
 
 #[test]
 fn test_lifecycle_preservation() {
-    let mut publisher = CreditControlledPublisher::new(0);
+    let publisher = CreditControlledPublisher::new(0);
 
     // 0 credits. Hold a delta.
     let out1 = publisher.publish_event(StreamEvent::ModelDelta {

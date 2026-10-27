@@ -4,9 +4,9 @@ use base::tools_meta::ToolAccessFootprint;
 use chrono::Utc;
 use serde_json::Value;
 use futures::future::join_all;
-use std::collections::HashMap;
 use std::pin::Pin;
 
+#[derive(Debug, Clone)]
 pub struct ToolUseCall {
     pub tool_use_id: String,
     pub tool_name: String,
@@ -18,18 +18,12 @@ pub fn paths_intersect(p1: &str, p2: &str) -> bool {
     if p1 == "/**" || p2 == "/**" {
         return true;
     }
-    if p1 == p2 {
+    let n1 = p1.trim_end_matches('/');
+    let n2 = p2.trim_end_matches('/');
+    if n1.is_empty() || n2.is_empty() || n1 == n2 {
         return true;
     }
-    let p1_dir = format!("{}/", p1.trim_end_matches('/'));
-    if p2.starts_with(&p1_dir) {
-        return true;
-    }
-    let p2_dir = format!("{}/", p2.trim_end_matches('/'));
-    if p1.starts_with(&p2_dir) {
-        return true;
-    }
-    false
+    n2.starts_with(&format!("{}/", n1)) || n1.starts_with(&format!("{}/", n2))
 }
 
 pub struct BernsteinToolScheduler;
@@ -133,17 +127,12 @@ impl BernsteinToolScheduler {
             } else {
                 let base_vfs = state.files.clone();
                 let mut futures = Vec::new();
-                let mut child_states = Vec::new();
 
-                for _ in 0..wave.len() {
+                for &idx in wave.iter() {
                     let mut child_state = state.clone();
                     child_state.files = base_vfs.clone();
-                    child_states.push(child_state);
-                }
 
-                for (i, &idx) in wave.iter().enumerate() {
                     let call = &calls[idx];
-                    let child_state = child_states[i].clone();
                     let fut = tool_executor(child_state, call);
                     futures.push(async move {
                         let (result, new_child_state) = fut.await;
@@ -152,16 +141,16 @@ impl BernsteinToolScheduler {
                 }
 
                 let results = join_all(futures).await;
-                let mut branches = HashMap::new();
+                let mut branches: Vec<(String, base::vfs_tree::VfsTree)> = Vec::new();
 
                 for (idx, result, new_child_state) in results {
                     let msg = result?;
                     all_messages[idx] = Some(msg);
 
-                    let has_file_writes = calls[idx].footprint.writes.iter().any(|p| !p.starts_with("/__meta__/"));
+                    let has_file_writes = new_child_state.files.root_hash() != base_vfs.root_hash() || calls[idx].footprint.writes.iter().any(|p| !p.starts_with("/__meta__/"));
 
                     if has_file_writes {
-                        branches.insert(format!("tool_{}_{}", calls[idx].tool_name, calls[idx].tool_use_id), new_child_state.files.clone());
+                        branches.push((format!("tool_{}_{}", calls[idx].tool_name, calls[idx].tool_use_id), new_child_state.files.clone()));
                     }
 
                     if calls[idx].footprint.writes.iter().any(|p| p == "/__meta__/todos") {
@@ -176,7 +165,7 @@ impl BernsteinToolScheduler {
                 }
 
                 if !branches.is_empty() {
-                    let report = backends::merge::multi_way_merge(&base_vfs, branches, Utc::now());
+                    let report = backends::merge::merge_subagent_trees(&base_vfs, branches, Utc::now());
                     state.files = report.merged_tree;
 
                     metrics.vfs_merge_conflicts_total.with_label_values(&["fast_path"]).inc_by(report.stage0_fast_forwards as u64);
