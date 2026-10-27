@@ -68,7 +68,7 @@ impl DataStoreManager {
                 crate::crypto::get_or_provision_key_epoch(&conn, &thread_id, key_epoch)?;
             let dek = iam
                 .key_hierarchy()
-                .derive_dek_from_salts(key_epoch, &epoch_salt, &thread_id, &thread_salt)
+                .derive_thread_dek(&thread_id, key_epoch, &epoch_salt, &thread_salt)
                 .map(|z| *z)
                 .unwrap_or([0u8; 32]);
             let aad = crate::crypto::compute_canonical_aad(
@@ -109,7 +109,7 @@ impl DataStoreManager {
                 crate::crypto::get_or_provision_key_epoch(&conn, &thread_id, key_epoch)?;
             let dek = iam
                 .key_hierarchy()
-                .derive_dek_from_salts(key_epoch, &epoch_salt, &thread_id, &thread_salt)
+                .derive_thread_dek(&thread_id, key_epoch, &epoch_salt, &thread_salt)
                 .map(|z| *z)
                 .unwrap_or([0u8; 32]);
             let aad = crate::crypto::compute_canonical_aad(

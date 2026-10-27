@@ -1,6 +1,6 @@
 use iam::spiffe::SpiffeId;
 use permissions::lattice::PermissionMode;
-use permissions::zenoh_guard::evaluate_zenoh_topic;
+use permissions::zenoh_guard::{evaluate_zenoh_topic, ZenohAction};
 use thiserror::Error;
 use zenoh::Session;
 use zenoh::config::Config;
@@ -74,7 +74,7 @@ impl ZenohBusTransport {
 
     /// Publishes a payload to a Zenoh topic
     pub async fn publish(&self, topic: &str, payload: Vec<u8>) -> Result<(), TransportError> {
-        if evaluate_zenoh_topic(&self.svid, topic, true) != PermissionMode::Allow {
+        if evaluate_zenoh_topic(&self.svid, ZenohAction::Publish, topic) != PermissionMode::Allow {
             return Err(TransportError::AuthorizationError(
                 "zenoh publish denied".into(),
             ));
@@ -91,7 +91,7 @@ impl ZenohBusTransport {
         &self,
         topic: &str,
     ) -> Result<Subscriber<FifoChannelHandler<Sample>>, TransportError> {
-        if evaluate_zenoh_topic(&self.svid, topic, false) != PermissionMode::Allow {
+        if evaluate_zenoh_topic(&self.svid, ZenohAction::Subscribe, topic) != PermissionMode::Allow {
             return Err(TransportError::AuthorizationError(
                 "zenoh subscribe denied".into(),
             ));
@@ -107,7 +107,7 @@ impl ZenohBusTransport {
         &self,
         topic: &str,
     ) -> Result<zenoh::handlers::FifoChannelHandler<Reply>, TransportError> {
-        if evaluate_zenoh_topic(&self.svid, topic, false) != PermissionMode::Allow {
+        if evaluate_zenoh_topic(&self.svid, ZenohAction::Subscribe, topic) != PermissionMode::Allow {
             return Err(TransportError::AuthorizationError(
                 "zenoh get denied".into(),
             ));
@@ -123,7 +123,7 @@ impl ZenohBusTransport {
         &self,
         topic: &str,
     ) -> Result<Queryable<FifoChannelHandler<Query>>, TransportError> {
-        if evaluate_zenoh_topic(&self.svid, topic, true) != PermissionMode::Allow {
+        if evaluate_zenoh_topic(&self.svid, ZenohAction::Publish, topic) != PermissionMode::Allow {
             return Err(TransportError::AuthorizationError(
                 "zenoh declare_queryable denied".into(),
             ));

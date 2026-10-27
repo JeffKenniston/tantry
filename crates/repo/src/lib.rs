@@ -35,4 +35,8 @@ pub struct FileMutationAnalysis {
 pub mod engine;
 pub mod graph;
 pub mod repomap;
+
+pub use engine::{RepoEngine, RepoEngineConfig};
+
+pub use repomap::SkeletonRepoMapSlot;
 pub mod scope_graph;

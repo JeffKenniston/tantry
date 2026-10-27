@@ -153,17 +153,17 @@ fn invert_matrix(mut a: [[f64; 12]; 12]) -> [[f64; 12]; 12] {
 }
 
 /// 12D Contextual Disjoint LinUCB + Projected Thompson Sampling Router
-pub struct Router {
+pub struct CognitiveRouter {
     arms: HashMap<String, ([[f64; 12]; 12], [f64; 12])>,
 }
 
-impl Default for Router {
+impl Default for CognitiveRouter {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Router {
+impl CognitiveRouter {
     /// Initializes a new Router with 12x12 identity matrices and zero vectors for each model tier arm.
     pub fn new() -> Self {
         let mut arms = HashMap::new();
@@ -286,5 +286,40 @@ impl Router {
                 b[i] += reward * context_x[i];
             }
         }
+    }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+#[rkyv(derive(Debug, PartialEq))]
+pub struct RoutingSignalsSlot {
+    pub signals: HashMap<String, f64>,
+}
+
+impl StateSlot for RoutingSignalsSlot {
+    const WIRE_KEY: &'static str = "tantry.cognitive.routing_signals";
+    const VISIBILITY: SlotVisibility = SlotVisibility::Private;
+    const CODEC_TAG: CodecTag = CodecTag::RkyvAligned;
+
+    fn encode_payload(&self) -> Result<Vec<u8>, base::error::ExtensionError> {
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(self)
+            .map_err(|e| base::error::ExtensionError::SerializationFailed(e.to_string()))?;
+        Ok(bytes.into_vec())
+    }
+
+    fn decode_payload(bytes: &[u8]) -> Result<Self, base::error::ExtensionError> {
+        let archived = rkyv::access::<rkyv::Archived<Self>, rkyv::rancor::Error>(bytes)
+            .map_err(|e| base::error::ExtensionError::DeserializationFailed(e.to_string()))?;
+        let value = rkyv::deserialize::<Self, rkyv::rancor::Error>(archived)
+            .map_err(|e| base::error::ExtensionError::DeserializationFailed(e.to_string()))?;
+        Ok(value)
     }
 }

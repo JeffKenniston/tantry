@@ -24,7 +24,7 @@ pub struct BudgetWebhookPayload {
 }
 
 /// Reservation-Based Atomic Credit-Lease Enforcer & 90% Signed Webhook Gate.
-pub struct BillingEnforcer {
+pub struct CreditLeaseEnforcer {
     /// Task ledger instance.
     pub ledger: Arc<TaskLedgerStore>,
 }
@@ -39,8 +39,8 @@ pub struct BudgetLeaseGuard {
     settled: bool,
 }
 
-impl BillingEnforcer {
-    /// Initializes a new BillingEnforcer.
+impl CreditLeaseEnforcer {
+    /// Initializes a new CreditLeaseEnforcer.
     pub fn new(ledger: Arc<TaskLedgerStore>) -> Self {
         Self { ledger }
     }

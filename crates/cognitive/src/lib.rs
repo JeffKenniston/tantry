@@ -12,6 +12,12 @@ use base::execution::{ModelRequest, ModelResponse};
 pub use cascade::{LlmProvider, SpeculativeCascadeVerifier};
 pub use base::execution::{StreamEvent, ModelTier};
 
+pub use router::{CognitiveRouter, PendingBanditFeedbackSlot, RoutingSignalsSlot};
+pub use semantic_cache::SemanticCache;
+pub use billing::{CreditLeaseEnforcer, BudgetLeaseGuard};
+
+
+
 use base::state::TantryState;
 use data::task_ledger::TaskLedgerStore;
 use std::sync::Arc;
@@ -38,7 +44,7 @@ pub fn execute_mcp_sampling_request(
     state.extensions.insert(McpSamplingDepthSlot { depth: depth + 1 });
     
     let ledger_store = Arc::new(TaskLedgerStore::new(task_ledger_path).unwrap());
-    let guard = crate::billing::BillingEnforcer::new(ledger_store).acquire_lease_fixed(task_id, lease_micros)?;
+    let guard = crate::billing::CreditLeaseEnforcer::new(ledger_store).acquire_lease_fixed(task_id, lease_micros)?;
 
     let res = provider.complete(req);
 

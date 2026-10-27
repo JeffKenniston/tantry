@@ -1,53 +1,69 @@
-use base::ast::FileData;
 use base::delta::FileDelta;
 use base::vfs_tree::VfsTree;
-use chrono::{DateTime, Utc};
+use base::ast::FileData;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tree_sitter::Parser;
 
-/// VfsMergeConflict
-#[derive(Debug, Clone, PartialEq)]
-pub enum VfsMergeConflict {
-    /// ModifyDeleteConflict
-    ModifyDeleteConflict {
-        path: String,
-        modified_by: String,
-        deleted_by: String,
-    },
-    /// WriteWriteConflict
-    WriteWriteConflict {
-        path: String,
-        branch_a: String,
-        branch_b: String,
-    },
-}
-
-/// VfsMergeReport
-#[derive(Debug, Clone, Default)]
-pub struct VfsMergeReport {
-    pub merged_tree: VfsTree,
-    pub conflicts: Vec<VfsMergeConflict>,
-    pub stage0_fast_forwards: usize,
-    pub stage1_line_merges: usize,
-    pub stage2_cst_merges: usize,
-    pub stage3_conflicts: usize,
-}
-
-#[derive(Debug, Clone)]
-enum BranchOp {
+/// Branch Operation for Three-Way Merge
+pub enum BranchOp {
+    /// Modify operation
     Modify(Arc<FileData>),
+    /// Delete operation
     Delete,
 }
 
-/// merge_subagent_trees
-pub fn merge_subagent_trees(
-    base: &VfsTree,
-    branches: Vec<(String, VfsTree)>,
-    now: DateTime<Utc>,
-) -> VfsMergeReport {
-    let mut report = VfsMergeReport { merged_tree: base.clone(), ..Default::default() };
+/// A merge conflict struct
+#[derive(Debug, PartialEq)]
+pub enum VfsMergeConflict {
+    /// Write/Write conflict
+    WriteWriteConflict {
+        /// path
+        path: String,
+        /// Branch A
+        branch_a: String,
+        /// Branch B
+        branch_b: String,
+    },
+    /// Modify/Delete conflict
+    ModifyDeleteConflict {
+        /// path
+        path: String,
+        /// Branch that modified
+        modified_by: String,
+        /// Branch that deleted
+        deleted_by: String,
+    },
+}
 
+/// The result of a 3-way VFS Merge
+#[derive(Default)]
+pub struct VfsMergeReport {
+    /// Conflicts
+    pub conflicts: Vec<VfsMergeConflict>,
+    /// Stage 0
+    pub stage0_fast_forwards: u32,
+    /// Stage 1
+    pub stage1_line_merges: u32,
+    /// Stage 2
+    pub stage2_cst_merges: u32,
+    /// Stage 3
+    pub stage3_conflicts: u32,
+    /// Merged Tree
+    pub merged_tree: VfsTree,
+}
+
+/// 3-Way Merge algorithm across N branches
+#[allow(clippy::collapsible_if)]
+pub fn multi_way_merge(
+    base: &VfsTree,
+    branches: HashMap<String, VfsTree>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> VfsMergeReport {
+    let mut report = VfsMergeReport {
+        merged_tree: base.clone(),
+        ..Default::default()
+    };
 
     let mut path_ops: HashMap<String, Vec<(String, BranchOp)>> = HashMap::new();
 
@@ -137,11 +153,11 @@ pub fn merge_subagent_trees(
             let (b2, op2) = &ops[1];
 
             #[allow(clippy::collapsible_if)]
-        if let (BranchOp::Modify(d1), BranchOp::Modify(d2)) = (op1, op2) {
+            if let (BranchOp::Modify(d1), BranchOp::Modify(d2)) = (op1, op2) {
                 #[allow(clippy::collapsible_if)]
-            if d1.is_utf8 && d2.is_utf8 {
+                if d1.is_utf8 && d2.is_utf8 {
                     #[allow(clippy::collapsible_if)]
-                if let Some(base_data) = base.get(&path) {
+                    if let Some(base_data) = base.get(&path) {
                         if base_data.is_utf8 {
                             let str_base = std::str::from_utf8(&base_data.content).unwrap_or("");
                             let str1 = std::str::from_utf8(&d1.content).unwrap_or("");
@@ -293,6 +309,46 @@ fn cst_merge(base: &str, a: &str, b: &str, path: &str) -> Option<String> {
     let _t0 = parser.parse(base, None)?;
     let _ta = parser.parse(a, None)?;
     let _tb = parser.parse(b, None)?;
+
+    // CommutativeParent Stage 2d: duplicate signature_blake3 check
+    let check_distinct = |tree: &tree_sitter::Tree, src: &str| -> bool {
+        let mut cursor = tree.walk();
+        let mut distinct = true;
+        let mut sigs = std::collections::HashSet::new();
+        loop {
+            let node = cursor.node();
+            let kind = node.kind();
+            if kind == "function_item" || kind == "method_declaration" || kind == "function_declaration" {
+                let start = node.start_byte();
+                let end = (start + 100).min(node.end_byte()).min(src.len());
+                let sig_bytes = &src.as_bytes()[start..end];
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(blake3::hash(sig_bytes).as_bytes());
+                if !sigs.insert(hash) {
+                    distinct = false;
+                    break;
+                }
+            }
+            if cursor.goto_first_child() { continue; }
+            if cursor.goto_next_sibling() { continue; }
+            let mut loop_break = false;
+            loop {
+                if !cursor.goto_parent() {
+                    loop_break = true;
+                    break;
+                }
+                if cursor.goto_next_sibling() {
+                    break;
+                }
+            }
+            if loop_break { break; }
+        }
+        distinct
+    };
+
+    if !check_distinct(&_ta, a) || !check_distinct(&_tb, b) {
+        return None; // Fallback to stage 3
+    }
 
     let base_tokens: Vec<&str> = base
         .split(|c: char| !c.is_alphanumeric() && c != '_')

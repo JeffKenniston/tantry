@@ -53,6 +53,13 @@ impl AuditMmrStore {
     ) -> Result<(), DataError> {
         let conn = self.db.lock().unwrap();
 
+        let seq_no = if seq_no == 0 {
+            let mut stmt = conn.prepare("SELECT MAX(seq_no) FROM audit_log").unwrap();
+            let max_seq: Option<i64> = stmt.query_row([], |row| row.get(0)).unwrap_or(None);
+            (max_seq.unwrap_or(0) + 1) as u64
+        } else {
+            seq_no
+        };
         let prev_hash: [u8; 32] = if seq_no == 1 {
             [0u8; 32]
         } else {

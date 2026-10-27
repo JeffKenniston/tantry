@@ -108,7 +108,8 @@ fn test_egress_proxy_blocks_unallowlisted() {
 
     // The registry is used in EgressProxy. Let's just create a grant.
 
-    let proxy = EgressProxy::new(vec!["crates.io".to_string()], registry);
+    let audit_store = std::sync::Arc::new(data::audit_mmr::AuditMmrStore::new("file:memdb2?mode=memory&cache=shared").unwrap());
+    let proxy = EgressProxy::new(vec!["crates.io".to_string()], registry, audit_store);
 
     // Allowlisted
     assert!(proxy.evaluate_connection("crates.io", 0).is_ok());

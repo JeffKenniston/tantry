@@ -3,12 +3,14 @@ use crate::error::BackendError;
 // Actual ScopedTunnelRegistry is in iam crate.
 // Here we use it.
 use iam::tunnel_grant::ScopedTunnelRegistry;
+use data::audit_mmr::AuditMmrStore;
 
 /// Egress Proxy for Transparent TLS SNI & HTTP CONNECT
 pub struct EgressProxy {
     /// Allowlisted mirrors that can always be connected to
     pub allowlisted_mirrors: Vec<String>,
     registry: std::sync::Arc<ScopedTunnelRegistry>,
+    audit_store: std::sync::Arc<AuditMmrStore>,
 }
 
 impl EgressProxy {
@@ -16,10 +18,12 @@ impl EgressProxy {
     pub fn new(
         allowlisted_mirrors: Vec<String>,
         registry: std::sync::Arc<ScopedTunnelRegistry>,
+        audit_store: std::sync::Arc<AuditMmrStore>,
     ) -> Self {
         Self {
             allowlisted_mirrors,
             registry,
+            audit_store,
         }
     }
 
@@ -34,6 +38,15 @@ impl EgressProxy {
         if self.registry.is_service_active(&normalized, now_ms) {
             return Ok(());
         }
+
+        let _ = self.audit_store.append_entry(
+            0,
+            now_ms as u64,
+            "spiffe://tantry/egress_proxy",
+            "egress",
+            "EGRESS_BLOCKED",
+            &serde_json::to_string(&serde_json::json!({ "hostname": normalized })).unwrap(),
+        );
 
         Err(BackendError::Execution("EGRESS_BLOCKED".to_string()))
     }
