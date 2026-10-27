@@ -174,4 +174,6 @@ pub struct ModelRequest {
 /// ModelResponse struct
 pub struct ModelResponse {
     pub content: String,
+    pub assistant_message: crate::ast::Message,
+    pub usage: TokenUsage,
 }
