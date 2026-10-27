@@ -65,7 +65,7 @@ pub fn encrypt_envelope_xchacha20(
 
     let payload = chacha20poly1305::aead::Payload {
         msg: &compressed,
-        aad: aad,
+        aad,
     };
 
     let ciphertext = cipher

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+iam = { path = "../iam" }
 base = { path = "../base" }
 uuid = { version = "1", features = ["v4"] }
 bytes = "1.5"

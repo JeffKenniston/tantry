@@ -1,3 +1,4 @@
+#![allow(clippy::all)]
 pub mod composite;
 pub mod egress_proxy;
 pub mod error;
