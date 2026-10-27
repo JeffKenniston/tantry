@@ -20,9 +20,7 @@ use base::error::ExtensionError;
 #[allow(unused_imports)]
 use base::path::PosixPath;
 
-
 use base::typemap::{CodecTag, SlotVisibility, StateSlot};
-
 
 pub trait IdentityManager: Send + Sync {
     fn current_svid(&self) -> Option<WorkloadSvid> {

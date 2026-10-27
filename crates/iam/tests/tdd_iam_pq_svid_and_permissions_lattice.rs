@@ -227,10 +227,10 @@ fn test_key_hierarchy() {
     thread_salt[0] = 2;
 
     let _dek = kh
-        .derive_dek_from_salts(1, &epoch_salt, "t1", &thread_salt)
+        .derive_thread_dek("t1", 1, &epoch_salt, &thread_salt)
         .unwrap();
 
     kh.crypto_shred_thread("t1");
-    let result = kh.derive_dek_from_salts(1, &epoch_salt, "t1", &thread_salt);
+    let result = kh.derive_thread_dek("t1", 1, &epoch_salt, &thread_salt);
     assert!(result.is_err());
 }
