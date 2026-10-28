@@ -514,10 +514,10 @@ pub fn fork_thread_at_checkpoint(
     }
 
     let msg_delta_to_commit = fork_delta.unwrap_or_else(|| MessageDelta::Append(vec![]));
-    let msg_delta_bytes = serde_json::to_string(&vec![msg_delta_to_commit]).unwrap_or_default();
+    let msg_delta_bytes = serde_json::to_vec(&vec![msg_delta_to_commit]).unwrap_or_default();
 
     let ext_slots_b = state.extensions.serialize_all().map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(base::error::StateReducerError::InvalidToolUsePatch(e.to_string()))))?;
-    let ext_bytes = serde_json::to_string(&ext_slots_b).unwrap_or_default();
+    let ext_bytes = serde_json::to_vec(&ext_slots_b).unwrap_or_default();
 
     let todos_json = serde_json::to_string(&state.todos).unwrap_or_default();
     let async_tasks_json = serde_json::to_string(&state.async_tasks).unwrap_or_default();
