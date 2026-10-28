@@ -54,6 +54,17 @@ pub struct TurnExecutionContext {
     pub default_model_tier: ModelTier,
 }
 
+#[derive(Debug, Clone)]
+pub struct SubagentSpawnSpec {
+    pub subagent_name: String,
+    pub task_id: String,
+    pub prompt: String,
+    pub mode: base::ast::SubagentMode,
+    pub requested_ttl_secs: u64,
+    pub child_lattice: Option<permissions::attenuation::PermissionLattice>,
+}
+
+
 #[async_trait]
 pub trait AgentMiddleware: Send + Sync {
     fn name(&self) -> &'static str;

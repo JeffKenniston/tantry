@@ -423,12 +423,111 @@ fn commit_thread_checkpoint(
     Ok(cp_id)
 }
 
+
+use crate::middleware::SubagentSpawnSpec;
+
+pub async fn execute_subagents_with_specs(
+    mut state: TantryState,
+    specs: Vec<SubagentSpawnSpec>,
+    ctx: &TurnExecutionContext,
+    engine: &RuntimeEngine,
+) -> Result<TantryState, RuntimeError> {
+    let parent_svid = ctx.iam.current_svid().ok_or(RuntimeError::Iam(iam::error::IamError::InvalidSpiffeId("missing".to_string())))?;
+
+    let mut forked_tasks = Vec::new();
+    for spec in specs {
+        let _child_svid = ctx.iam.mint_subagent_svid(
+            &parent_svid,
+            &spec.subagent_name,
+            &spec.task_id,
+            spec.requested_ttl_secs as i64,
+        ).map_err(RuntimeError::Iam)?;
+
+        let lattice = if let Some(ref c) = spec.child_lattice {
+            ctx.permission_lattice.narrow_for_subagent(c)
+        } else {
+            (*ctx.permission_lattice).clone()
+        };
+
+        let child_thread_id = format!("{}/subagent/{}", state.thread_id, spec.task_id);
+        let task_prompt = base::ast::Message::user(spec.prompt.clone());
+        let child_state = state.fork_for_subagent(spec.mode.clone(), child_thread_id, task_prompt);
+        forked_tasks.push((spec, lattice, child_state));
+    }
+
+    let is_android = cfg!(target_os = "android");
+    let platform = base::platform::RuntimePlatform::detect_from_env(
+        |k| std::env::var(k).ok(),
+        is_android,
+    );
+    let max_threads = match platform {
+        base::platform::RuntimePlatform::AndroidTermux { .. } => std::cmp::min(num_cpus::get().max(1), 4),
+        base::platform::RuntimePlatform::LinuxStandard => num_cpus::get().max(1),
+    };
+
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(max_threads).build().unwrap();
+
+    let base_vfs = state.files.clone();
+
+    let rt = tokio::runtime::Handle::current();
+
+    let mut child_states = Vec::new();
+
+    pool.scope(|s: &rayon::Scope<'_>| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        for (spec, lattice, child_state) in forked_tasks {
+            let tx = tx.clone();
+            let engine_ref = engine;
+            let child_ctx = TurnExecutionContext {
+                task_id: spec.task_id.clone(),
+                tenant_id: ctx.tenant_id.clone(),
+                iam: ctx.iam.clone(),
+                permission_lattice: std::sync::Arc::new(lattice),
+                data_stores: ctx.data_stores.clone(),
+                llm_provider: ctx.llm_provider.clone(),
+                backend: ctx.backend.clone(),
+                publisher: ctx.publisher.clone(),
+                metrics: ctx.metrics.clone(),
+                active_tools: ctx.active_tools.clone(),
+                default_model_tier: ctx.default_model_tier.clone(),
+            };
+
+            let rt_clone = rt.clone();
+            s.spawn(move |_| {
+                let outcome = rt_clone.block_on(async {
+                    engine_ref.execute_turn(child_state, &child_ctx).await
+                });
+
+                let _ = tx.send((spec, outcome));
+            });
+        }
+        drop(tx);
+        for (spec, outcome) in rx {
+            if let Ok(crate::engine::TurnExecutionOutcome::Completed(completed_child_state)) = outcome {
+                child_states.push((spec, completed_child_state));
+            }
+        }
+    });
+
+    let mut branches = Vec::new();
+    for (spec, child_state) in child_states {
+        branches.push((format!("subagent_{}_{}", spec.subagent_name, spec.task_id), child_state.files));
+    }
+
+    let report = backends::merge::merge_subagent_trees(&base_vfs, branches, chrono::Utc::now());
+    ctx.metrics.vfs_merge_conflicts_total.with_label_values(&["fast_path"]).inc_by(report.conflicts.len() as u64);
+
+    state.files = report.merged_tree;
+    Ok(state)
+}
+
+
 pub async fn execute_subagents(
     state: TantryState,
-    _ctx: &TurnExecutionContext,
-    _engine: &RuntimeEngine,
+    ctx: &TurnExecutionContext,
+    engine: &RuntimeEngine,
 ) -> Result<TantryState, RuntimeError> {
-    Ok(state)
+    execute_subagents_with_specs(state, vec![], ctx, engine).await
 }
 
 pub fn resume_interrupted_thread(
