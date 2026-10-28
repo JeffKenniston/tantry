@@ -214,49 +214,9 @@ impl RuntimeEngine {
                 }
             }
             if !pending_tools.is_empty() {
-                let head = ctx
-                    .data_stores
-                    .interaction_chain
-                    .get_latest_checkpoint_for_thread(&state.thread_id)
-                    .unwrap_or(None);
-                let next_step_index = head.as_ref().map_or(1, |(_, s)| s + 1);
-                let prev_cp_id = head
-                    .map(|(id, _)| id)
-                    .or_else(|| state.last_checkpoint_id.clone());
-                state.step_index = next_step_index as u64;
+                let cp_id = commit_step_checkpoint(&mut state, ctx, &_step_start_vfs)?;
 
-                let prev_vfs = VfsTree::new();
-                let diff = FileDelta::diff_trees(&prev_vfs, &state.files);
-
-                let mut delta = state
-                    .extensions
-                    .get::<TurnDeltaBufferSlot>()
-                    .cloned()
-                    .unwrap_or(TurnDeltaBufferSlot {
-                        message_deltas: vec![],
-                    });
-                let msg_delta_str = serde_json::to_string(&delta.message_deltas).unwrap_or_default();
-                delta.message_deltas.clear();
-                state.extensions.insert(delta);
-
-                let ext_slots_b = state.extensions.serialize_all().map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(base::error::StateReducerError::InvalidToolUsePatch(e.to_string()))))?;
-    let ext_slots = serde_json::to_string(&ext_slots_b).unwrap_or_default();
-                let serialized = serde_json::to_string(&ext_slots).unwrap_or_default();
-                let cp_id = uuid::Uuid::now_v7().to_string();
-
-                ctx.data_stores.interaction_chain.commit_checkpoint(
-                    &state.thread_id,
-                    state.step_index as i64,
-                    prev_cp_id.as_deref(),
-                    &cp_id,
-                    0,
-                    Some(msg_delta_str.as_bytes()),
-                    Some(serde_json::to_string(&diff).unwrap_or_default().as_bytes()),
-                    Some(serialized.as_bytes()),
-                    None,
-                    None,
-                ).map_err(|e| RuntimeError::Data(e))?;
-                state.last_checkpoint_id = Some(cp_id.clone());
+                let _ = ctx.data_stores.task_ledger.update_task_status(&ctx.task_id, "INTERRUPTED");
 
                 if let Some(pub_handle) = ctx.publisher.clone() {
                     pub_handle.publish_event(StreamEvent::Interrupted {
@@ -337,50 +297,7 @@ impl RuntimeEngine {
 
                 state.extensions.remove::<HitlBypassSlot>();
 
-                let head = ctx
-                    .data_stores
-                    .interaction_chain
-                    .get_latest_checkpoint_for_thread(&state.thread_id)
-                    .unwrap_or(None);
-                let next_step_index = head.as_ref().map_or(1, |(_, s)| s + 1);
-                let prev_cp_id = head
-                    .map(|(id, _)| id)
-                    .or_else(|| state.last_checkpoint_id.clone());
-                state.step_index = next_step_index as u64;
-
-                let prev_vfs = VfsTree::new();
-                let diff = FileDelta::diff_trees(&prev_vfs, &state.files);
-
-                let mut delta = state
-                    .extensions
-                    .get::<TurnDeltaBufferSlot>()
-                    .cloned()
-                    .unwrap_or(TurnDeltaBufferSlot {
-                        message_deltas: vec![],
-                    });
-                let msg_delta_str = serde_json::to_string(&delta.message_deltas).unwrap_or_default();
-                delta.message_deltas.clear();
-                state.extensions.insert(delta);
-
-                let ext_slots_b = state.extensions.serialize_all().map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(base::error::StateReducerError::InvalidToolUsePatch(e.to_string()))))?;
-    let ext_slots = serde_json::to_string(&ext_slots_b).unwrap_or_default();
-                let serialized = serde_json::to_string(&ext_slots).unwrap_or_default();
-                let cp_id = uuid::Uuid::now_v7().to_string();
-
-                ctx.data_stores.interaction_chain.commit_checkpoint(
-                    &state.thread_id,
-                    state.step_index as i64,
-                    prev_cp_id.as_deref(),
-                    &cp_id,
-                    0,
-                    Some(msg_delta_str.as_bytes()),
-                    Some(serde_json::to_string(&diff).unwrap_or_default().as_bytes()),
-                    Some(serialized.as_bytes()),
-                    None,
-                    None,
-                ).map_err(|e| RuntimeError::Data(e))?;
-                state.last_checkpoint_id = Some(cp_id);
-
+                let _cp_id = commit_step_checkpoint(&mut state, ctx, &_step_start_vfs)?;
                 continue;
             } else {
                 let mut should_continue = false;
@@ -394,6 +311,14 @@ impl RuntimeEngine {
                 if should_continue {
                     continue;
                 } else {
+                    if let Some(delta) = state.extensions.get::<TurnDeltaBufferSlot>() {
+                        if !delta.message_deltas.is_empty() {
+                            let _ = commit_step_checkpoint(&mut state, ctx, &_step_start_vfs)?;
+                        }
+                    }
+
+                    let _ = ctx.data_stores.task_ledger.update_task_status(&ctx.task_id, "SUCCEEDED");
+
                     if let Some(pub_handle) = ctx.publisher.clone() {
                         pub_handle.publish_event(StreamEvent::TurnComplete {
                                 step_index: state.step_index,
@@ -730,4 +655,74 @@ pub async fn execute_single_tool(
             Ok(ToolExecutionOutput { raw_output: format!("Unknown tool: {}", tool_name), is_error: true, artifact: None })
         }
     }
+}
+
+pub fn commit_step_checkpoint(
+    state: &mut TantryState,
+    ctx: &TurnExecutionContext,
+    prev_vfs: &VfsTree,
+) -> Result<String, RuntimeError> {
+    let head = ctx
+        .data_stores
+        .interaction_chain
+        .get_latest_checkpoint_for_thread(&state.thread_id)
+        .map_err(|e| RuntimeError::Data(e))?;
+    let next_step_index = head.as_ref().map_or(1, |(_, s)| s + 1);
+    let prev_cp_id = head
+        .map(|(id, _)| id)
+        .or_else(|| state.last_checkpoint_id.clone());
+    state.step_index = next_step_index as u64;
+
+    let diff = FileDelta::diff_trees(prev_vfs, &state.files);
+
+    let mut delta = state
+        .extensions
+        .get::<TurnDeltaBufferSlot>()
+        .cloned()
+        .unwrap_or(TurnDeltaBufferSlot {
+            message_deltas: vec![],
+        });
+
+    let mut folded_messages = Vec::new();
+    for md in delta.message_deltas.drain(..) {
+        if let MessageDelta::Append(msgs) = md {
+            folded_messages.extend(msgs);
+        }
+    }
+    let final_msg_delta = if folded_messages.is_empty() {
+        None
+    } else {
+        Some(MessageDelta::Append(folded_messages))
+    };
+    state.extensions.insert(delta);
+
+    let msg_delta_bytes = final_msg_delta.map(|md| serde_json::to_vec(&md).unwrap_or_default());
+    let diff_bytes = serde_json::to_vec(&diff).unwrap_or_default();
+    let ext_slots_b = state.extensions.serialize_all().map_err(|e| {
+        RuntimeError::Base(base::error::BaseError::StateReducer(
+            base::error::StateReducerError::InvalidToolUsePatch(e.to_string()),
+        ))
+    })?;
+    let ext_bytes = serde_json::to_vec(&ext_slots_b).unwrap_or_default();
+
+    let cp_id = uuid::Uuid::now_v7().to_string();
+
+    ctx.data_stores
+        .interaction_chain
+        .commit_checkpoint(
+            &state.thread_id,
+            state.step_index as i64,
+            prev_cp_id.as_deref(),
+            &cp_id,
+            0,
+            msg_delta_bytes.as_deref(),
+            Some(diff_bytes.as_slice()),
+            Some(ext_bytes.as_slice()),
+            Some(&serde_json::to_string(&state.todos).unwrap_or_default()),
+            Some(&serde_json::to_string(&state.async_tasks).unwrap_or_default()),
+        )
+        .map_err(|e| RuntimeError::Data(e))?;
+    state.last_checkpoint_id = Some(cp_id.clone());
+
+    Ok(cp_id)
 }
