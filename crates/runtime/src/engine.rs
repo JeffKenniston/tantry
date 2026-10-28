@@ -365,15 +365,9 @@ pub fn resume_interrupted_thread(
             let patch = state
                 .build_tool_use_edit_delta(&tool_use_id, modified_arguments)
                 .map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(e)))?;
-            let mut bypass = state
-                .extensions
-                .get::<HitlBypassSlot>()
-                .cloned()
-                .unwrap_or(HitlBypassSlot {
-                    approved_tool_use_ids: std::collections::BTreeSet::new(),
-                });
-            bypass.approved_tool_use_ids.insert(tool_use_id);
-            state.extensions.insert(bypass);
+
+            state.messages = MessageDelta::apply(&mut state.messages, patch.clone())
+                .map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(e)))?;
 
             let mut delta = state
                 .extensions
@@ -384,8 +378,42 @@ pub fn resume_interrupted_thread(
                 });
             delta.message_deltas.push(patch);
             state.extensions.insert(delta);
+
+            let mut bypass = state
+                .extensions
+                .get::<HitlBypassSlot>()
+                .cloned()
+                .unwrap_or(HitlBypassSlot {
+                    approved_tool_use_ids: std::collections::BTreeSet::new(),
+                });
+            bypass.approved_tool_use_ids.insert(tool_use_id);
+            state.extensions.insert(bypass);
         }
-        ApprovalDecision::Reject { .. } => {}
+        ApprovalDecision::Reject { tool_use_id, feedback } => {
+            let reject_msg = Message::tool_result(tool_use_id.clone(), true, feedback, None);
+            state.messages.push(reject_msg.clone());
+
+            let patch = MessageDelta::Append(vec![reject_msg]);
+            let mut delta = state
+                .extensions
+                .get::<TurnDeltaBufferSlot>()
+                .cloned()
+                .unwrap_or(TurnDeltaBufferSlot {
+                    message_deltas: vec![],
+                });
+            delta.message_deltas.push(patch);
+            state.extensions.insert(delta);
+
+            let mut bypass = state
+                .extensions
+                .get::<HitlBypassSlot>()
+                .cloned()
+                .unwrap_or(HitlBypassSlot {
+                    approved_tool_use_ids: std::collections::BTreeSet::new(),
+                });
+            bypass.approved_tool_use_ids.insert(tool_use_id);
+            state.extensions.insert(bypass);
+        }
     }
     Ok(state)
 }
@@ -394,56 +422,104 @@ pub fn fork_thread_at_checkpoint(
     ctx: &TurnExecutionContext,
     source_checkpoint_id: &str,
     new_thread_id: String,
-    _fork_delta: Option<MessageDelta>,
+    fork_delta: Option<MessageDelta>,
 ) -> Result<TantryState, RuntimeError> {
-    let mut state = hydrate_thread_state(ctx, source_checkpoint_id)?;
-    state.thread_id = new_thread_id;
+    let reconstructed = hydrate_thread_state_full(ctx, source_checkpoint_id)?;
+    let mut state = reconstructed.state;
+    state.thread_id = new_thread_id.clone();
+
+    let fork_step_index = reconstructed.step_index + 1;
+
+    if let Some(ref delta) = fork_delta {
+        state.messages = MessageDelta::apply(&mut state.messages, delta.clone())
+            .map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(e)))?;
+    }
+
+    let msg_delta_to_commit = fork_delta.unwrap_or_else(|| MessageDelta::Append(vec![]));
 
     let cp_id = uuid::Uuid::now_v7().to_string();
 
-    let prev_vfs = VfsTree::new();
-    let diff = FileDelta::diff_trees(&prev_vfs, &state.files);
-    let diff_json = serde_json::to_string(&diff).unwrap_or_default();
     let ext_slots_b = state.extensions.serialize_all().map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(base::error::StateReducerError::InvalidToolUsePatch(e.to_string()))))?;
-    let ext_slots = serde_json::to_string(&ext_slots_b).unwrap_or_default();
+    let ext_bytes = serde_json::to_vec(&ext_slots_b).unwrap_or_default();
+
+    let msg_delta_bytes = serde_json::to_vec(&msg_delta_to_commit).unwrap_or_default();
+
+    let todos_json = serde_json::to_string(&state.todos).unwrap_or_default();
+    let async_tasks_json = serde_json::to_string(&state.async_tasks).unwrap_or_default();
 
     ctx.data_stores.interaction_chain.commit_checkpoint(
-        &state.thread_id,
-        (state.step_index + 1) as i64,
+        &new_thread_id,
+        fork_step_index as i64,
         Some(source_checkpoint_id),
         &cp_id,
         0,
+        Some(msg_delta_bytes.as_slice()),
         Some(b"[]"),
-        Some(diff_json.as_bytes()),
-        Some(ext_slots.as_bytes()),
-        None,
-        None,
+        Some(ext_bytes.as_slice()),
+        Some(todos_json.as_str()),
+        Some(async_tasks_json.as_str()),
     ).map_err(|e| RuntimeError::Data(e))?;
+
+    state.step_index = fork_step_index;
     state.last_checkpoint_id = Some(cp_id);
 
     Ok(state)
 }
 
-pub fn hydrate_thread_state(
-    _ctx: &TurnExecutionContext,
-    checkpoint_id: &str,
-) -> Result<TantryState, RuntimeError> {
-    Ok(TantryState {
-        thread_id: "hydrated".into(),
-        step_index: 0,
-        last_checkpoint_id: Some(checkpoint_id.into()),
-        messages: vec![],
-        files: VfsTree::new(),
-        todos: vec![],
-        skills_metadata: vec![],
-        memory_contents: std::collections::BTreeMap::new(),
-        async_tasks: std::collections::BTreeMap::new(),
-        rubric_input: None,
-        rubric_status: None,
-        structured_response: None,
-        extensions: base::typemap::StateExtensionMap::new(),
+
+#[derive(Debug, Clone)]
+pub struct HydratedThreadState {
+    pub step_index: u64,
+    pub vfs_root_blake3: [u8; 32],
+    pub checkpoint_id: String,
+    pub state: TantryState,
+}
+
+pub fn hydrate_thread_state_full(
+    ctx: &TurnExecutionContext,
+    thread_or_checkpoint_id: &str,
+) -> Result<HydratedThreadState, RuntimeError> {
+    let head = ctx
+        .data_stores
+        .interaction_chain
+        .get_latest_checkpoint_for_thread(thread_or_checkpoint_id)
+        .map_err(RuntimeError::Data)?;
+
+    let target_cp_id = if let Some((cp_id, _)) = head {
+        cp_id
+    } else {
+        thread_or_checkpoint_id.to_string()
+    };
+
+    let mut registry = base::typemap::DefaultExtensionRegistryImpl::new();
+    crate::slots::register_runtime_slots(&mut registry);
+    let key_hierarchy = ctx.iam.key_hierarchy();
+
+    let mut reconstructed = ctx
+        .data_stores
+        .interaction_chain
+        .reconstruct_state_at_checkpoint(&target_cp_id, &registry, &key_hierarchy)
+        .map_err(RuntimeError::Data)?;
+
+    reconstructed.state.step_index = reconstructed.step_index;
+    reconstructed.state.last_checkpoint_id = Some(target_cp_id.clone());
+
+    Ok(HydratedThreadState {
+        step_index: reconstructed.step_index,
+        vfs_root_blake3: reconstructed.vfs_root_blake3,
+        checkpoint_id: target_cp_id,
+        state: reconstructed.state,
     })
 }
+
+pub fn hydrate_thread_state(
+    ctx: &TurnExecutionContext,
+    checkpoint_id: &str,
+) -> Result<TantryState, RuntimeError> {
+    let hydrated = hydrate_thread_state_full(ctx, checkpoint_id)?;
+    Ok(hydrated.state)
+}
+
 
 pub async fn execute_single_tool(
     state: &mut TantryState,
