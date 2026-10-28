@@ -16,6 +16,7 @@ use crate::slots::{HitlBypassSlot, TurnDeltaBufferSlot};
 use crate::tool_scheduler::{BernsteinToolScheduler, ToolAccessClassifier, ToolUseCall};
 use backends::traits::SandboxExecRequest;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum TurnExecutionOutcome {
     Completed(TantryState),
@@ -60,6 +61,7 @@ impl RuntimeEngine {
             let is_resuming_hitl = state.extensions.get::<HitlBypassSlot>().is_some();
             let mut calls = Vec::new();
 
+            #[allow(clippy::collapsible_if)]
             if is_resuming_hitl {
                 if let Some(last_msg) = state.messages.last() {
                     for block in &last_msg.content {
@@ -158,12 +160,12 @@ impl RuntimeEngine {
             for call in &calls {
                 let bypassed = hitl_bypass
                     .as_ref()
-                    .map_or(false, |b| b.approved_tool_use_ids.contains(&call.tool_use_id));
+                    .is_some_and(|b| b.approved_tool_use_ids.contains(&call.tool_use_id));
 
                 let mut effective_mode = PermissionMode::Allow;
 
                 if let Some(mode) = ctx.permission_lattice.interrupt_on_tools.get(&call.tool_name) {
-                    effective_mode = effective_mode.join(mode.clone());
+                    effective_mode = effective_mode.join(*mode);
                 }
 
                 for mw in &self.middlewares {
@@ -214,18 +216,15 @@ impl RuntimeEngine {
                 }
             }
             if !pending_tools.is_empty() {
-                let cp_id = commit_step_checkpoint(&mut state, ctx, &_step_start_vfs)?;
-
+                let cp_id = commit_thread_checkpoint(&mut state, ctx, &_step_start_vfs)?;
                 let _ = ctx.data_stores.task_ledger.update_task_status(&ctx.task_id, "INTERRUPTED");
-
                 if let Some(pub_handle) = ctx.publisher.clone() {
                     pub_handle.publish_event(StreamEvent::Interrupted {
-                            thread_id: state.thread_id.clone(),
-                            checkpoint_id: cp_id,
-                            pending_tools,
-                        });
+                        thread_id: state.thread_id.clone(),
+                        checkpoint_id: cp_id,
+                        pending_tools,
+                    });
                 }
-
                 return Ok(TurnExecutionOutcome::Interrupted);
             }
 
@@ -279,7 +278,7 @@ impl RuntimeEngine {
                             tool_use_id,
                             is_error,
                             ..
-                        }) = msg.content.get(0)
+                        }) = msg.content.first()
                         {
                             pub_handle.publish_event(StreamEvent::ToolCallEnd {
                                 tool_use_id: tool_use_id.clone(),
@@ -297,7 +296,8 @@ impl RuntimeEngine {
 
                 state.extensions.remove::<HitlBypassSlot>();
 
-                let _cp_id = commit_step_checkpoint(&mut state, ctx, &_step_start_vfs)?;
+                let _ = commit_thread_checkpoint(&mut state, ctx, &_step_start_vfs)?;
+
                 continue;
             } else {
                 let mut should_continue = false;
@@ -311,14 +311,12 @@ impl RuntimeEngine {
                 if should_continue {
                     continue;
                 } else {
-                    if let Some(delta) = state.extensions.get::<TurnDeltaBufferSlot>() {
-                        if !delta.message_deltas.is_empty() {
-                            let _ = commit_step_checkpoint(&mut state, ctx, &_step_start_vfs)?;
-                        }
+                    let has_deltas = state.extensions.get::<TurnDeltaBufferSlot>().is_some_and(|d| !d.message_deltas.is_empty());
+                    if has_deltas {
+                        let _ = commit_thread_checkpoint(&mut state, ctx, &_step_start_vfs)?;
                     }
 
                     let _ = ctx.data_stores.task_ledger.update_task_status(&ctx.task_id, "SUCCEEDED");
-
                     if let Some(pub_handle) = ctx.publisher.clone() {
                         pub_handle.publish_event(StreamEvent::TurnComplete {
                                 step_index: state.step_index,
@@ -332,6 +330,97 @@ impl RuntimeEngine {
 
         Ok(TurnExecutionOutcome::Completed(state))
     }
+}
+
+
+fn commit_thread_checkpoint(
+    state: &mut TantryState,
+    ctx: &TurnExecutionContext,
+    step_start_vfs: &VfsTree,
+) -> Result<String, RuntimeError> {
+    let head = ctx
+        .data_stores
+        .interaction_chain
+        .get_latest_checkpoint_for_thread(&state.thread_id)
+        .map_err(RuntimeError::Data)?;
+
+    let next_step_index = head.as_ref().map_or(1, |(_, s)| s + 1);
+    let prev_cp_id = head.map(|(id, _)| id).or_else(|| state.last_checkpoint_id.clone());
+    state.step_index = next_step_index as u64;
+
+    let diff = FileDelta::diff_trees(step_start_vfs, &state.files);
+
+    let mut delta = state
+        .extensions
+        .get::<TurnDeltaBufferSlot>()
+        .cloned()
+        .unwrap_or(TurnDeltaBufferSlot {
+            message_deltas: vec![],
+        });
+
+    let msg_deltas = delta.message_deltas.clone();
+    delta.message_deltas.clear();
+    state.extensions.insert(delta);
+
+    let diff_json = serde_json::to_string(&diff).unwrap_or_default();
+
+    let ext_slots_b = state.extensions.serialize_all().map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(base::error::StateReducerError::InvalidToolUsePatch(e.to_string()))))?;
+    let ext_json = serde_json::to_string(&ext_slots_b).unwrap_or_default();
+
+    let todos_json = serde_json::to_string(&state.todos).unwrap_or_default();
+    let async_tasks_json = serde_json::to_string(&state.async_tasks).unwrap_or_default();
+
+    let cp_id = if msg_deltas.is_empty() {
+        let msg_delta_json = serde_json::to_string(&msg_deltas).unwrap_or_default();
+        let id = uuid::Uuid::now_v7().to_string();
+        ctx.data_stores.interaction_chain.commit_checkpoint(
+            &state.thread_id,
+            state.step_index as i64,
+            prev_cp_id.as_deref(),
+            &id,
+            0,
+            Some(msg_delta_json.as_bytes()),
+            Some(diff_json.as_bytes()),
+            Some(ext_json.as_bytes()),
+            Some(todos_json.as_str()),
+            Some(async_tasks_json.as_str()),
+        ).map_err(RuntimeError::Data)?;
+        state.last_checkpoint_id = Some(id.clone());
+        id
+    } else {
+        let mut current_prev_id = prev_cp_id.clone();
+        let mut last_id = String::new();
+        for (i, md) in msg_deltas.iter().enumerate() {
+            let msg_delta_json = serde_json::to_string(&vec![md.clone()]).unwrap_or_default();
+            let id = uuid::Uuid::now_v7().to_string();
+
+            let c_diff_bytes = if i == 0 {
+                diff_json.as_bytes()
+            } else {
+                b"[]"
+            };
+
+            ctx.data_stores.interaction_chain.commit_checkpoint(
+                &state.thread_id,
+                state.step_index as i64,
+                current_prev_id.as_deref(),
+                &id,
+                0,
+                Some(msg_delta_json.as_bytes()),
+                Some(c_diff_bytes),
+                Some(ext_json.as_bytes()),
+                Some(todos_json.as_str()),
+                Some(async_tasks_json.as_str()),
+            ).map_err(RuntimeError::Data)?;
+
+            current_prev_id = Some(id.clone());
+            state.last_checkpoint_id = Some(id.clone());
+            last_id = id;
+        }
+        last_id
+    };
+
+    Ok(cp_id)
 }
 
 pub async fn execute_subagents(
@@ -366,18 +455,8 @@ pub fn resume_interrupted_thread(
                 .build_tool_use_edit_delta(&tool_use_id, modified_arguments)
                 .map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(e)))?;
 
-            state.messages = MessageDelta::apply(&mut state.messages, patch.clone())
+            MessageDelta::apply(&mut state.messages, patch.clone())
                 .map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(e)))?;
-
-            let mut delta = state
-                .extensions
-                .get::<TurnDeltaBufferSlot>()
-                .cloned()
-                .unwrap_or(TurnDeltaBufferSlot {
-                    message_deltas: vec![],
-                });
-            delta.message_deltas.push(patch);
-            state.extensions.insert(delta);
 
             let mut bypass = state
                 .extensions
@@ -427,25 +506,23 @@ pub fn fork_thread_at_checkpoint(
     let reconstructed = hydrate_thread_state_full(ctx, source_checkpoint_id)?;
     let mut state = reconstructed.state;
     state.thread_id = new_thread_id.clone();
-
     let fork_step_index = reconstructed.step_index + 1;
 
     if let Some(ref delta) = fork_delta {
-        state.messages = MessageDelta::apply(&mut state.messages, delta.clone())
+        MessageDelta::apply(&mut state.messages, delta.clone())
             .map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(e)))?;
     }
 
     let msg_delta_to_commit = fork_delta.unwrap_or_else(|| MessageDelta::Append(vec![]));
-
-    let cp_id = uuid::Uuid::now_v7().to_string();
+    let msg_delta_bytes = serde_json::to_string(&vec![msg_delta_to_commit]).unwrap_or_default();
 
     let ext_slots_b = state.extensions.serialize_all().map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(base::error::StateReducerError::InvalidToolUsePatch(e.to_string()))))?;
-    let ext_bytes = serde_json::to_vec(&ext_slots_b).unwrap_or_default();
-
-    let msg_delta_bytes = serde_json::to_vec(&msg_delta_to_commit).unwrap_or_default();
+    let ext_bytes = serde_json::to_string(&ext_slots_b).unwrap_or_default();
 
     let todos_json = serde_json::to_string(&state.todos).unwrap_or_default();
     let async_tasks_json = serde_json::to_string(&state.async_tasks).unwrap_or_default();
+
+    let cp_id = uuid::Uuid::now_v7().to_string();
 
     ctx.data_stores.interaction_chain.commit_checkpoint(
         &new_thread_id,
@@ -479,13 +556,13 @@ pub fn hydrate_thread_state_full(
     ctx: &TurnExecutionContext,
     thread_or_checkpoint_id: &str,
 ) -> Result<HydratedThreadState, RuntimeError> {
-    let head = ctx
+    let head_opt = ctx
         .data_stores
         .interaction_chain
         .get_latest_checkpoint_for_thread(thread_or_checkpoint_id)
         .map_err(RuntimeError::Data)?;
 
-    let target_cp_id = if let Some((cp_id, _)) = head {
+    let target_cp_id = if let Some((cp_id, _)) = head_opt {
         cp_id
     } else {
         thread_or_checkpoint_id.to_string()
