@@ -467,7 +467,12 @@ pub fn resume_interrupted_thread(
                 });
             bypass.approved_tool_use_ids.insert(tool_use_id);
             state.extensions.insert(bypass);
+        }
+        ApprovalDecision::Reject { tool_use_id, feedback } => {
+            let reject_msg = Message::tool_result(tool_use_id.clone(), true, feedback, None);
+            state.messages.push(reject_msg.clone());
 
+            let patch = MessageDelta::Append(vec![reject_msg]);
             let mut delta = state
                 .extensions
                 .get::<TurnDeltaBufferSlot>()
@@ -476,20 +481,6 @@ pub fn resume_interrupted_thread(
                     message_deltas: vec![],
                 });
             delta.message_deltas.push(patch);
-            state.extensions.insert(delta);
-        }
-        ApprovalDecision::Reject { tool_use_id, feedback } => {
-            let reject_msg = Message::tool_result(tool_use_id.clone(), true, feedback, None);
-            state.messages.push(reject_msg.clone());
-
-            let mut delta = state
-                .extensions
-                .get::<TurnDeltaBufferSlot>()
-                .cloned()
-                .unwrap_or(TurnDeltaBufferSlot {
-                    message_deltas: vec![],
-                });
-            delta.message_deltas.push(MessageDelta::Append(vec![reject_msg]));
             state.extensions.insert(delta);
 
             let mut bypass = state
@@ -539,12 +530,12 @@ pub fn fork_thread_at_checkpoint(
         Some(source_checkpoint_id),
         &cp_id,
         0,
-        Some(msg_delta_bytes.as_bytes()),
-        Some(b"[]"), // so ancestor file deltas are not duplicated
-        Some(ext_bytes.as_bytes()),
+        Some(msg_delta_bytes.as_slice()),
+        Some(b"[]"),
+        Some(ext_bytes.as_slice()),
         Some(todos_json.as_str()),
         Some(async_tasks_json.as_str()),
-    ).map_err(RuntimeError::Data)?;
+    ).map_err(|e| RuntimeError::Data(e))?;
 
     state.step_index = fork_step_index;
     state.last_checkpoint_id = Some(cp_id);
@@ -577,37 +568,33 @@ pub fn hydrate_thread_state_full(
         thread_or_checkpoint_id.to_string()
     };
 
-    let mut registry_impl = base::typemap::DefaultExtensionRegistryImpl::new();
-    crate::slots::register_runtime_slots(&mut registry_impl);
+    let mut registry = base::typemap::DefaultExtensionRegistryImpl::new();
+    crate::slots::register_runtime_slots(&mut registry);
+    let key_hierarchy = ctx.iam.key_hierarchy();
 
-    let reconstructed = ctx
+    let mut reconstructed = ctx
         .data_stores
         .interaction_chain
-        .reconstruct_state_at_checkpoint(
-            &target_cp_id,
-            &registry_impl,
-            ctx.iam.key_hierarchy()
-        )
+        .reconstruct_state_at_checkpoint(&target_cp_id, &registry, &key_hierarchy)
         .map_err(RuntimeError::Data)?;
 
-    let mut state = reconstructed.state;
-    state.step_index = reconstructed.step_index;
-    state.last_checkpoint_id = Some(target_cp_id.clone());
+    reconstructed.state.step_index = reconstructed.step_index;
+    reconstructed.state.last_checkpoint_id = Some(target_cp_id.clone());
 
     Ok(HydratedThreadState {
         step_index: reconstructed.step_index,
         vfs_root_blake3: reconstructed.vfs_root_blake3,
         checkpoint_id: target_cp_id,
-        state,
+        state: reconstructed.state,
     })
 }
 
 pub fn hydrate_thread_state(
     ctx: &TurnExecutionContext,
-    thread_or_checkpoint_id: &str,
+    checkpoint_id: &str,
 ) -> Result<TantryState, RuntimeError> {
-    let full = hydrate_thread_state_full(ctx, thread_or_checkpoint_id)?;
-    Ok(full.state)
+    let hydrated = hydrate_thread_state_full(ctx, checkpoint_id)?;
+    Ok(hydrated.state)
 }
 
 
@@ -821,4 +808,74 @@ pub async fn execute_single_tool(
             Ok(ToolExecutionOutput { raw_output: format!("Unknown tool: {}", tool_name), is_error: true, artifact: None })
         }
     }
+}
+
+pub fn commit_step_checkpoint(
+    state: &mut TantryState,
+    ctx: &TurnExecutionContext,
+    prev_vfs: &VfsTree,
+) -> Result<String, RuntimeError> {
+    let head = ctx
+        .data_stores
+        .interaction_chain
+        .get_latest_checkpoint_for_thread(&state.thread_id)
+        .map_err(|e| RuntimeError::Data(e))?;
+    let next_step_index = head.as_ref().map_or(1, |(_, s)| s + 1);
+    let prev_cp_id = head
+        .map(|(id, _)| id)
+        .or_else(|| state.last_checkpoint_id.clone());
+    state.step_index = next_step_index as u64;
+
+    let diff = FileDelta::diff_trees(prev_vfs, &state.files);
+
+    let mut delta = state
+        .extensions
+        .get::<TurnDeltaBufferSlot>()
+        .cloned()
+        .unwrap_or(TurnDeltaBufferSlot {
+            message_deltas: vec![],
+        });
+
+    let mut folded_messages = Vec::new();
+    for md in delta.message_deltas.drain(..) {
+        if let MessageDelta::Append(msgs) = md {
+            folded_messages.extend(msgs);
+        }
+    }
+    let final_msg_delta = if folded_messages.is_empty() {
+        None
+    } else {
+        Some(MessageDelta::Append(folded_messages))
+    };
+    state.extensions.insert(delta);
+
+    let msg_delta_bytes = final_msg_delta.map(|md| serde_json::to_vec(&md).unwrap_or_default());
+    let diff_bytes = serde_json::to_vec(&diff).unwrap_or_default();
+    let ext_slots_b = state.extensions.serialize_all().map_err(|e| {
+        RuntimeError::Base(base::error::BaseError::StateReducer(
+            base::error::StateReducerError::InvalidToolUsePatch(e.to_string()),
+        ))
+    })?;
+    let ext_bytes = serde_json::to_vec(&ext_slots_b).unwrap_or_default();
+
+    let cp_id = uuid::Uuid::now_v7().to_string();
+
+    ctx.data_stores
+        .interaction_chain
+        .commit_checkpoint(
+            &state.thread_id,
+            state.step_index as i64,
+            prev_cp_id.as_deref(),
+            &cp_id,
+            0,
+            msg_delta_bytes.as_deref(),
+            Some(diff_bytes.as_slice()),
+            Some(ext_bytes.as_slice()),
+            Some(&serde_json::to_string(&state.todos).unwrap_or_default()),
+            Some(&serde_json::to_string(&state.async_tasks).unwrap_or_default()),
+        )
+        .map_err(|e| RuntimeError::Data(e))?;
+    state.last_checkpoint_id = Some(cp_id.clone());
+
+    Ok(cp_id)
 }
