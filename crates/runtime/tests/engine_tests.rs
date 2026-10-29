@@ -275,6 +275,23 @@ async fn test_runtime_engine_execute_turn_real_tools() {
         panic!("Expected ToolResult");
     }
 
+    
+    let node = state.files.get("/test.txt").unwrap();
+    assert_ne!(node.blake3_hash, [0; 32]);
+    
+    let last_msg = state.messages.last().unwrap();
+    assert_eq!(last_msg.role, Role::Assistant);
+    
+    let tool_res_msg = &state.messages[state.messages.len() - 2];
+    assert_eq!(tool_res_msg.role, Role::Tool);
+    
+    let content = &tool_res_msg.content[0];
+    if let ContentBlock::ToolResult { tool_use_id, content: _, .. } = content {
+        assert_eq!(tool_use_id, "tu_read");
+    } else {
+        panic!("Expected ToolResult");
+    }
+    
     assert!(state.step_index >= 3);
 }
 
