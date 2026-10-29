@@ -291,7 +291,7 @@ impl InteractionChainStore {
     }
 
     /// Queries the most recent checkpoint ID and step index for a given thread.
-    
+
     pub fn encrypt_checkpoint_blob(
         &self,
         checkpoint_id: &str,

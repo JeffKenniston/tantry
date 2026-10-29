@@ -543,7 +543,7 @@ pub fn fork_thread_at_checkpoint(
     let cp_id = uuid::Uuid::now_v7().to_string();
     let key_epoch = 1;
     let key_hierarchy = ctx.iam.key_hierarchy();
-    
+
     let msg_delta_aead = ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
         &cp_id, &new_thread_id, key_epoch, &msg_delta_bytes, key_hierarchy
     ).map_err(RuntimeError::Data)?;
@@ -894,7 +894,7 @@ pub fn commit_step_checkpoint(
     let cp_id = uuid::Uuid::now_v7().to_string();
     let key_epoch = 1;
     let key_hierarchy = ctx.iam.key_hierarchy();
-    
+
     let msg_delta_aead = if let Some(ref bytes) = msg_delta_bytes {
         Some(ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
             &cp_id, &state.thread_id, key_epoch, bytes, key_hierarchy
