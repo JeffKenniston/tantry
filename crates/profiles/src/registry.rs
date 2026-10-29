@@ -108,8 +108,8 @@ impl ProfileRegistry {
         model_overrides.insert("anthropic:claude-3-7-sonnet".to_string(), claude_override);
 
         // google_genai:gemini-3.1-pro:preview
-        let mut gemini_override = HarnessProfileOverride::default();
-        gemini_override.context_window_tokens = Some(2_000_000);
+        let mut gemini_override = HarnessProfileOverride { context_window_tokens: Some(2_000_000), ..Default::default() };
+
         gemini_override.init_kwargs.insert(
             "thinking_level".to_string(),
             serde_json::Value::String("high".to_string()),
@@ -120,9 +120,9 @@ impl ProfileRegistry {
         );
 
         // openai:o3-mini
-        let mut o3_override = HarnessProfileOverride::default();
-        o3_override.context_window_tokens = Some(200_000);
-        o3_override.supported_media_kinds = Some(vec![]);
+        let o3_override = HarnessProfileOverride { context_window_tokens: Some(200_000), supported_media_kinds: Some(vec![]), ..Default::default() };
+
+
         model_overrides.insert("openai:o3-mini".to_string(), o3_override);
 
         Self {
