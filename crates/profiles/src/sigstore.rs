@@ -98,7 +98,7 @@ pub fn verify_rfc6962_inclusion_proof(
     }
 
     let mut hasher = Sha256::new();
-    hasher.update(&[0x00]);
+    hasher.update([0x00]);
     hasher.update(leaf_bytes);
     let mut r: [u8; 32] = hasher.finalize().into();
 
@@ -112,7 +112,7 @@ pub fn verify_rfc6962_inclusion_proof(
 
         if (fn_idx & 1) == 1 || fn_idx == sn {
             let mut hasher = Sha256::new();
-            hasher.update(&[0x01]);
+            hasher.update([0x01]);
             hasher.update(p);
             hasher.update(r);
             r = hasher.finalize().into();
@@ -123,7 +123,7 @@ pub fn verify_rfc6962_inclusion_proof(
             }
         } else {
             let mut hasher = Sha256::new();
-            hasher.update(&[0x01]);
+            hasher.update([0x01]);
             hasher.update(r);
             hasher.update(p);
             r = hasher.finalize().into();
@@ -314,6 +314,7 @@ impl SigstoreVerifier {
 }
 
 impl SigstoreVerifier {
+    #[allow(clippy::too_many_arguments)]
     pub fn sign_artifact_bundle(
         artifact_bytes: &[u8],
         oidc_issuer: &str,
@@ -348,7 +349,7 @@ impl SigstoreVerifier {
         leaf_can.push_str(&hex::encode(actual_sha256_arr));
 
         let mut hasher = Sha256::new();
-        hasher.update(&[0x00]);
+        hasher.update([0x00]);
         hasher.update(leaf_can.as_bytes());
         let root_hash: [u8; 32] = hasher.finalize().into();
 
