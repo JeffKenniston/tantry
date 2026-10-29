@@ -1,6 +1,15 @@
 [workspace]
 members = [
-    "crates/*"
+    "crates/base",
+    "crates/transport",
+    "crates/data",
+    "crates/iam",
+    "crates/permissions",
+    "crates/backends",
+    "crates/cognitive",
+    "crates/repo",
+    "crates/runtime",
+    "crates/profiles"
 ]
 resolver = "3"
 
