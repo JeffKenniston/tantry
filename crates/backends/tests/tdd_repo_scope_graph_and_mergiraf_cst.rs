@@ -30,9 +30,9 @@ fn test_mergiraf_cst_merger() {
         .insert("/src/main.rs".to_string(), b_rs_data)
         .unwrap();
 
-    let mut branches = Vec::new();
-    branches.push(("BranchA".to_string(), branch_a));
-    branches.push(("BranchB".to_string(), branch_b));
+    let branches = vec![("BranchA".to_string(), branch_a), ("BranchB".to_string(), branch_b)];
+
+
 
     let report = merge_subagent_trees(&base_tree, branches, now);
 
@@ -58,9 +58,9 @@ fn test_mergiraf_cst_merger() {
         .insert("/src/main.rs".to_string(), d_rs_data)
         .unwrap();
 
-    let mut branches2 = Vec::new();
-    branches2.push(("BranchC".to_string(), branch_c));
-    branches2.push(("BranchD".to_string(), branch_d));
+    let branches2 = vec![("BranchC".to_string(), branch_c), ("BranchD".to_string(), branch_d)];
+
+
     let report2 = merge_subagent_trees(&base_tree, branches2, now);
 
     assert!(report2.stage3_conflicts > 0);
