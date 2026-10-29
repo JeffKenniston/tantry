@@ -282,7 +282,7 @@ async fn test_runtime_engine_execute_turn_real_tools() {
     let last_msg = state.messages.last().unwrap();
     assert_eq!(last_msg.role, Role::Assistant);
     
-    let tool_res_msg = &state.messages[state.messages.len() - 2];
+    let tool_res_msg = &state.messages[3];
     assert_eq!(tool_res_msg.role, Role::Tool);
     
     let content = &tool_res_msg.content[0];
