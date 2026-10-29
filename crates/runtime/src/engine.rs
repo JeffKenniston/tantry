@@ -216,7 +216,7 @@ impl RuntimeEngine {
                 }
             }
             if !pending_tools.is_empty() {
-                let cp_id = commit_thread_checkpoint(&mut state, ctx, &_step_start_vfs)?;
+                let cp_id = commit_step_checkpoint(&mut state, ctx, &_step_start_vfs)?;
                 let _ = ctx.data_stores.task_ledger.update_task_status(&ctx.task_id, "INTERRUPTED");
                 if let Some(pub_handle) = ctx.publisher.clone() {
                     pub_handle.publish_event(StreamEvent::Interrupted {
@@ -296,7 +296,7 @@ impl RuntimeEngine {
 
                 state.extensions.remove::<HitlBypassSlot>();
 
-                let _ = commit_thread_checkpoint(&mut state, ctx, &_step_start_vfs)?;
+                let _ = commit_step_checkpoint(&mut state, ctx, &_step_start_vfs)?;
 
                 continue;
             } else {
@@ -313,7 +313,7 @@ impl RuntimeEngine {
                 } else {
                     let has_deltas = state.extensions.get::<TurnDeltaBufferSlot>().is_some_and(|d| !d.message_deltas.is_empty());
                     if has_deltas {
-                        let _ = commit_thread_checkpoint(&mut state, ctx, &_step_start_vfs)?;
+                        let _ = commit_step_checkpoint(&mut state, ctx, &_step_start_vfs)?;
                     }
 
                     let _ = ctx.data_stores.task_ledger.update_task_status(&ctx.task_id, "SUCCEEDED");
@@ -333,95 +333,7 @@ impl RuntimeEngine {
 }
 
 
-fn commit_thread_checkpoint(
-    state: &mut TantryState,
-    ctx: &TurnExecutionContext,
-    step_start_vfs: &VfsTree,
-) -> Result<String, RuntimeError> {
-    let head = ctx
-        .data_stores
-        .interaction_chain
-        .get_latest_checkpoint_for_thread(&state.thread_id)
-        .map_err(RuntimeError::Data)?;
 
-    let next_step_index = head.as_ref().map_or(1, |(_, s)| s + 1);
-    let prev_cp_id = head.map(|(id, _)| id).or_else(|| state.last_checkpoint_id.clone());
-    state.step_index = next_step_index as u64;
-
-    let diff = FileDelta::diff_trees(step_start_vfs, &state.files);
-
-    let mut delta = state
-        .extensions
-        .get::<TurnDeltaBufferSlot>()
-        .cloned()
-        .unwrap_or(TurnDeltaBufferSlot {
-            message_deltas: vec![],
-        });
-
-    let msg_deltas = delta.message_deltas.clone();
-    delta.message_deltas.clear();
-    state.extensions.insert(delta);
-
-    let diff_json = serde_json::to_string(&diff).unwrap_or_default();
-
-    let ext_slots_b = state.extensions.serialize_all().map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(base::error::StateReducerError::InvalidToolUsePatch(e.to_string()))))?;
-    let ext_json = serde_json::to_string(&ext_slots_b).unwrap_or_default();
-
-    let todos_json = serde_json::to_string(&state.todos).unwrap_or_default();
-    let async_tasks_json = serde_json::to_string(&state.async_tasks).unwrap_or_default();
-
-    let cp_id = if msg_deltas.is_empty() {
-        let msg_delta_json = serde_json::to_string(&msg_deltas).unwrap_or_default();
-        let id = uuid::Uuid::now_v7().to_string();
-        ctx.data_stores.interaction_chain.commit_checkpoint(
-            &state.thread_id,
-            state.step_index as i64,
-            prev_cp_id.as_deref(),
-            &id,
-            0,
-            Some(msg_delta_json.as_bytes()),
-            Some(diff_json.as_bytes()),
-            Some(ext_json.as_bytes()),
-            Some(todos_json.as_str()),
-            Some(async_tasks_json.as_str()),
-        ).map_err(RuntimeError::Data)?;
-        state.last_checkpoint_id = Some(id.clone());
-        id
-    } else {
-        let mut current_prev_id = prev_cp_id.clone();
-        let mut last_id = String::new();
-        for (i, md) in msg_deltas.iter().enumerate() {
-            let msg_delta_json = serde_json::to_string(&vec![md.clone()]).unwrap_or_default();
-            let id = uuid::Uuid::now_v7().to_string();
-
-            let c_diff_bytes = if i == 0 {
-                diff_json.as_bytes()
-            } else {
-                b"[]"
-            };
-
-            ctx.data_stores.interaction_chain.commit_checkpoint(
-                &state.thread_id,
-                state.step_index as i64,
-                current_prev_id.as_deref(),
-                &id,
-                0,
-                Some(msg_delta_json.as_bytes()),
-                Some(c_diff_bytes),
-                Some(ext_json.as_bytes()),
-                Some(todos_json.as_str()),
-                Some(async_tasks_json.as_str()),
-            ).map_err(RuntimeError::Data)?;
-
-            current_prev_id = Some(id.clone());
-            state.last_checkpoint_id = Some(id.clone());
-            last_id = id;
-        }
-        last_id
-    };
-
-    Ok(cp_id)
-}
 
 
 use crate::middleware::SubagentSpawnSpec;
@@ -605,7 +517,13 @@ pub fn fork_thread_at_checkpoint(
     let reconstructed = hydrate_thread_state_full(ctx, source_checkpoint_id)?;
     let mut state = reconstructed.state;
     state.thread_id = new_thread_id.clone();
-    let fork_step_index = reconstructed.step_index + 1;
+    let head = ctx
+        .data_stores
+        .interaction_chain
+        .get_latest_checkpoint_for_thread(&new_thread_id)
+        .map_err(RuntimeError::Data)?;
+    let db_next_step = head.as_ref().map_or(1, |(_, s)| *s as u64 + 1);
+    let fork_step_index = db_next_step.max(reconstructed.step_index + 1);
 
     if let Some(ref delta) = fork_delta {
         MessageDelta::apply(&mut state.messages, delta.clone())
@@ -613,28 +531,43 @@ pub fn fork_thread_at_checkpoint(
     }
 
     let msg_delta_to_commit = fork_delta.unwrap_or_else(|| MessageDelta::Append(vec![]));
-    let msg_delta_bytes = serde_json::to_vec(&vec![msg_delta_to_commit]).unwrap_or_default();
+    let msg_delta_bytes = rmp_serde::to_vec_named(&msg_delta_to_commit).unwrap_or_default();
 
     let ext_slots_b = state.extensions.serialize_all().map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(base::error::StateReducerError::InvalidToolUsePatch(e.to_string()))))?;
-    let ext_bytes = serde_json::to_vec(&ext_slots_b).unwrap_or_default();
+    let ext_bytes = rmp_serde::to_vec_named(&ext_slots_b).unwrap_or_default();
+    let diff_bytes = rmp_serde::to_vec_named(&Vec::<base::delta::FileDelta>::new()).unwrap_or_default();
 
     let todos_json = serde_json::to_string(&state.todos).unwrap_or_default();
     let async_tasks_json = serde_json::to_string(&state.async_tasks).unwrap_or_default();
 
     let cp_id = uuid::Uuid::now_v7().to_string();
+    let key_epoch = 1;
+    let key_hierarchy = ctx.iam.key_hierarchy();
+
+    let msg_delta_aead = ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
+        &cp_id, &new_thread_id, key_epoch, &msg_delta_bytes, key_hierarchy
+    ).map_err(RuntimeError::Data)?;
+
+    let file_deltas_aead = ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
+        &cp_id, &new_thread_id, key_epoch, &diff_bytes, key_hierarchy
+    ).map_err(RuntimeError::Data)?;
+
+    let ext_slots_aead = ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
+        &cp_id, &new_thread_id, key_epoch, &ext_bytes, key_hierarchy
+    ).map_err(RuntimeError::Data)?;
 
     ctx.data_stores.interaction_chain.commit_checkpoint(
         &new_thread_id,
         fork_step_index as i64,
         Some(source_checkpoint_id),
         &cp_id,
-        0,
-        Some(msg_delta_bytes.as_slice()),
-        Some(b"[]"),
-        Some(ext_bytes.as_slice()),
+        key_epoch,
+        Some(&msg_delta_aead),
+        Some(&file_deltas_aead),
+        Some(&ext_slots_aead),
         Some(todos_json.as_str()),
         Some(async_tasks_json.as_str()),
-    ).map_err(|e| RuntimeError::Data(e))?;
+    ).map_err(RuntimeError::Data)?;
 
     state.step_index = fork_step_index;
     state.last_checkpoint_id = Some(cp_id);
@@ -674,7 +607,7 @@ pub fn hydrate_thread_state_full(
     let mut reconstructed = ctx
         .data_stores
         .interaction_chain
-        .reconstruct_state_at_checkpoint(&target_cp_id, &registry, &key_hierarchy)
+        .reconstruct_state_at_checkpoint(&target_cp_id, &registry, key_hierarchy)
         .map_err(RuntimeError::Data)?;
 
     reconstructed.state.step_index = reconstructed.step_index;
@@ -918,12 +851,13 @@ pub fn commit_step_checkpoint(
         .data_stores
         .interaction_chain
         .get_latest_checkpoint_for_thread(&state.thread_id)
-        .map_err(|e| RuntimeError::Data(e))?;
-    let next_step_index = head.as_ref().map_or(1, |(_, s)| s + 1);
+        .map_err(RuntimeError::Data)?;
+    let db_next_step = head.as_ref().map_or(1, |(_, s)| *s as u64 + 1);
+    let next_step_index = db_next_step.max(state.step_index + 1);
     let prev_cp_id = head
         .map(|(id, _)| id)
         .or_else(|| state.last_checkpoint_id.clone());
-    state.step_index = next_step_index as u64;
+    state.step_index = next_step_index;
 
     let diff = FileDelta::diff_trees(prev_vfs, &state.files);
 
@@ -948,16 +882,34 @@ pub fn commit_step_checkpoint(
     };
     state.extensions.insert(delta);
 
-    let msg_delta_bytes = final_msg_delta.map(|md| serde_json::to_vec(&md).unwrap_or_default());
-    let diff_bytes = serde_json::to_vec(&diff).unwrap_or_default();
+    let msg_delta_bytes = final_msg_delta.map(|md| rmp_serde::to_vec_named(&md).unwrap_or_default());
+    let diff_bytes = rmp_serde::to_vec_named(&diff).unwrap_or_default();
     let ext_slots_b = state.extensions.serialize_all().map_err(|e| {
         RuntimeError::Base(base::error::BaseError::StateReducer(
             base::error::StateReducerError::InvalidToolUsePatch(e.to_string()),
         ))
     })?;
-    let ext_bytes = serde_json::to_vec(&ext_slots_b).unwrap_or_default();
+    let ext_bytes = rmp_serde::to_vec_named(&ext_slots_b).unwrap_or_default();
 
     let cp_id = uuid::Uuid::now_v7().to_string();
+    let key_epoch = 1;
+    let key_hierarchy = ctx.iam.key_hierarchy();
+
+    let msg_delta_aead = if let Some(ref bytes) = msg_delta_bytes {
+        Some(ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
+            &cp_id, &state.thread_id, key_epoch, bytes, key_hierarchy
+        ).map_err(RuntimeError::Data)?)
+    } else {
+        None
+    };
+
+    let file_deltas_aead = ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
+        &cp_id, &state.thread_id, key_epoch, &diff_bytes, key_hierarchy
+    ).map_err(RuntimeError::Data)?;
+
+    let ext_slots_aead = ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
+        &cp_id, &state.thread_id, key_epoch, &ext_bytes, key_hierarchy
+    ).map_err(RuntimeError::Data)?;
 
     ctx.data_stores
         .interaction_chain
@@ -966,14 +918,14 @@ pub fn commit_step_checkpoint(
             state.step_index as i64,
             prev_cp_id.as_deref(),
             &cp_id,
-            0,
-            msg_delta_bytes.as_deref(),
-            Some(diff_bytes.as_slice()),
-            Some(ext_bytes.as_slice()),
+            key_epoch,
+            msg_delta_aead.as_deref(),
+            Some(&file_deltas_aead),
+            Some(&ext_slots_aead),
             Some(&serde_json::to_string(&state.todos).unwrap_or_default()),
             Some(&serde_json::to_string(&state.async_tasks).unwrap_or_default()),
         )
-        .map_err(|e| RuntimeError::Data(e))?;
+        .map_err(RuntimeError::Data)?;
     state.last_checkpoint_id = Some(cp_id.clone());
 
     Ok(cp_id)

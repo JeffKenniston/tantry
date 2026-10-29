@@ -291,6 +291,31 @@ impl InteractionChainStore {
     }
 
     /// Queries the most recent checkpoint ID and step index for a given thread.
+
+    pub fn encrypt_checkpoint_blob(
+        &self,
+        checkpoint_id: &str,
+        thread_id: &str,
+        key_epoch: u32,
+        plaintext: &[u8],
+        key_hierarchy: &iam::key_hierarchy::KeyHierarchy,
+    ) -> Result<Vec<u8>, DataError> {
+        let conn = self.db.lock().unwrap();
+        let (epoch_salt, thread_salt) =
+            crate::crypto::get_or_provision_key_epoch(&conn, thread_id, key_epoch)?;
+        let dek = key_hierarchy
+            .derive_thread_dek(thread_id, key_epoch, &epoch_salt, &thread_salt)
+            .map(|z| *z)
+            .unwrap_or([0u8; 32]);
+        let aad = crate::crypto::compute_canonical_aad(
+            "interaction_checkpoints",
+            checkpoint_id,
+            thread_id,
+            key_epoch,
+        );
+        crate::crypto::encrypt_envelope_xchacha20(plaintext, &dek, &aad)
+    }
+
     pub fn get_latest_checkpoint_for_thread(
         &self,
         thread_id: &str,
