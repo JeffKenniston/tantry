@@ -45,19 +45,35 @@ fn test_attenuation() {
 fn test_zenoh_guard_invalid_chars() {
     let svid = SpiffeId::parse("spiffe://td1/agent/a1/task/t1").unwrap();
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Publish, "tantry/td1/.."),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Publish,
+            "tantry/td1/.."
+        ),
         PermissionMode::Deny
     );
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Publish, "tantry/td1/\0"),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Publish,
+            "tantry/td1/\0"
+        ),
         PermissionMode::Deny
     );
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Publish, "/tantry/td1"),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Publish,
+            "/tantry/td1"
+        ),
         PermissionMode::Deny
     );
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Publish, "tantry/td1/"),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Publish,
+            "tantry/td1/"
+        ),
         PermissionMode::Deny
     );
 }
@@ -66,15 +82,27 @@ fn test_zenoh_guard_invalid_chars() {
 fn test_zenoh_guard_root_agent() {
     let svid = SpiffeId::parse("spiffe://td1/agent/a1/task/t1").unwrap();
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Publish, "tantry/td1/foo/bar"),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Publish,
+            "tantry/td1/foo/bar"
+        ),
         PermissionMode::Allow
     );
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Publish, "tantry/td1"),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Publish,
+            "tantry/td1"
+        ),
         PermissionMode::Allow
     );
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Publish, "tantry/td2/foo/bar"),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Publish,
+            "tantry/td2/foo/bar"
+        ),
         PermissionMode::Deny
     );
 }
@@ -85,29 +113,53 @@ fn test_zenoh_guard_subagent() {
 
     // Publish
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Publish, "tantry/td1/subagents/s1/tasks/c1/events"),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Publish,
+            "tantry/td1/subagents/s1/tasks/c1/events"
+        ),
         PermissionMode::Allow
     );
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Publish, "tantry/td1/subagents/s1/tasks/c1/state"),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Publish,
+            "tantry/td1/subagents/s1/tasks/c1/state"
+        ),
         PermissionMode::Allow
     );
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Publish, "tantry/td1/subagents/s1/tasks/c1/cmd"),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Publish,
+            "tantry/td1/subagents/s1/tasks/c1/cmd"
+        ),
         PermissionMode::Deny
     );
 
     // Subscribe (is_publish = false)
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Subscribe, "tantry/td1/subagents/s1/tasks/c1/cmd"),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Subscribe,
+            "tantry/td1/subagents/s1/tasks/c1/cmd"
+        ),
         PermissionMode::Allow
     );
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Subscribe, "tantry/td1/subagents/s1/tasks/c1/events"),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Subscribe,
+            "tantry/td1/subagents/s1/tasks/c1/events"
+        ),
         PermissionMode::Deny
     );
     assert_eq!(
-        evaluate_zenoh_topic(&svid, permissions::zenoh_guard::ZenohAction::Subscribe, "tantry/td1/subagents/s1/tasks/c1/state"),
+        evaluate_zenoh_topic(
+            &svid,
+            permissions::zenoh_guard::ZenohAction::Subscribe,
+            "tantry/td1/subagents/s1/tasks/c1/state"
+        ),
         PermissionMode::Deny
     );
 }

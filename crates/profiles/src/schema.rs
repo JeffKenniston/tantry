@@ -11,7 +11,10 @@ pub fn merge_middleware_in_place(
     incoming: &[Arc<dyn AgentMiddleware>],
 ) {
     for mw in incoming {
-        if let Some(idx) = target.iter().position(|existing| existing.name() == mw.name()) {
+        if let Some(idx) = target
+            .iter()
+            .position(|existing| existing.name() == mw.name())
+        {
             target[idx] = Arc::clone(mw);
         } else {
             target.push(Arc::clone(mw));
@@ -56,8 +59,10 @@ impl HarnessProfileOverride {
         if let Some(ref v) = ovr.system_prompt_suffix {
             self.system_prompt_suffix = Some(v.clone());
         }
-        self.excluded_tools.extend(ovr.excluded_tools.iter().cloned());
-        self.excluded_middleware.extend(ovr.excluded_middleware.iter().cloned());
+        self.excluded_tools
+            .extend(ovr.excluded_tools.iter().cloned());
+        self.excluded_middleware
+            .extend(ovr.excluded_middleware.iter().cloned());
         for (k, v) in &ovr.tool_description_overrides {
             self.tool_description_overrides.insert(k.clone(), v.clone());
         }
@@ -82,17 +87,16 @@ impl HarnessProfileOverride {
 
 impl fmt::Debug for HarnessProfileOverride {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let middleware_names: Vec<&str> = self
-            .extra_middleware
-            .iter()
-            .map(|m| m.name())
-            .collect();
+        let middleware_names: Vec<&str> = self.extra_middleware.iter().map(|m| m.name()).collect();
         f.debug_struct("HarnessProfileOverride")
             .field("system_prompt_prefix", &self.system_prompt_prefix)
             .field("system_prompt_suffix", &self.system_prompt_suffix)
             .field("excluded_tools", &self.excluded_tools)
             .field("excluded_middleware", &self.excluded_middleware)
-            .field("tool_description_overrides", &self.tool_description_overrides)
+            .field(
+                "tool_description_overrides",
+                &self.tool_description_overrides,
+            )
             .field("extra_middleware", &middleware_names)
             .field("supported_media_kinds", &self.supported_media_kinds)
             .field("init_kwargs", &self.init_kwargs)
@@ -126,8 +130,10 @@ impl HarnessProfile {
         if let Some(ref v) = ovr.system_prompt_suffix {
             self.system_prompt_suffix = Some(v.clone());
         }
-        self.excluded_tools.extend(ovr.excluded_tools.iter().cloned());
-        self.excluded_middleware.extend(ovr.excluded_middleware.iter().cloned());
+        self.excluded_tools
+            .extend(ovr.excluded_tools.iter().cloned());
+        self.excluded_middleware
+            .extend(ovr.excluded_middleware.iter().cloned());
         for (k, v) in &ovr.tool_description_overrides {
             self.tool_description_overrides.insert(k.clone(), v.clone());
         }
@@ -152,18 +158,17 @@ impl HarnessProfile {
 
 impl fmt::Debug for HarnessProfile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let middleware_names: Vec<&str> = self
-            .extra_middleware
-            .iter()
-            .map(|m| m.name())
-            .collect();
+        let middleware_names: Vec<&str> = self.extra_middleware.iter().map(|m| m.name()).collect();
         f.debug_struct("HarnessProfile")
             .field("profile_key", &self.profile_key)
             .field("system_prompt_prefix", &self.system_prompt_prefix)
             .field("system_prompt_suffix", &self.system_prompt_suffix)
             .field("excluded_tools", &self.excluded_tools)
             .field("excluded_middleware", &self.excluded_middleware)
-            .field("tool_description_overrides", &self.tool_description_overrides)
+            .field(
+                "tool_description_overrides",
+                &self.tool_description_overrides,
+            )
             .field("extra_middleware", &middleware_names)
             .field("supported_media_kinds", &self.supported_media_kinds)
             .field("init_kwargs", &self.init_kwargs)

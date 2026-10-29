@@ -198,7 +198,9 @@ mod tests {
         }
 
         assert!(publisher.pending.lock().unwrap().is_some());
-        if let StreamEvent::TurnComplete { .. } = publisher.pending.lock().unwrap().as_ref().unwrap() {
+        if let StreamEvent::TurnComplete { .. } =
+            publisher.pending.lock().unwrap().as_ref().unwrap()
+        {
         } else {
             panic!("Expected TurnComplete buffered");
         }

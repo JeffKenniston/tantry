@@ -1,6 +1,6 @@
 use iam::spiffe::SpiffeId;
 use permissions::lattice::PermissionMode;
-use permissions::zenoh_guard::{evaluate_zenoh_topic, ZenohAction};
+use permissions::zenoh_guard::{ZenohAction, evaluate_zenoh_topic};
 use thiserror::Error;
 use zenoh::Session;
 use zenoh::config::Config;
@@ -91,7 +91,8 @@ impl ZenohBusTransport {
         &self,
         topic: &str,
     ) -> Result<Subscriber<FifoChannelHandler<Sample>>, TransportError> {
-        if evaluate_zenoh_topic(&self.svid, ZenohAction::Subscribe, topic) != PermissionMode::Allow {
+        if evaluate_zenoh_topic(&self.svid, ZenohAction::Subscribe, topic) != PermissionMode::Allow
+        {
             return Err(TransportError::AuthorizationError(
                 "zenoh subscribe denied".into(),
             ));
@@ -107,7 +108,8 @@ impl ZenohBusTransport {
         &self,
         topic: &str,
     ) -> Result<zenoh::handlers::FifoChannelHandler<Reply>, TransportError> {
-        if evaluate_zenoh_topic(&self.svid, ZenohAction::Subscribe, topic) != PermissionMode::Allow {
+        if evaluate_zenoh_topic(&self.svid, ZenohAction::Subscribe, topic) != PermissionMode::Allow
+        {
             return Err(TransportError::AuthorizationError(
                 "zenoh get denied".into(),
             ));

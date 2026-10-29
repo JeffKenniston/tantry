@@ -30,9 +30,10 @@ fn test_mergiraf_cst_merger() {
         .insert("/src/main.rs".to_string(), b_rs_data)
         .unwrap();
 
-    let branches = vec![("BranchA".to_string(), branch_a), ("BranchB".to_string(), branch_b)];
-
-
+    let branches = vec![
+        ("BranchA".to_string(), branch_a),
+        ("BranchB".to_string(), branch_b),
+    ];
 
     let report = merge_subagent_trees(&base_tree, branches, now);
 
@@ -58,8 +59,10 @@ fn test_mergiraf_cst_merger() {
         .insert("/src/main.rs".to_string(), d_rs_data)
         .unwrap();
 
-    let branches2 = vec![("BranchC".to_string(), branch_c), ("BranchD".to_string(), branch_d)];
-
+    let branches2 = vec![
+        ("BranchC".to_string(), branch_c),
+        ("BranchD".to_string(), branch_d),
+    ];
 
     let report2 = merge_subagent_trees(&base_tree, branches2, now);
 

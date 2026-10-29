@@ -2,8 +2,8 @@
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
-use iam::IdentityManager;
 use dashmap::DashMap;
+use iam::IdentityManager;
 use quinn::Endpoint;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -36,7 +36,7 @@ pub struct QuicMcpTransport<I: IdentityManager> {
     http_client: reqwest::Client,
     protocol_cache: DashMap<SocketAddr, (McpWireProtocol, Instant)>,
     quic_handshake_fallback_timeout_ms: u64,
-    }
+}
 
 impl<I: IdentityManager> std::fmt::Debug for QuicMcpTransport<I> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -61,22 +61,22 @@ impl<I: IdentityManager> QuicMcpTransport<I> {
         quic_handshake_fallback_timeout_ms: u64,
         identity_manager: I,
     ) -> Self {
-
-
         Self {
             endpoint,
             http_client,
             protocol_cache: DashMap::new(),
             quic_handshake_fallback_timeout_ms,
-                        identity_manager,
+            identity_manager,
         }
     }
 
-
     // RUSTSEC-2026-0338: strictly use ordered stream reads (`RecvStream::read` / `read_to_end`; never `read_unordered`)
     #[allow(dead_code)]
-    async fn read_from_quic_stream(stream: &mut quinn::RecvStream) -> Result<Vec<u8>, TransportError> {
-        let buf = stream.read_to_end(usize::MAX)
+    async fn read_from_quic_stream(
+        stream: &mut quinn::RecvStream,
+    ) -> Result<Vec<u8>, TransportError> {
+        let buf = stream
+            .read_to_end(usize::MAX)
             .await
             .map_err(|e| TransportError::Internal(format!("quic read error: {}", e)))?;
         Ok(buf)
@@ -125,10 +125,20 @@ impl<I: IdentityManager> QuicMcpTransport<I> {
     }
 
     /// Mints a DPoP proof
-    pub async fn mint_dpop_proof_and_jwt(&self, method: &str, url: &str, audience: &str) -> Result<(String, String), TransportError> {
-        let svid = self.identity_manager.current_svid().ok_or_else(|| TransportError::Internal("No current SVID".to_string()))?;
+    pub async fn mint_dpop_proof_and_jwt(
+        &self,
+        method: &str,
+        url: &str,
+        audience: &str,
+    ) -> Result<(String, String), TransportError> {
+        let svid = self
+            .identity_manager
+            .current_svid()
+            .ok_or_else(|| TransportError::Internal("No current SVID".to_string()))?;
 
-        let jwt = self.identity_manager.mint_jwt_svid(&[audience.to_string()], 300)
+        let jwt = self
+            .identity_manager
+            .mint_jwt_svid(&[audience.to_string()], 300)
             .map_err(|e| TransportError::Internal(format!("Failed to mint JWT: {:?}", e)))?;
 
         let proof = iam::dpop::mint_dpop_proof(&svid, method, url, Some(&jwt))
@@ -166,7 +176,9 @@ impl<I: IdentityManager> QuicMcpTransport<I> {
                 let url = format!("https://{}/mcp", remote_addr);
                 let audience = format!("https://{}", remote_addr);
 
-                let (proof, jwt) = self.mint_dpop_proof_and_jwt("POST", &url, &audience).await?;
+                let (proof, jwt) = self
+                    .mint_dpop_proof_and_jwt("POST", &url, &audience)
+                    .await?;
 
                 // Anti-Token-Passthrough Guard: We never forward Authorization header
                 let mut req_builder = self

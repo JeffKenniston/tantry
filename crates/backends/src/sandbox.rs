@@ -1,7 +1,7 @@
-use nix::sys::signal::{kill, Signal};
-use nix::unistd::{setsid, Pid};
-use std::process::Command;
+use nix::sys::signal::{Signal, kill};
+use nix::unistd::{Pid, setsid};
 use std::os::unix::process::CommandExt;
+use std::process::Command;
 
 /// Tier of sandbox isolation detected on the host
 #[derive(Debug, PartialEq, Eq)]
@@ -59,7 +59,8 @@ impl SecureProcess {
     pub fn spawn_with_setsid(mut cmd: Command) -> std::io::Result<std::process::Child> {
         unsafe {
             cmd.pre_exec(|| {
-                setsid().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+                setsid()
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
                 Ok(())
             });
         }

@@ -9,7 +9,8 @@ members = [
     "crates/cognitive",
     "crates/repo",
     "crates/runtime",
-    "crates/profiles"
+    "crates/profiles",
+    "crates/middleware"
 ]
 resolver = "3"
 

@@ -9,19 +9,17 @@ pub mod tokenizer;
 use base::ast::McpSamplingDepthSlot;
 use base::execution::{ModelRequest, ModelResponse};
 
+pub use base::execution::{ModelTier, StreamEvent};
 pub use cascade::{LlmProvider, SpeculativeCascadeVerifier};
-pub use base::execution::{StreamEvent, ModelTier};
 
+pub use billing::{BudgetLeaseGuard, CreditLeaseEnforcer};
 pub use router::{CognitiveRouter, PendingBanditFeedbackSlot, RoutingSignalsSlot};
 pub use semantic_cache::SemanticCache;
-pub use billing::{CreditLeaseEnforcer, BudgetLeaseGuard};
 
-
-
+use crate::error::CognitiveError;
 use base::state::TantryState;
 use data::task_ledger::TaskLedgerStore;
 use std::sync::Arc;
-use crate::error::CognitiveError;
 
 /// execute_mcp_sampling_request fn
 pub fn execute_mcp_sampling_request(
@@ -40,11 +38,14 @@ pub fn execute_mcp_sampling_request(
     if depth >= 2 {
         return Err(CognitiveError::McpSamplingRecursionLimitExceeded(depth));
     }
-    
-    state.extensions.insert(McpSamplingDepthSlot { depth: depth + 1 });
-    
+
+    state
+        .extensions
+        .insert(McpSamplingDepthSlot { depth: depth + 1 });
+
     let ledger_store = Arc::new(TaskLedgerStore::new(task_ledger_path).unwrap());
-    let guard = crate::billing::CreditLeaseEnforcer::new(ledger_store).acquire_lease_fixed(task_id, lease_micros)?;
+    let guard = crate::billing::CreditLeaseEnforcer::new(ledger_store)
+        .acquire_lease_fixed(task_id, lease_micros)?;
 
     let res = provider.complete(req);
 

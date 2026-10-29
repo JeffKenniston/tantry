@@ -315,10 +315,12 @@ impl McpCapability {
     pub fn effective_max_spend_micros(&self) -> u64 {
         match self {
             Self::Base {
-                effective_max_spend_micros, ..
+                effective_max_spend_micros,
+                ..
             } => *effective_max_spend_micros,
             Self::Composite {
-                effective_max_spend_micros, ..
+                effective_max_spend_micros,
+                ..
             } => *effective_max_spend_micros,
         }
     }

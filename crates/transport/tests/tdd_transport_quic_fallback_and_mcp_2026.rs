@@ -84,17 +84,58 @@ async fn test_quic_fallback() {
     let endpoint = Endpoint::client("[::]:0".parse().unwrap()).unwrap();
     let http_client = reqwest::Client::new();
     struct DummyIM;
-impl iam::IdentityManager for DummyIM {
-    fn current_svid(&self) -> Option<iam::svid::WorkloadSvid> { None }
-    fn mint_jwt_svid(&self, _audience: &[String], _ttl_secs: i64) -> Result<String, iam::error::IamError> { Ok("test.jwt.token".to_string()) }
-    fn mint_subagent_svid(&self, _parent: &iam::svid::WorkloadSvid, _task_id: &str, _agent_name: &str, _ttl_secs: i64) -> Result<iam::svid::WorkloadSvid, iam::error::IamError> { unimplemented!() }
-    fn verify_jwt_svid(&self, _token: &str, _audience: &str) -> Result<(), iam::error::IamError> { unimplemented!() }
-    fn verify_scoped_tunnel_token(&self, _token: &str) -> Result<iam::ScopedTunnelGrant, iam::error::IamError> { unimplemented!() }
-    fn verify_audit_sth(&self, _sth: &iam::AuditSthSignature) -> Result<(), iam::error::IamError> { unimplemented!() }
-    fn key_hierarchy(&self) -> &iam::KeyHierarchy { unimplemented!() }
-    fn sign_audit_sth(&self, _: u64, _: i64, _: &[u8; 32]) -> Result<iam::AuditSthSignature, iam::error::IamError> { unimplemented!() }
-}
-let transport = QuicMcpTransport::new(endpoint, http_client, 250, DummyIM);
+    impl iam::IdentityManager for DummyIM {
+        fn current_svid(&self) -> Option<iam::svid::WorkloadSvid> {
+            None
+        }
+        fn mint_jwt_svid(
+            &self,
+            _audience: &[String],
+            _ttl_secs: i64,
+        ) -> Result<String, iam::error::IamError> {
+            Ok("test.jwt.token".to_string())
+        }
+        fn mint_subagent_svid(
+            &self,
+            _parent: &iam::svid::WorkloadSvid,
+            _task_id: &str,
+            _agent_name: &str,
+            _ttl_secs: i64,
+        ) -> Result<iam::svid::WorkloadSvid, iam::error::IamError> {
+            unimplemented!()
+        }
+        fn verify_jwt_svid(
+            &self,
+            _token: &str,
+            _audience: &str,
+        ) -> Result<(), iam::error::IamError> {
+            unimplemented!()
+        }
+        fn verify_scoped_tunnel_token(
+            &self,
+            _token: &str,
+        ) -> Result<iam::ScopedTunnelGrant, iam::error::IamError> {
+            unimplemented!()
+        }
+        fn verify_audit_sth(
+            &self,
+            _sth: &iam::AuditSthSignature,
+        ) -> Result<(), iam::error::IamError> {
+            unimplemented!()
+        }
+        fn key_hierarchy(&self) -> &iam::KeyHierarchy {
+            unimplemented!()
+        }
+        fn sign_audit_sth(
+            &self,
+            _: u64,
+            _: i64,
+            _: &[u8; 32],
+        ) -> Result<iam::AuditSthSignature, iam::error::IamError> {
+            unimplemented!()
+        }
+    }
+    let transport = QuicMcpTransport::new(endpoint, http_client, 250, DummyIM);
 
     // To reliably test the fallback without OS ICMP port unreachable immediate failures on localhost,
     // we mock it by trying to connect to a blackhole IP (like an unroutable IP).
@@ -119,22 +160,64 @@ async fn test_mcp_headers_and_dpop() {
     let endpoint = Endpoint::client("[::]:0".parse().unwrap()).unwrap();
     let http_client = reqwest::Client::new();
     struct DummyIM;
-impl iam::IdentityManager for DummyIM {
-    fn current_svid(&self) -> Option<iam::svid::WorkloadSvid> { None }
-    fn mint_jwt_svid(&self, _audience: &[String], _ttl_secs: i64) -> Result<String, iam::error::IamError> { Ok("test.jwt.token".to_string()) }
-    fn mint_subagent_svid(&self, _parent: &iam::svid::WorkloadSvid, _task_id: &str, _agent_name: &str, _ttl_secs: i64) -> Result<iam::svid::WorkloadSvid, iam::error::IamError> { unimplemented!() }
-    fn verify_jwt_svid(&self, _token: &str, _audience: &str) -> Result<(), iam::error::IamError> { unimplemented!() }
-    fn verify_scoped_tunnel_token(&self, _token: &str) -> Result<iam::ScopedTunnelGrant, iam::error::IamError> { unimplemented!() }
-    fn verify_audit_sth(&self, _sth: &iam::AuditSthSignature) -> Result<(), iam::error::IamError> { unimplemented!() }
-    fn key_hierarchy(&self) -> &iam::KeyHierarchy { unimplemented!() }
-    fn sign_audit_sth(&self, _: u64, _: i64, _: &[u8; 32]) -> Result<iam::AuditSthSignature, iam::error::IamError> { unimplemented!() }
-}
-let transport = QuicMcpTransport::new(endpoint, http_client, 250, DummyIM);
+    impl iam::IdentityManager for DummyIM {
+        fn current_svid(&self) -> Option<iam::svid::WorkloadSvid> {
+            None
+        }
+        fn mint_jwt_svid(
+            &self,
+            _audience: &[String],
+            _ttl_secs: i64,
+        ) -> Result<String, iam::error::IamError> {
+            Ok("test.jwt.token".to_string())
+        }
+        fn mint_subagent_svid(
+            &self,
+            _parent: &iam::svid::WorkloadSvid,
+            _task_id: &str,
+            _agent_name: &str,
+            _ttl_secs: i64,
+        ) -> Result<iam::svid::WorkloadSvid, iam::error::IamError> {
+            unimplemented!()
+        }
+        fn verify_jwt_svid(
+            &self,
+            _token: &str,
+            _audience: &str,
+        ) -> Result<(), iam::error::IamError> {
+            unimplemented!()
+        }
+        fn verify_scoped_tunnel_token(
+            &self,
+            _token: &str,
+        ) -> Result<iam::ScopedTunnelGrant, iam::error::IamError> {
+            unimplemented!()
+        }
+        fn verify_audit_sth(
+            &self,
+            _sth: &iam::AuditSthSignature,
+        ) -> Result<(), iam::error::IamError> {
+            unimplemented!()
+        }
+        fn key_hierarchy(&self) -> &iam::KeyHierarchy {
+            unimplemented!()
+        }
+        fn sign_audit_sth(
+            &self,
+            _: u64,
+            _: i64,
+            _: &[u8; 32],
+        ) -> Result<iam::AuditSthSignature, iam::error::IamError> {
+            unimplemented!()
+        }
+    }
+    let transport = QuicMcpTransport::new(endpoint, http_client, 250, DummyIM);
 
     // Test that the transport can mint dpop proofs
-    let res = transport.mint_dpop_proof_and_jwt("POST", "https://example.com", "audience").await;
+    let res = transport
+        .mint_dpop_proof_and_jwt("POST", "https://example.com", "audience")
+        .await;
     assert!(res.is_err()); // because svid is None in ca
-
 }
 
 #[tokio::test]
@@ -142,17 +225,58 @@ async fn test_mcp_sampling_create_message_recursion_limit() {
     let endpoint = Endpoint::client("[::]:0".parse().unwrap()).unwrap();
     let http_client = reqwest::Client::new();
     struct DummyIM;
-impl iam::IdentityManager for DummyIM {
-    fn current_svid(&self) -> Option<iam::svid::WorkloadSvid> { None }
-    fn mint_jwt_svid(&self, _audience: &[String], _ttl_secs: i64) -> Result<String, iam::error::IamError> { Ok("test.jwt.token".to_string()) }
-    fn mint_subagent_svid(&self, _parent: &iam::svid::WorkloadSvid, _task_id: &str, _agent_name: &str, _ttl_secs: i64) -> Result<iam::svid::WorkloadSvid, iam::error::IamError> { unimplemented!() }
-    fn verify_jwt_svid(&self, _token: &str, _audience: &str) -> Result<(), iam::error::IamError> { unimplemented!() }
-    fn verify_scoped_tunnel_token(&self, _token: &str) -> Result<iam::ScopedTunnelGrant, iam::error::IamError> { unimplemented!() }
-    fn verify_audit_sth(&self, _sth: &iam::AuditSthSignature) -> Result<(), iam::error::IamError> { unimplemented!() }
-    fn key_hierarchy(&self) -> &iam::KeyHierarchy { unimplemented!() }
-    fn sign_audit_sth(&self, _: u64, _: i64, _: &[u8; 32]) -> Result<iam::AuditSthSignature, iam::error::IamError> { unimplemented!() }
-}
-let transport = QuicMcpTransport::new(endpoint, http_client, 250, DummyIM);
+    impl iam::IdentityManager for DummyIM {
+        fn current_svid(&self) -> Option<iam::svid::WorkloadSvid> {
+            None
+        }
+        fn mint_jwt_svid(
+            &self,
+            _audience: &[String],
+            _ttl_secs: i64,
+        ) -> Result<String, iam::error::IamError> {
+            Ok("test.jwt.token".to_string())
+        }
+        fn mint_subagent_svid(
+            &self,
+            _parent: &iam::svid::WorkloadSvid,
+            _task_id: &str,
+            _agent_name: &str,
+            _ttl_secs: i64,
+        ) -> Result<iam::svid::WorkloadSvid, iam::error::IamError> {
+            unimplemented!()
+        }
+        fn verify_jwt_svid(
+            &self,
+            _token: &str,
+            _audience: &str,
+        ) -> Result<(), iam::error::IamError> {
+            unimplemented!()
+        }
+        fn verify_scoped_tunnel_token(
+            &self,
+            _token: &str,
+        ) -> Result<iam::ScopedTunnelGrant, iam::error::IamError> {
+            unimplemented!()
+        }
+        fn verify_audit_sth(
+            &self,
+            _sth: &iam::AuditSthSignature,
+        ) -> Result<(), iam::error::IamError> {
+            unimplemented!()
+        }
+        fn key_hierarchy(&self) -> &iam::KeyHierarchy {
+            unimplemented!()
+        }
+        fn sign_audit_sth(
+            &self,
+            _: u64,
+            _: i64,
+            _: &[u8; 32],
+        ) -> Result<iam::AuditSthSignature, iam::error::IamError> {
+            unimplemented!()
+        }
+    }
+    let transport = QuicMcpTransport::new(endpoint, http_client, 250, DummyIM);
 
     let res = transport
         .create_message(

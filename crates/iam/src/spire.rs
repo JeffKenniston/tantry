@@ -122,7 +122,9 @@ impl crate::IdentityManager for SpireSocketIdentityManager {
                 sth,
                 &svid.ed25519_public_key,
                 &svid.mldsa65_verifying_key_bytes,
-            ).is_ok() {
+            )
+            .is_ok()
+            {
                 return Ok(());
             }
         }
@@ -138,7 +140,9 @@ impl crate::IdentityManager for SpireSocketIdentityManager {
                 sth,
                 &svid.ed25519_public_key,
                 &svid.mldsa65_verifying_key_bytes,
-            ).is_ok() {
+            )
+            .is_ok()
+            {
                 return Ok(());
             }
         }

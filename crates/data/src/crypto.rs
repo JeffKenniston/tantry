@@ -182,11 +182,9 @@ pub fn get_or_provision_key_epoch(
             )?;
             let mut epoch_arr = [0u8; 32];
             #[allow(clippy::collapsible_if)]
-            if let Ok(r) = epoch_stmt
-                .query_row(rusqlite::params![thread_id, key_epoch], |r| {
-                    r.get::<_, Vec<u8>>(0)
-                })
-            {
+            if let Ok(r) = epoch_stmt.query_row(rusqlite::params![thread_id, key_epoch], |r| {
+                r.get::<_, Vec<u8>>(0)
+            }) {
                 if r.len() == 32 {
                     epoch_arr.copy_from_slice(&r);
                 }

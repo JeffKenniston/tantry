@@ -2,8 +2,8 @@ use crate::ast::FileData;
 use crate::path::PosixPath;
 use crate::vfs_tree::VfsTree;
 use chrono::{DateTime, Utc};
-use std::sync::Arc;
 use serde_json::Value;
+use std::sync::Arc;
 
 /// TOOL_WRITE_TODOS const
 pub const TOOL_WRITE_TODOS: &str = "write_todos";
