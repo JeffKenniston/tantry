@@ -1,5 +1,5 @@
-use runtime::tool_scheduler::{BernsteinToolScheduler, ToolUseCall};
 use base::tools_meta::ToolAccessFootprint;
+use runtime::tool_scheduler::{BernsteinToolScheduler, ToolUseCall};
 use serde_json::json;
 
 #[test]

@@ -91,7 +91,9 @@ impl SpeculativeCascadeVerifier {
                                         } else {
                                             if c == '"' && !is_escaped {
                                                 in_string = false;
-                                            } else { is_escaped = c == '\\' && !is_escaped; }
+                                            } else {
+                                                is_escaped = c == '\\' && !is_escaped;
+                                            }
                                         }
                                     }
 

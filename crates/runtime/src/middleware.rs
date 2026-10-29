@@ -13,7 +13,6 @@ use iam::IdentityManager;
 use permissions::attenuation::PermissionLattice;
 use permissions::lattice::PermissionMode;
 
-
 use crate::error::RuntimeError;
 
 pub type NextModelCall<'a> = Box<
@@ -63,7 +62,6 @@ pub struct SubagentSpawnSpec {
     pub requested_ttl_secs: u64,
     pub child_lattice: Option<permissions::attenuation::PermissionLattice>,
 }
-
 
 #[async_trait]
 pub trait AgentMiddleware: Send + Sync {

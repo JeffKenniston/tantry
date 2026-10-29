@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use base::ast::MediaKind;
 use crate::error::ProfileError;
-use crate::schema::{parse_profile_key, HarnessProfile, HarnessProfileOverride};
+use crate::schema::{HarnessProfile, HarnessProfileOverride, parse_profile_key};
+use base::ast::MediaKind;
 
 #[derive(Clone, Debug)]
 pub struct ProfileRegistry {

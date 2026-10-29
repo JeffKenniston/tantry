@@ -1,6 +1,6 @@
+use base::ast::FileData;
 use base::delta::FileDelta;
 use base::vfs_tree::VfsTree;
-use base::ast::FileData;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tree_sitter::Parser;
@@ -318,7 +318,10 @@ fn cst_merge(base: &str, a: &str, b: &str, path: &str) -> Option<String> {
         loop {
             let node = cursor.node();
             let kind = node.kind();
-            if kind == "function_item" || kind == "method_declaration" || kind == "function_declaration" {
+            if kind == "function_item"
+                || kind == "method_declaration"
+                || kind == "function_declaration"
+            {
                 let start = node.start_byte();
                 let end = (start + 100).min(node.end_byte()).min(src.len());
                 let sig_bytes = &src.as_bytes()[start..end];
@@ -329,8 +332,12 @@ fn cst_merge(base: &str, a: &str, b: &str, path: &str) -> Option<String> {
                     break;
                 }
             }
-            if cursor.goto_first_child() { continue; }
-            if cursor.goto_next_sibling() { continue; }
+            if cursor.goto_first_child() {
+                continue;
+            }
+            if cursor.goto_next_sibling() {
+                continue;
+            }
             let mut loop_break = false;
             loop {
                 if !cursor.goto_parent() {
@@ -341,7 +348,9 @@ fn cst_merge(base: &str, a: &str, b: &str, path: &str) -> Option<String> {
                     break;
                 }
             }
-            if loop_break { break; }
+            if loop_break {
+                break;
+            }
         }
         distinct
     };

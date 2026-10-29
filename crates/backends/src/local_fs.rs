@@ -41,7 +41,7 @@ impl LocalFsBackend {
 
         if let Ok(entries) = read_dir {
             #[allow(clippy::manual_flatten)]
-        for entry_res in entries {
+            for entry_res in entries {
                 if let Ok(entry) = entry_res {
                     let file_name = entry.file_name().to_string_lossy().to_string();
                     let new_path = if current_path.is_empty() {

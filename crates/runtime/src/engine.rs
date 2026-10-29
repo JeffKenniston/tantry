@@ -1,5 +1,7 @@
-
-use base::ast::{ContentBlock, ExecuteArtifact, Message, TodoItem, TodoStatus, ToolArtifact, ToolCallId, AsyncTaskHandle, AsyncTaskStatus};
+use base::ast::{
+    AsyncTaskHandle, AsyncTaskStatus, ContentBlock, ExecuteArtifact, Message, TodoItem, TodoStatus,
+    ToolArtifact, ToolCallId,
+};
 use base::delta::{FileDelta, MessageDelta};
 use base::execution::{ApprovalDecision, LoopDirective, ModelRequest, StreamEvent};
 use base::state::TantryState;
@@ -7,11 +9,13 @@ use base::vfs_tree::VfsTree;
 use chrono::Utc;
 use futures::StreamExt;
 use permissions::lattice::PermissionMode;
-use std::sync::Arc;
 use serde_json::Value;
+use std::sync::Arc;
 
 use crate::error::RuntimeError;
-use crate::middleware::{AgentMiddleware, NextModelCall, ToolExecutionOutput, TurnExecutionContext};
+use crate::middleware::{
+    AgentMiddleware, NextModelCall, ToolExecutionOutput, TurnExecutionContext,
+};
 use crate::slots::{HitlBypassSlot, TurnDeltaBufferSlot};
 use crate::tool_scheduler::{BernsteinToolScheduler, ToolAccessClassifier, ToolUseCall};
 use backends::traits::SandboxExecRequest;
@@ -37,11 +41,9 @@ impl RuntimeEngine {
         mut state: TantryState,
         ctx: &TurnExecutionContext,
     ) -> Result<TurnExecutionOutcome, RuntimeError> {
-        state
-            .extensions
-            .insert(TurnDeltaBufferSlot {
-                message_deltas: vec![],
-            });
+        state.extensions.insert(TurnDeltaBufferSlot {
+            message_deltas: vec![],
+        });
 
         for mw in &self.middlewares {
             mw.before_agent(&mut state, ctx).await?;
@@ -51,7 +53,7 @@ impl RuntimeEngine {
         let mut steps = 0;
         let mut cumulative_usage = base::execution::TokenUsage::default();
 
-                loop {
+        loop {
             let _step_start_vfs = state.files.clone();
             if steps >= max_steps_per_turn {
                 break;
@@ -137,7 +139,10 @@ impl RuntimeEngine {
                     );
                 ctx.metrics
                     .token_spend_micros_total
-                    .with_label_values(&[&ctx.tenant_id.clone(), &ctx.default_model_tier.as_str().to_string()])
+                    .with_label_values(&[
+                        &ctx.tenant_id.clone(),
+                        &ctx.default_model_tier.as_str().to_string(),
+                    ])
                     .inc_by(response.usage.input_tokens + response.usage.output_tokens);
 
                 for block in &assistant_msg.content {
@@ -152,7 +157,7 @@ impl RuntimeEngine {
                     }
                 }
             }
-                        let hitl_bypass = state.extensions.get::<HitlBypassSlot>().cloned();
+            let hitl_bypass = state.extensions.get::<HitlBypassSlot>().cloned();
             let mut permitted_calls: Vec<ToolUseCall> = Vec::new();
             let mut denied_results: Vec<Message> = Vec::new();
             let mut pending_tools: Vec<ToolCallId> = Vec::new();
@@ -164,7 +169,11 @@ impl RuntimeEngine {
 
                 let mut effective_mode = PermissionMode::Allow;
 
-                if let Some(mode) = ctx.permission_lattice.interrupt_on_tools.get(&call.tool_name) {
+                if let Some(mode) = ctx
+                    .permission_lattice
+                    .interrupt_on_tools
+                    .get(&call.tool_name)
+                {
                     effective_mode = effective_mode.join(*mode);
                 }
 
@@ -211,13 +220,18 @@ impl RuntimeEngine {
             if !denied_results.is_empty() {
                 state.messages.extend(denied_results.clone());
                 if let Some(mut delta) = state.extensions.get::<TurnDeltaBufferSlot>().cloned() {
-                    delta.message_deltas.push(MessageDelta::Append(denied_results));
+                    delta
+                        .message_deltas
+                        .push(MessageDelta::Append(denied_results));
                     state.extensions.insert(delta);
                 }
             }
             if !pending_tools.is_empty() {
                 let cp_id = commit_step_checkpoint(&mut state, ctx, &_step_start_vfs)?;
-                let _ = ctx.data_stores.task_ledger.update_task_status(&ctx.task_id, "INTERRUPTED");
+                let _ = ctx
+                    .data_stores
+                    .task_ledger
+                    .update_task_status(&ctx.task_id, "INTERRUPTED");
                 if let Some(pub_handle) = ctx.publisher.clone() {
                     pub_handle.publish_event(StreamEvent::Interrupted {
                         thread_id: state.thread_id.clone(),
@@ -228,7 +242,7 @@ impl RuntimeEngine {
                 return Ok(TurnExecutionOutcome::Interrupted);
             }
 
-                        if pending_tools.is_empty() && !permitted_calls.is_empty() {
+            if pending_tools.is_empty() && !permitted_calls.is_empty() {
                 if let Some(pub_handle) = ctx.publisher.clone() {
                     for c in &permitted_calls {
                         pub_handle.publish_event(StreamEvent::ToolCallStart {
@@ -311,17 +325,23 @@ impl RuntimeEngine {
                 if should_continue {
                     continue;
                 } else {
-                    let has_deltas = state.extensions.get::<TurnDeltaBufferSlot>().is_some_and(|d| !d.message_deltas.is_empty());
+                    let has_deltas = state
+                        .extensions
+                        .get::<TurnDeltaBufferSlot>()
+                        .is_some_and(|d| !d.message_deltas.is_empty());
                     if has_deltas {
                         let _ = commit_step_checkpoint(&mut state, ctx, &_step_start_vfs)?;
                     }
 
-                    let _ = ctx.data_stores.task_ledger.update_task_status(&ctx.task_id, "SUCCEEDED");
+                    let _ = ctx
+                        .data_stores
+                        .task_ledger
+                        .update_task_status(&ctx.task_id, "SUCCEEDED");
                     if let Some(pub_handle) = ctx.publisher.clone() {
                         pub_handle.publish_event(StreamEvent::TurnComplete {
-                                step_index: state.step_index,
-                                usage: cumulative_usage.clone(),
-                            });
+                            step_index: state.step_index,
+                            usage: cumulative_usage.clone(),
+                        });
                     }
                     return Ok(TurnExecutionOutcome::Completed(state));
                 }
@@ -332,10 +352,6 @@ impl RuntimeEngine {
     }
 }
 
-
-
-
-
 use crate::middleware::SubagentSpawnSpec;
 
 pub async fn execute_subagents_with_specs(
@@ -344,16 +360,24 @@ pub async fn execute_subagents_with_specs(
     ctx: &TurnExecutionContext,
     engine: &RuntimeEngine,
 ) -> Result<TantryState, RuntimeError> {
-    let parent_svid = ctx.iam.current_svid().ok_or(RuntimeError::Iam(iam::error::IamError::InvalidSpiffeId("missing".to_string())))?;
+    let parent_svid =
+        ctx.iam
+            .current_svid()
+            .ok_or(RuntimeError::Iam(iam::error::IamError::InvalidSpiffeId(
+                "missing".to_string(),
+            )))?;
 
     let mut forked_tasks = Vec::new();
     for spec in specs {
-        let _child_svid = ctx.iam.mint_subagent_svid(
-            &parent_svid,
-            &spec.subagent_name,
-            &spec.task_id,
-            spec.requested_ttl_secs as i64,
-        ).map_err(RuntimeError::Iam)?;
+        let _child_svid = ctx
+            .iam
+            .mint_subagent_svid(
+                &parent_svid,
+                &spec.subagent_name,
+                &spec.task_id,
+                spec.requested_ttl_secs as i64,
+            )
+            .map_err(RuntimeError::Iam)?;
 
         let lattice = if let Some(ref c) = spec.child_lattice {
             ctx.permission_lattice.narrow_for_subagent(c)
@@ -368,16 +392,19 @@ pub async fn execute_subagents_with_specs(
     }
 
     let is_android = cfg!(target_os = "android");
-    let platform = base::platform::RuntimePlatform::detect_from_env(
-        |k| std::env::var(k).ok(),
-        is_android,
-    );
+    let platform =
+        base::platform::RuntimePlatform::detect_from_env(|k| std::env::var(k).ok(), is_android);
     let max_threads = match platform {
-        base::platform::RuntimePlatform::AndroidTermux { .. } => std::cmp::min(num_cpus::get().max(1), 4),
+        base::platform::RuntimePlatform::AndroidTermux { .. } => {
+            std::cmp::min(num_cpus::get().max(1), 4)
+        }
         base::platform::RuntimePlatform::LinuxStandard => num_cpus::get().max(1),
     };
 
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(max_threads).build().unwrap();
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(max_threads)
+        .build()
+        .unwrap();
 
     let base_vfs = state.files.clone();
 
@@ -406,16 +433,17 @@ pub async fn execute_subagents_with_specs(
 
             let rt_clone = rt.clone();
             s.spawn(move |_| {
-                let outcome = rt_clone.block_on(async {
-                    engine_ref.execute_turn(child_state, &child_ctx).await
-                });
+                let outcome = rt_clone
+                    .block_on(async { engine_ref.execute_turn(child_state, &child_ctx).await });
 
                 let _ = tx.send((spec, outcome));
             });
         }
         drop(tx);
         for (spec, outcome) in rx {
-            if let Ok(crate::engine::TurnExecutionOutcome::Completed(completed_child_state)) = outcome {
+            if let Ok(crate::engine::TurnExecutionOutcome::Completed(completed_child_state)) =
+                outcome
+            {
                 child_states.push((spec, completed_child_state));
             }
         }
@@ -423,16 +451,21 @@ pub async fn execute_subagents_with_specs(
 
     let mut branches = Vec::new();
     for (spec, child_state) in child_states {
-        branches.push((format!("subagent_{}_{}", spec.subagent_name, spec.task_id), child_state.files));
+        branches.push((
+            format!("subagent_{}_{}", spec.subagent_name, spec.task_id),
+            child_state.files,
+        ));
     }
 
     let report = backends::merge::merge_subagent_trees(&base_vfs, branches, chrono::Utc::now());
-    ctx.metrics.vfs_merge_conflicts_total.with_label_values(&["fast_path"]).inc_by(report.conflicts.len() as u64);
+    ctx.metrics
+        .vfs_merge_conflicts_total
+        .with_label_values(&["fast_path"])
+        .inc_by(report.conflicts.len() as u64);
 
     state.files = report.merged_tree;
     Ok(state)
 }
-
 
 pub async fn execute_subagents(
     state: TantryState,
@@ -448,13 +481,14 @@ pub fn resume_interrupted_thread(
 ) -> Result<TantryState, RuntimeError> {
     match decision {
         ApprovalDecision::Approve { tool_use_id } => {
-            let mut bypass = state
-                .extensions
-                .get::<HitlBypassSlot>()
-                .cloned()
-                .unwrap_or(HitlBypassSlot {
-                    approved_tool_use_ids: std::collections::BTreeSet::new(),
-                });
+            let mut bypass =
+                state
+                    .extensions
+                    .get::<HitlBypassSlot>()
+                    .cloned()
+                    .unwrap_or(HitlBypassSlot {
+                        approved_tool_use_ids: std::collections::BTreeSet::new(),
+                    });
             bypass.approved_tool_use_ids.insert(tool_use_id);
             state.extensions.insert(bypass);
         }
@@ -469,17 +503,21 @@ pub fn resume_interrupted_thread(
             MessageDelta::apply(&mut state.messages, patch.clone())
                 .map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(e)))?;
 
-            let mut bypass = state
-                .extensions
-                .get::<HitlBypassSlot>()
-                .cloned()
-                .unwrap_or(HitlBypassSlot {
-                    approved_tool_use_ids: std::collections::BTreeSet::new(),
-                });
+            let mut bypass =
+                state
+                    .extensions
+                    .get::<HitlBypassSlot>()
+                    .cloned()
+                    .unwrap_or(HitlBypassSlot {
+                        approved_tool_use_ids: std::collections::BTreeSet::new(),
+                    });
             bypass.approved_tool_use_ids.insert(tool_use_id);
             state.extensions.insert(bypass);
         }
-        ApprovalDecision::Reject { tool_use_id, feedback } => {
+        ApprovalDecision::Reject {
+            tool_use_id,
+            feedback,
+        } => {
             let reject_msg = Message::tool_result(tool_use_id.clone(), true, feedback, None);
             state.messages.push(reject_msg.clone());
 
@@ -494,13 +532,14 @@ pub fn resume_interrupted_thread(
             delta.message_deltas.push(patch);
             state.extensions.insert(delta);
 
-            let mut bypass = state
-                .extensions
-                .get::<HitlBypassSlot>()
-                .cloned()
-                .unwrap_or(HitlBypassSlot {
-                    approved_tool_use_ids: std::collections::BTreeSet::new(),
-                });
+            let mut bypass =
+                state
+                    .extensions
+                    .get::<HitlBypassSlot>()
+                    .cloned()
+                    .unwrap_or(HitlBypassSlot {
+                        approved_tool_use_ids: std::collections::BTreeSet::new(),
+                    });
             bypass.approved_tool_use_ids.insert(tool_use_id);
             state.extensions.insert(bypass);
         }
@@ -533,9 +572,14 @@ pub fn fork_thread_at_checkpoint(
     let msg_delta_to_commit = fork_delta.unwrap_or_else(|| MessageDelta::Append(vec![]));
     let msg_delta_bytes = rmp_serde::to_vec_named(&msg_delta_to_commit).unwrap_or_default();
 
-    let ext_slots_b = state.extensions.serialize_all().map_err(|e| RuntimeError::Base(base::error::BaseError::StateReducer(base::error::StateReducerError::InvalidToolUsePatch(e.to_string()))))?;
+    let ext_slots_b = state.extensions.serialize_all().map_err(|e| {
+        RuntimeError::Base(base::error::BaseError::StateReducer(
+            base::error::StateReducerError::InvalidToolUsePatch(e.to_string()),
+        ))
+    })?;
     let ext_bytes = rmp_serde::to_vec_named(&ext_slots_b).unwrap_or_default();
-    let diff_bytes = rmp_serde::to_vec_named(&Vec::<base::delta::FileDelta>::new()).unwrap_or_default();
+    let diff_bytes =
+        rmp_serde::to_vec_named(&Vec::<base::delta::FileDelta>::new()).unwrap_or_default();
 
     let todos_json = serde_json::to_string(&state.todos).unwrap_or_default();
     let async_tasks_json = serde_json::to_string(&state.async_tasks).unwrap_or_default();
@@ -544,37 +588,57 @@ pub fn fork_thread_at_checkpoint(
     let key_epoch = 1;
     let key_hierarchy = ctx.iam.key_hierarchy();
 
-    let msg_delta_aead = ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
-        &cp_id, &new_thread_id, key_epoch, &msg_delta_bytes, key_hierarchy
-    ).map_err(RuntimeError::Data)?;
+    let msg_delta_aead = ctx
+        .data_stores
+        .interaction_chain
+        .encrypt_checkpoint_blob(
+            &cp_id,
+            &new_thread_id,
+            key_epoch,
+            &msg_delta_bytes,
+            key_hierarchy,
+        )
+        .map_err(RuntimeError::Data)?;
 
-    let file_deltas_aead = ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
-        &cp_id, &new_thread_id, key_epoch, &diff_bytes, key_hierarchy
-    ).map_err(RuntimeError::Data)?;
+    let file_deltas_aead = ctx
+        .data_stores
+        .interaction_chain
+        .encrypt_checkpoint_blob(
+            &cp_id,
+            &new_thread_id,
+            key_epoch,
+            &diff_bytes,
+            key_hierarchy,
+        )
+        .map_err(RuntimeError::Data)?;
 
-    let ext_slots_aead = ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
-        &cp_id, &new_thread_id, key_epoch, &ext_bytes, key_hierarchy
-    ).map_err(RuntimeError::Data)?;
+    let ext_slots_aead = ctx
+        .data_stores
+        .interaction_chain
+        .encrypt_checkpoint_blob(&cp_id, &new_thread_id, key_epoch, &ext_bytes, key_hierarchy)
+        .map_err(RuntimeError::Data)?;
 
-    ctx.data_stores.interaction_chain.commit_checkpoint(
-        &new_thread_id,
-        fork_step_index as i64,
-        Some(source_checkpoint_id),
-        &cp_id,
-        key_epoch,
-        Some(&msg_delta_aead),
-        Some(&file_deltas_aead),
-        Some(&ext_slots_aead),
-        Some(todos_json.as_str()),
-        Some(async_tasks_json.as_str()),
-    ).map_err(RuntimeError::Data)?;
+    ctx.data_stores
+        .interaction_chain
+        .commit_checkpoint(
+            &new_thread_id,
+            fork_step_index as i64,
+            Some(source_checkpoint_id),
+            &cp_id,
+            key_epoch,
+            Some(&msg_delta_aead),
+            Some(&file_deltas_aead),
+            Some(&ext_slots_aead),
+            Some(todos_json.as_str()),
+            Some(async_tasks_json.as_str()),
+        )
+        .map_err(RuntimeError::Data)?;
 
     state.step_index = fork_step_index;
     state.last_checkpoint_id = Some(cp_id);
 
     Ok(state)
 }
-
 
 #[derive(Debug, Clone)]
 pub struct HydratedThreadState {
@@ -629,7 +693,6 @@ pub fn hydrate_thread_state(
     Ok(hydrated.state)
 }
 
-
 pub async fn execute_single_tool(
     state: &mut TantryState,
     tool_use_id: &ToolCallId,
@@ -640,78 +703,206 @@ pub async fn execute_single_tool(
 ) -> Result<ToolExecutionOutput, RuntimeError> {
     match tool_name {
         "ls" => {
-            let path = tool_input.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+            let path = tool_input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or(".");
             match ctx.backend.ls(state, path) {
                 Ok(entries) => {
-                    let mut lines = Vec::new(); for e in entries { lines.push(format!("{} (dir: {}, size: {})", e.name, e.is_dir, e.size)); } let output = lines.join("\n");
-                    let final_out = base::tools_meta::maybe_offload_tool_output(tool_use_id, &output, &mut state.files, Utc::now());
-                    Ok(ToolExecutionOutput { raw_output: final_out, is_error: false, artifact: None })
+                    let mut lines = Vec::new();
+                    for e in entries {
+                        lines.push(format!("{} (dir: {}, size: {})", e.name, e.is_dir, e.size));
+                    }
+                    let output = lines.join("\n");
+                    let final_out = base::tools_meta::maybe_offload_tool_output(
+                        tool_use_id,
+                        &output,
+                        &mut state.files,
+                        Utc::now(),
+                    );
+                    Ok(ToolExecutionOutput {
+                        raw_output: final_out,
+                        is_error: false,
+                        artifact: None,
+                    })
                 }
-                Err(e) => Ok(ToolExecutionOutput { raw_output: e.to_string(), is_error: true, artifact: None })
+                Err(e) => Ok(ToolExecutionOutput {
+                    raw_output: e.to_string(),
+                    is_error: true,
+                    artifact: None,
+                }),
             }
         }
         "read_file" => {
-            let path = tool_input.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let offset_line = tool_input.get("offset_line").and_then(|v| v.as_u64()).map(|v| v as usize);
-            let limit_lines = tool_input.get("limit_lines").and_then(|v| v.as_u64()).map(|v| v as usize);
+            let path = tool_input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let offset_line = tool_input
+                .get("offset_line")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
+            let limit_lines = tool_input
+                .get("limit_lines")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize);
             match ctx.backend.read_file(state, path, offset_line, limit_lines) {
                 Ok(content) => {
-                    let final_out = base::tools_meta::maybe_offload_tool_output(tool_use_id, &content, &mut state.files, Utc::now());
-                    Ok(ToolExecutionOutput { raw_output: final_out, is_error: false, artifact: None })
+                    let final_out = base::tools_meta::maybe_offload_tool_output(
+                        tool_use_id,
+                        &content,
+                        &mut state.files,
+                        Utc::now(),
+                    );
+                    Ok(ToolExecutionOutput {
+                        raw_output: final_out,
+                        is_error: false,
+                        artifact: None,
+                    })
                 }
-                Err(e) => Ok(ToolExecutionOutput { raw_output: e.to_string(), is_error: true, artifact: None })
+                Err(e) => Ok(ToolExecutionOutput {
+                    raw_output: e.to_string(),
+                    is_error: true,
+                    artifact: None,
+                }),
             }
         }
         "write_file" => {
-            let path = tool_input.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let content = tool_input.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            let path = tool_input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let content = tool_input
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             match ctx.backend.write_file(state, path, content) {
                 Ok(receipt) => {
-                    let output = format!("Write successful. {} bytes written.", receipt.bytes_written);
-                    let final_out = base::tools_meta::maybe_offload_tool_output(tool_use_id, &output, &mut state.files, Utc::now());
-                    Ok(ToolExecutionOutput { raw_output: final_out, is_error: false, artifact: None })
+                    let output =
+                        format!("Write successful. {} bytes written.", receipt.bytes_written);
+                    let final_out = base::tools_meta::maybe_offload_tool_output(
+                        tool_use_id,
+                        &output,
+                        &mut state.files,
+                        Utc::now(),
+                    );
+                    Ok(ToolExecutionOutput {
+                        raw_output: final_out,
+                        is_error: false,
+                        artifact: None,
+                    })
                 }
-                Err(e) => Ok(ToolExecutionOutput { raw_output: e.to_string(), is_error: true, artifact: None })
+                Err(e) => Ok(ToolExecutionOutput {
+                    raw_output: e.to_string(),
+                    is_error: true,
+                    artifact: None,
+                }),
             }
         }
         "edit_file" => {
-            let path = tool_input.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let old_string = tool_input.get("old_string").and_then(|v| v.as_str()).unwrap_or("");
-            let new_string = tool_input.get("new_string").and_then(|v| v.as_str()).unwrap_or("");
-            let replace_all = tool_input.get("replace_all").and_then(|v| v.as_bool()).unwrap_or(false);
-            match ctx.backend.edit_file(state, path, old_string, new_string, replace_all) {
+            let path = tool_input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let old_string = tool_input
+                .get("old_string")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let new_string = tool_input
+                .get("new_string")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let replace_all = tool_input
+                .get("replace_all")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            match ctx
+                .backend
+                .edit_file(state, path, old_string, new_string, replace_all)
+            {
                 Ok(receipt) => {
-                    let output = format!("Edit successful. {} occurrences replaced.", receipt.occurrences_replaced);
-                    let final_out = base::tools_meta::maybe_offload_tool_output(tool_use_id, &output, &mut state.files, Utc::now());
-                    Ok(ToolExecutionOutput { raw_output: final_out, is_error: false, artifact: None })
+                    let output = format!(
+                        "Edit successful. {} occurrences replaced.",
+                        receipt.occurrences_replaced
+                    );
+                    let final_out = base::tools_meta::maybe_offload_tool_output(
+                        tool_use_id,
+                        &output,
+                        &mut state.files,
+                        Utc::now(),
+                    );
+                    Ok(ToolExecutionOutput {
+                        raw_output: final_out,
+                        is_error: false,
+                        artifact: None,
+                    })
                 }
-                Err(e) => Ok(ToolExecutionOutput { raw_output: e.to_string(), is_error: true, artifact: None })
+                Err(e) => Ok(ToolExecutionOutput {
+                    raw_output: e.to_string(),
+                    is_error: true,
+                    artifact: None,
+                }),
             }
         }
         "delete" => {
-            let path = tool_input.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let path = tool_input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             match ctx.backend.delete(state, path) {
                 Ok(_) => {
                     let output = format!("Successfully deleted {}", path);
-                    let final_out = base::tools_meta::maybe_offload_tool_output(tool_use_id, &output, &mut state.files, Utc::now());
-                    Ok(ToolExecutionOutput { raw_output: final_out, is_error: false, artifact: None })
+                    let final_out = base::tools_meta::maybe_offload_tool_output(
+                        tool_use_id,
+                        &output,
+                        &mut state.files,
+                        Utc::now(),
+                    );
+                    Ok(ToolExecutionOutput {
+                        raw_output: final_out,
+                        is_error: false,
+                        artifact: None,
+                    })
                 }
-                Err(e) => Ok(ToolExecutionOutput { raw_output: e.to_string(), is_error: true, artifact: None })
+                Err(e) => Ok(ToolExecutionOutput {
+                    raw_output: e.to_string(),
+                    is_error: true,
+                    artifact: None,
+                }),
             }
         }
         "glob" => {
-            let pattern = tool_input.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+            let pattern = tool_input
+                .get("pattern")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             match ctx.backend.glob(state, pattern) {
                 Ok(paths) => {
                     let output = serde_json::to_string_pretty(&paths).unwrap_or_default();
-                    let final_out = base::tools_meta::maybe_offload_tool_output(tool_use_id, &output, &mut state.files, Utc::now());
-                    Ok(ToolExecutionOutput { raw_output: final_out, is_error: false, artifact: None })
+                    let final_out = base::tools_meta::maybe_offload_tool_output(
+                        tool_use_id,
+                        &output,
+                        &mut state.files,
+                        Utc::now(),
+                    );
+                    Ok(ToolExecutionOutput {
+                        raw_output: final_out,
+                        is_error: false,
+                        artifact: None,
+                    })
                 }
-                Err(e) => Ok(ToolExecutionOutput { raw_output: e.to_string(), is_error: true, artifact: None })
+                Err(e) => Ok(ToolExecutionOutput {
+                    raw_output: e.to_string(),
+                    is_error: true,
+                    artifact: None,
+                }),
             }
         }
         "grep" => {
-            let pattern = tool_input.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
+            let pattern = tool_input
+                .get("pattern")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let path_glob = tool_input.get("path_glob").and_then(|v| v.as_str());
             match ctx.backend.grep(state, pattern, path_glob) {
                 Ok(matches) => {
@@ -720,24 +911,55 @@ pub async fn execute_single_tool(
                         lines.push(format!("{}:{}: {}", m.path, m.line_number, m.content));
                     }
                     let output = lines.join("\n");
-                    let final_out = base::tools_meta::maybe_offload_tool_output(tool_use_id, &output, &mut state.files, Utc::now());
-                    Ok(ToolExecutionOutput { raw_output: final_out, is_error: false, artifact: None })
+                    let final_out = base::tools_meta::maybe_offload_tool_output(
+                        tool_use_id,
+                        &output,
+                        &mut state.files,
+                        Utc::now(),
+                    );
+                    Ok(ToolExecutionOutput {
+                        raw_output: final_out,
+                        is_error: false,
+                        artifact: None,
+                    })
                 }
-                Err(e) => Ok(ToolExecutionOutput { raw_output: e.to_string(), is_error: true, artifact: None })
+                Err(e) => Ok(ToolExecutionOutput {
+                    raw_output: e.to_string(),
+                    is_error: true,
+                    artifact: None,
+                }),
             }
         }
         "execute" => {
-            let command = tool_input.get("command").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let args = tool_input.get("args").and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            let command = tool_input
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let args = tool_input
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
 
             let start = std::time::Instant::now();
             match ctx.backend.execute(SandboxExecRequest { command, args }) {
                 Ok(res) => {
                     let duration = start.elapsed();
-                    let output = format!("Exit Code: {}\nStdout:\n{}\nStderr:\n{}", res.exit_code, res.stdout, res.stderr);
-                    let final_out = base::tools_meta::maybe_offload_tool_output(tool_use_id, &output, &mut state.files, Utc::now());
+                    let output = format!(
+                        "Exit Code: {}\nStdout:\n{}\nStderr:\n{}",
+                        res.exit_code, res.stdout, res.stderr
+                    );
+                    let final_out = base::tools_meta::maybe_offload_tool_output(
+                        tool_use_id,
+                        &output,
+                        &mut state.files,
+                        Utc::now(),
+                    );
 
                     let artifact = ToolArtifact::Execute(ExecuteArtifact {
                         exit_code: res.exit_code,
@@ -748,9 +970,17 @@ pub async fn execute_single_tool(
                         isolation_tier: String::new(),
                     });
 
-                    Ok(ToolExecutionOutput { raw_output: final_out, is_error: res.exit_code != 0, artifact: Some(artifact) })
+                    Ok(ToolExecutionOutput {
+                        raw_output: final_out,
+                        is_error: res.exit_code != 0,
+                        artifact: Some(artifact),
+                    })
                 }
-                Err(e) => Ok(ToolExecutionOutput { raw_output: e.to_string(), is_error: true, artifact: None })
+                Err(e) => Ok(ToolExecutionOutput {
+                    raw_output: e.to_string(),
+                    is_error: true,
+                    artifact: None,
+                }),
             }
         }
         "write_todos" => {
@@ -758,86 +988,184 @@ pub async fn execute_single_tool(
                 state.todos.clear();
                 for t in todos_arr {
                     if let Some(obj) = t.as_object() {
-                        let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let content = obj.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let status_str = obj.get("status").and_then(|v| v.as_str()).unwrap_or("Pending");
+                        let id = obj
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let content = obj
+                            .get("content")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let status_str = obj
+                            .get("status")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Pending");
                         let status = match status_str {
                             "InProgress" => TodoStatus::InProgress,
                             "Completed" => TodoStatus::Completed,
                             "Cancelled" => TodoStatus::Cancelled,
                             _ => TodoStatus::Pending,
                         };
-                        state.todos.push(TodoItem { id, content, status });
+                        state.todos.push(TodoItem {
+                            id,
+                            content,
+                            status,
+                        });
                     }
                 }
-                Ok(ToolExecutionOutput { raw_output: "Todos updated successfully.".to_string(), is_error: false, artifact: None })
+                Ok(ToolExecutionOutput {
+                    raw_output: "Todos updated successfully.".to_string(),
+                    is_error: false,
+                    artifact: None,
+                })
             } else {
-                Ok(ToolExecutionOutput { raw_output: "Missing or invalid 'todos' array.".to_string(), is_error: true, artifact: None })
+                Ok(ToolExecutionOutput {
+                    raw_output: "Missing or invalid 'todos' array.".to_string(),
+                    is_error: true,
+                    artifact: None,
+                })
             }
         }
         "read_todos" => {
             let output = serde_json::to_string_pretty(&state.todos).unwrap_or_default();
-            Ok(ToolExecutionOutput { raw_output: output, is_error: false, artifact: None })
+            Ok(ToolExecutionOutput {
+                raw_output: output,
+                is_error: false,
+                artifact: None,
+            })
         }
         "update_memory" => {
-            let path = tool_input.get("path").and_then(|v| v.as_str()).unwrap_or("/memories/AGENTS.md");
-            let content = tool_input.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            state.memory_contents.insert(path.to_string(), content.to_string());
+            let path = tool_input
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("/memories/AGENTS.md");
+            let content = tool_input
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            state
+                .memory_contents
+                .insert(path.to_string(), content.to_string());
 
             match ctx.backend.write_file(state, path, content) {
-                Ok(_) => Ok(ToolExecutionOutput { raw_output: "Memory updated.".to_string(), is_error: false, artifact: None }),
-                Err(e) => Ok(ToolExecutionOutput { raw_output: format!("Failed to write to VFS: {}", e), is_error: true, artifact: None })
+                Ok(_) => Ok(ToolExecutionOutput {
+                    raw_output: "Memory updated.".to_string(),
+                    is_error: false,
+                    artifact: None,
+                }),
+                Err(e) => Ok(ToolExecutionOutput {
+                    raw_output: format!("Failed to write to VFS: {}", e),
+                    is_error: true,
+                    artifact: None,
+                }),
             }
         }
         "ephemeral_tunnel" => {
-            let service_name = tool_input.get("service_name").and_then(|v| v.as_str()).unwrap_or("");
-            let ttl_secs = tool_input.get("ttl_secs").and_then(|v| v.as_i64()).unwrap_or(3600);
+            let service_name = tool_input
+                .get("service_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let ttl_secs = tool_input
+                .get("ttl_secs")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(3600);
             match ctx.iam.request_scoped_tunnel_token(service_name, ttl_secs) {
                 Ok(grant) => {
                     let output = serde_json::to_string_pretty(&grant.token).unwrap_or_default();
-                    Ok(ToolExecutionOutput { raw_output: output, is_error: false, artifact: None })
+                    Ok(ToolExecutionOutput {
+                        raw_output: output,
+                        is_error: false,
+                        artifact: None,
+                    })
                 }
-                Err(e) => Ok(ToolExecutionOutput { raw_output: format!("IAM Error: {:?}", e), is_error: true, artifact: None })
+                Err(e) => Ok(ToolExecutionOutput {
+                    raw_output: format!("IAM Error: {:?}", e),
+                    is_error: true,
+                    artifact: None,
+                }),
             }
         }
         "launch_async_task" | "update_async_task" => {
             match serde_json::from_value::<AsyncTaskHandle>(tool_input.clone()) {
                 Ok(handle) => {
                     state.async_tasks.insert(handle.task_id.clone(), handle);
-                    Ok(ToolExecutionOutput { raw_output: "Task saved successfully.".to_string(), is_error: false, artifact: None })
+                    Ok(ToolExecutionOutput {
+                        raw_output: "Task saved successfully.".to_string(),
+                        is_error: false,
+                        artifact: None,
+                    })
                 }
-                Err(e) => Ok(ToolExecutionOutput { raw_output: format!("Invalid task handle: {}", e), is_error: true, artifact: None })
+                Err(e) => Ok(ToolExecutionOutput {
+                    raw_output: format!("Invalid task handle: {}", e),
+                    is_error: true,
+                    artifact: None,
+                }),
             }
         }
         "cancel_async_task" => {
-            let task_id = tool_input.get("task_id").and_then(|v| v.as_str()).unwrap_or("");
+            let task_id = tool_input
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if let Some(task) = state.async_tasks.get_mut(task_id) {
                 task.status = AsyncTaskStatus::Cancelled;
-                Ok(ToolExecutionOutput { raw_output: "Task cancelled.".to_string(), is_error: false, artifact: None })
+                Ok(ToolExecutionOutput {
+                    raw_output: "Task cancelled.".to_string(),
+                    is_error: false,
+                    artifact: None,
+                })
             } else {
-                Ok(ToolExecutionOutput { raw_output: "Task not found.".to_string(), is_error: true, artifact: None })
+                Ok(ToolExecutionOutput {
+                    raw_output: "Task not found.".to_string(),
+                    is_error: true,
+                    artifact: None,
+                })
             }
         }
         "check_async_task" => {
-            let task_id = tool_input.get("task_id").and_then(|v| v.as_str()).unwrap_or("");
+            let task_id = tool_input
+                .get("task_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if let Some(task) = state.async_tasks.get(task_id) {
                 let output = serde_json::to_string_pretty(task).unwrap_or_default();
-                Ok(ToolExecutionOutput { raw_output: output, is_error: false, artifact: None })
+                Ok(ToolExecutionOutput {
+                    raw_output: output,
+                    is_error: false,
+                    artifact: None,
+                })
             } else {
-                Ok(ToolExecutionOutput { raw_output: "Task not found.".to_string(), is_error: true, artifact: None })
+                Ok(ToolExecutionOutput {
+                    raw_output: "Task not found.".to_string(),
+                    is_error: true,
+                    artifact: None,
+                })
             }
         }
         "list_async_tasks" => {
             let output = serde_json::to_string_pretty(&state.async_tasks).unwrap_or_default();
-            Ok(ToolExecutionOutput { raw_output: output, is_error: false, artifact: None })
+            Ok(ToolExecutionOutput {
+                raw_output: output,
+                is_error: false,
+                artifact: None,
+            })
         }
         _ => {
             for middleware in middlewares {
-                if let Some(out) = middleware.execute_tool(state, tool_use_id, tool_name, tool_input, ctx).await? {
+                if let Some(out) = middleware
+                    .execute_tool(state, tool_use_id, tool_name, tool_input, ctx)
+                    .await?
+                {
                     return Ok(out);
                 }
             }
-            Ok(ToolExecutionOutput { raw_output: format!("Unknown tool: {}", tool_name), is_error: true, artifact: None })
+            Ok(ToolExecutionOutput {
+                raw_output: format!("Unknown tool: {}", tool_name),
+                is_error: true,
+                artifact: None,
+            })
         }
     }
 }
@@ -882,7 +1210,8 @@ pub fn commit_step_checkpoint(
     };
     state.extensions.insert(delta);
 
-    let msg_delta_bytes = final_msg_delta.map(|md| rmp_serde::to_vec_named(&md).unwrap_or_default());
+    let msg_delta_bytes =
+        final_msg_delta.map(|md| rmp_serde::to_vec_named(&md).unwrap_or_default());
     let diff_bytes = rmp_serde::to_vec_named(&diff).unwrap_or_default();
     let ext_slots_b = state.extensions.serialize_all().map_err(|e| {
         RuntimeError::Base(base::error::BaseError::StateReducer(
@@ -896,20 +1225,39 @@ pub fn commit_step_checkpoint(
     let key_hierarchy = ctx.iam.key_hierarchy();
 
     let msg_delta_aead = if let Some(ref bytes) = msg_delta_bytes {
-        Some(ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
-            &cp_id, &state.thread_id, key_epoch, bytes, key_hierarchy
-        ).map_err(RuntimeError::Data)?)
+        Some(
+            ctx.data_stores
+                .interaction_chain
+                .encrypt_checkpoint_blob(&cp_id, &state.thread_id, key_epoch, bytes, key_hierarchy)
+                .map_err(RuntimeError::Data)?,
+        )
     } else {
         None
     };
 
-    let file_deltas_aead = ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
-        &cp_id, &state.thread_id, key_epoch, &diff_bytes, key_hierarchy
-    ).map_err(RuntimeError::Data)?;
+    let file_deltas_aead = ctx
+        .data_stores
+        .interaction_chain
+        .encrypt_checkpoint_blob(
+            &cp_id,
+            &state.thread_id,
+            key_epoch,
+            &diff_bytes,
+            key_hierarchy,
+        )
+        .map_err(RuntimeError::Data)?;
 
-    let ext_slots_aead = ctx.data_stores.interaction_chain.encrypt_checkpoint_blob(
-        &cp_id, &state.thread_id, key_epoch, &ext_bytes, key_hierarchy
-    ).map_err(RuntimeError::Data)?;
+    let ext_slots_aead = ctx
+        .data_stores
+        .interaction_chain
+        .encrypt_checkpoint_blob(
+            &cp_id,
+            &state.thread_id,
+            key_epoch,
+            &ext_bytes,
+            key_hierarchy,
+        )
+        .map_err(RuntimeError::Data)?;
 
     ctx.data_stores
         .interaction_chain

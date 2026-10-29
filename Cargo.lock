@@ -2744,6 +2744,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "middleware"
+version = "0.1.0"
+dependencies = [
+ "backends",
+ "base",
+ "blake3",
+ "chrono",
+ "cognitive",
+ "data",
+ "futures",
+ "iam",
+ "permissions",
+ "profiles",
+ "proptest",
+ "repo",
+ "rkyv",
+ "rmp-serde",
+ "runtime",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "transport",
+ "uuid",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5603,6 +5632,7 @@ checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
+ "rand 0.10.3",
  "serde_core",
  "wasm-bindgen",
 ]

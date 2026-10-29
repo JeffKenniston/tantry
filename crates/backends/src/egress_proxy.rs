@@ -2,8 +2,8 @@ use crate::error::BackendError;
 
 // Actual ScopedTunnelRegistry is in iam crate.
 // Here we use it.
-use iam::tunnel_grant::ScopedTunnelRegistry;
 use data::audit_mmr::AuditMmrStore;
+use iam::tunnel_grant::ScopedTunnelRegistry;
 
 /// Egress Proxy for Transparent TLS SNI & HTTP CONNECT
 pub struct EgressProxy {

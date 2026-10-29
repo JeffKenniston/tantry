@@ -20,8 +20,14 @@ pub enum ProfileError {
     #[error("Fulcio certificate or SAN verification failed: {0}")]
     SigstoreCertificateInvalid(String),
 
-    #[error("Rekor integrated_time {integrated_time} outside certificate validity [{not_before}, {not_after}]")]
-    SigstoreTimestampOutOfRange { integrated_time: i64, not_before: i64, not_after: i64 },
+    #[error(
+        "Rekor integrated_time {integrated_time} outside certificate validity [{not_before}, {not_after}]"
+    )]
+    SigstoreTimestampOutOfRange {
+        integrated_time: i64,
+        not_before: i64,
+        not_after: i64,
+    },
 
     #[error("RFC 6962 Rekor Merkle inclusion proof invalid: {0}")]
     SigstoreMerkleProofInvalid(String),

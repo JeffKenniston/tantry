@@ -109,13 +109,13 @@ pub fn generate_context_vector(
 fn invert_matrix(mut a: [[f64; 12]; 12]) -> [[f64; 12]; 12] {
     let mut inv = [[0.0; 12]; 12];
     #[allow(clippy::needless_range_loop)]
-            for i in 0..12 {
+    for i in 0..12 {
         inv[i][i] = 1.0;
         a[i][i] += 1e-6; // Tikhonov jitter
     }
 
     #[allow(clippy::needless_range_loop)]
-            for i in 0..12 {
+    for i in 0..12 {
         let mut pivot = i;
         for j in i + 1..12 {
             if a[j][i].abs() > a[pivot][i].abs() {

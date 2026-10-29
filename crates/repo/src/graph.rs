@@ -130,11 +130,15 @@ impl GraphCentrality {
     ) -> Result<Vec<String>, String> {
         // 1. BM25 FTS5 Search
         let mut bm25_ranks = std::collections::HashMap::new();
-        let mut stmt = db_conn.prepare(
-            "SELECT symbol_id FROM symbols_fts WHERE symbols_fts MATCH ? ORDER BY rank LIMIT ?"
-        ).map_err(|e| e.to_string())?;
+        let mut stmt = db_conn
+            .prepare(
+                "SELECT symbol_id FROM symbols_fts WHERE symbols_fts MATCH ? ORDER BY rank LIMIT ?",
+            )
+            .map_err(|e| e.to_string())?;
 
-        let mut rows = stmt.query(rusqlite::params![query_text, top_k as i64]).map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query(rusqlite::params![query_text, top_k as i64])
+            .map_err(|e| e.to_string())?;
         let mut rank = 1;
         while let Some(row) = rows.next().map_err(|e| e.to_string())? {
             let symbol_id: String = row.get(0).map_err(|e| e.to_string())?;
@@ -143,7 +147,8 @@ impl GraphCentrality {
         }
 
         // 2. Vector Search using MatryoshkaVectorStore
-        let vector_results = vector_store.search(query_embedding, top_k, 0.0)
+        let vector_results = vector_store
+            .search(query_embedding, top_k, 0.0)
             .map_err(|e| e.to_string())?;
 
         let mut vec_ranks = std::collections::HashMap::new();
@@ -152,7 +157,8 @@ impl GraphCentrality {
         }
 
         // 3. Reciprocal Rank Fusion
-        let mut rrf_scores: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let mut rrf_scores: std::collections::HashMap<String, f64> =
+            std::collections::HashMap::new();
         let k = 60.0;
 
         for (sym, rank) in bm25_ranks {

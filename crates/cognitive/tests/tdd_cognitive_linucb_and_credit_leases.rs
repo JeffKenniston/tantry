@@ -104,7 +104,8 @@ fn test_billing_concurrent() {
     use std::sync::Arc;
     use std::thread;
 
-    let ledger = Arc::new(TaskLedgerStore::new("file:cognitive_test?mode=memory&cache=shared").unwrap());
+    let ledger =
+        Arc::new(TaskLedgerStore::new("file:cognitive_test?mode=memory&cache=shared").unwrap());
     let task_id = "test_task";
     ledger.create_task(task_id, 15).unwrap();
 

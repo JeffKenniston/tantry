@@ -63,7 +63,7 @@ impl SemanticCache {
         if let Some(msg) = messages.last() {
             for block in &msg.content {
                 #[allow(clippy::collapsible_if)]
-            if let ContentBlock::ToolResult { tool_use_id, .. } = block {
+                if let ContentBlock::ToolResult { tool_use_id, .. } = block {
                     if mutating_tools.contains(tool_use_id) {
                         return true;
                     }

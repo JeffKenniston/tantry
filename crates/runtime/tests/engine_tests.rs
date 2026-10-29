@@ -1,25 +1,25 @@
-use runtime::engine::*;
-use runtime::middleware::*;
-use base::state::*;
+use backends::traits::VfsBackend;
 use base::ast::*;
 use base::execution::*;
+use base::state::*;
 use base::vfs_tree::VfsTree;
-use iam::key_hierarchy::KeyHierarchy;
-use iam::IdentityManager;
-use permissions::attenuation::PermissionLattice;
-use data::DataStoreManager;
-use backends::traits::VfsBackend;
-use cognitive::{LlmProvider, StreamEvent as CogStreamEvent};
-use cognitive::error::CognitiveError;
-use std::sync::Arc;
-use serde_json::json;
-use std::pin::Pin;
-use futures::Stream;
 use chrono::Utc;
-use uuid::Uuid;
-use std::collections::BTreeMap;
+use cognitive::error::CognitiveError;
+use cognitive::{LlmProvider, StreamEvent as CogStreamEvent};
+use data::DataStoreManager;
+use futures::Stream;
+use iam::IdentityManager;
+use iam::key_hierarchy::KeyHierarchy;
+use permissions::attenuation::PermissionLattice;
 use permissions::capabilities::*;
 use permissions::lattice::PermissionMode;
+use runtime::engine::*;
+use runtime::middleware::*;
+use serde_json::json;
+use std::collections::BTreeMap;
+use std::pin::Pin;
+use std::sync::Arc;
+use uuid::Uuid;
 
 fn make_msg(content: Vec<ContentBlock>) -> Message {
     Message {
@@ -54,11 +54,13 @@ struct DummyLlmProvider {
 }
 #[async_trait::async_trait]
 impl LlmProvider for DummyLlmProvider {
-    fn complete(
-        &self,
-        _req: ModelRequest,
-    ) -> Result<ModelResponse, CognitiveError> {
-        let msg = self.messages.lock().unwrap().pop().unwrap_or_else(|| make_msg(vec![]));
+    fn complete(&self, _req: ModelRequest) -> Result<ModelResponse, CognitiveError> {
+        let msg = self
+            .messages
+            .lock()
+            .unwrap()
+            .pop()
+            .unwrap_or_else(|| make_msg(vec![]));
         Ok(ModelResponse {
             content: "test".to_string(),
             assistant_message: msg,
@@ -69,7 +71,10 @@ impl LlmProvider for DummyLlmProvider {
     fn stream_complete(
         &self,
         _req: ModelRequest,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<CogStreamEvent, CognitiveError>> + Send>>, CognitiveError> {
+    ) -> Result<
+        Pin<Box<dyn Stream<Item = Result<CogStreamEvent, CognitiveError>> + Send>>,
+        CognitiveError,
+    > {
         unimplemented!()
     }
 }
@@ -118,7 +123,9 @@ impl IdentityManager for DummyIam {
 
 fn create_lattice(fs_mode: PermissionMode) -> PermissionLattice {
     PermissionLattice {
-        fs: FsCapability::Base(Arc::new(permissions::glob_dfa::CompiledFsAutomaton::new(fs_mode, vec![]).unwrap())),
+        fs: FsCapability::Base(Arc::new(
+            permissions::glob_dfa::CompiledFsAutomaton::new(fs_mode, vec![]).unwrap(),
+        )),
         net: NetCapability::new(PermissionMode::Allow, vec![]).unwrap(),
         env: EnvCapability::new(vec![], vec![]).unwrap(),
         mcp: McpCapability::new(PermissionMode::Allow, 1000000, 1000000, vec![]).unwrap(),
@@ -153,7 +160,7 @@ async fn create_context(
                 name: "read_file".to_string(),
                 description: "Read file".to_string(),
                 parameters: json!({}),
-            }
+            },
         ],
         default_model_tier: ModelTier::FrontierDeep,
     }
@@ -179,21 +186,81 @@ fn create_default_state() -> TantryState {
 
 struct DummyVfsBackend;
 impl VfsBackend for DummyVfsBackend {
-    fn read_file(&self, s: &base::state::TantryState, path: &str, _: Option<usize>, _: Option<usize>) -> Result<String, backends::error::BackendError> {
+    fn read_file(
+        &self,
+        s: &base::state::TantryState,
+        path: &str,
+        _: Option<usize>,
+        _: Option<usize>,
+    ) -> Result<String, backends::error::BackendError> {
         let node = s.files.get(path).unwrap();
         Ok(String::from_utf8(node.content.clone().into()).unwrap())
     }
-    fn edit_file(&self, _s: &mut base::state::TantryState, _path: &str, _p: &str, _h: &str, _: bool) -> Result<backends::traits::EditReceipt, backends::error::BackendError> { unimplemented!() }
-    fn write_file(&self, s: &mut base::state::TantryState, path: &str, content: &str) -> Result<backends::traits::WriteReceipt, backends::error::BackendError> {
-        s.files.insert(path.to_string(), Arc::new(base::ast::FileData::new_utf8(content.to_string(), Utc::now()))).unwrap();
+    fn edit_file(
+        &self,
+        _s: &mut base::state::TantryState,
+        _path: &str,
+        _p: &str,
+        _h: &str,
+        _: bool,
+    ) -> Result<backends::traits::EditReceipt, backends::error::BackendError> {
+        unimplemented!()
+    }
+    fn write_file(
+        &self,
+        s: &mut base::state::TantryState,
+        path: &str,
+        content: &str,
+    ) -> Result<backends::traits::WriteReceipt, backends::error::BackendError> {
+        s.files
+            .insert(
+                path.to_string(),
+                Arc::new(base::ast::FileData::new_utf8(
+                    content.to_string(),
+                    Utc::now(),
+                )),
+            )
+            .unwrap();
         Ok(backends::traits::WriteReceipt { bytes_written: 0 })
     }
-    fn ls(&self, _s: &base::state::TantryState, _path: &str) -> Result<Vec<backends::traits::DirEntryInfo>, backends::error::BackendError> { unimplemented!() }
-    fn capabilities(&self) -> backends::traits::BackendCapabilities { unimplemented!() }
-    fn delete(&self, _s: &mut base::state::TantryState, _path: &str) -> Result<(), backends::error::BackendError> { unimplemented!() }
-    fn glob(&self, _s: &base::state::TantryState, _p: &str) -> Result<Vec<String>, backends::error::BackendError> { unimplemented!() }
-    fn grep(&self, _s: &base::state::TantryState, _p: &str, _c: Option<&str>) -> Result<Vec<backends::traits::GrepMatch>, backends::error::BackendError> { unimplemented!() }
-    fn execute(&self, _req: backends::traits::SandboxExecRequest) -> Result<backends::traits::SandboxExecResult, backends::error::BackendError> { unimplemented!() }
+    fn ls(
+        &self,
+        _s: &base::state::TantryState,
+        _path: &str,
+    ) -> Result<Vec<backends::traits::DirEntryInfo>, backends::error::BackendError> {
+        unimplemented!()
+    }
+    fn capabilities(&self) -> backends::traits::BackendCapabilities {
+        unimplemented!()
+    }
+    fn delete(
+        &self,
+        _s: &mut base::state::TantryState,
+        _path: &str,
+    ) -> Result<(), backends::error::BackendError> {
+        unimplemented!()
+    }
+    fn glob(
+        &self,
+        _s: &base::state::TantryState,
+        _p: &str,
+    ) -> Result<Vec<String>, backends::error::BackendError> {
+        unimplemented!()
+    }
+    fn grep(
+        &self,
+        _s: &base::state::TantryState,
+        _p: &str,
+        _c: Option<&str>,
+    ) -> Result<Vec<backends::traits::GrepMatch>, backends::error::BackendError> {
+        unimplemented!()
+    }
+    fn execute(
+        &self,
+        _req: backends::traits::SandboxExecRequest,
+    ) -> Result<backends::traits::SandboxExecResult, backends::error::BackendError> {
+        unimplemented!()
+    }
 }
 
 #[tokio::test]
@@ -265,7 +332,12 @@ async fn test_runtime_engine_execute_turn_real_tools() {
     assert_eq!(tool_res_msg.role, Role::Tool);
 
     let content = &tool_res_msg.content[0];
-    if let ContentBlock::ToolResult { tool_use_id, content: _, .. } = content {
+    if let ContentBlock::ToolResult {
+        tool_use_id,
+        content: _,
+        ..
+    } = content
+    {
         assert_eq!(tool_use_id, "tu_read");
         // Verify read file content if DummyVfsBackend supported returning content
         // In our mock, read_file returns unimplemented.
@@ -275,23 +347,27 @@ async fn test_runtime_engine_execute_turn_real_tools() {
         panic!("Expected ToolResult");
     }
 
-    
     let node = state.files.get("/test.txt").unwrap();
     assert_ne!(node.blake3_hash, [0; 32]);
-    
+
     let last_msg = state.messages.last().unwrap();
     assert_eq!(last_msg.role, Role::Assistant);
-    
+
     let tool_res_msg = &state.messages[3];
     assert_eq!(tool_res_msg.role, Role::Tool);
-    
+
     let content = &tool_res_msg.content[0];
-    if let ContentBlock::ToolResult { tool_use_id, content: _, .. } = content {
+    if let ContentBlock::ToolResult {
+        tool_use_id,
+        content: _,
+        ..
+    } = content
+    {
         assert_eq!(tool_use_id, "tu_read");
     } else {
         panic!("Expected ToolResult");
     }
-    
+
     assert!(state.step_index >= 3);
 }
 
@@ -311,18 +387,18 @@ async fn test_runtime_engine_interrupt_and_resume() {
     let engine = RuntimeEngine::new(vec![Arc::new(DummyMiddleware)]);
 
     let llm = Arc::new(DummyLlmProvider {
-        messages: std::sync::Mutex::new(vec![
-            make_msg(vec![ContentBlock::ToolUse {
-                id: "tu_write".to_string(),
-                name: "write_file".to_string(),
-                input: json!({"path": "/test.txt", "content": "hello"}),
-            }]),
-        ]),
+        messages: std::sync::Mutex::new(vec![make_msg(vec![ContentBlock::ToolUse {
+            id: "tu_write".to_string(),
+            name: "write_file".to_string(),
+            input: json!({"path": "/test.txt", "content": "hello"}),
+        }])]),
     });
 
     let mut ctx = create_context(llm, backend.clone(), data_stores.clone()).await;
     let mut lattice = create_lattice(PermissionMode::Interrupt);
-    lattice.interrupt_on_tools.insert("write_file".to_string(), PermissionMode::Interrupt);
+    lattice
+        .interrupt_on_tools
+        .insert("write_file".to_string(), PermissionMode::Interrupt);
     ctx.permission_lattice = Arc::new(lattice);
 
     let mut state = create_default_state();
@@ -334,7 +410,7 @@ async fn test_runtime_engine_interrupt_and_resume() {
     // Wait, let's see what it returns by printing it!
     println!("Interrupt test outcome: {:?}", outcome);
     match outcome {
-        TurnExecutionOutcome::Interrupted => {},
+        TurnExecutionOutcome::Interrupted => {}
         _ => panic!("Expected Interrupted"),
     };
 
@@ -382,11 +458,26 @@ async fn test_fork_and_hydrate() {
 
     let llm = Arc::new(DummyLlmProvider {
         messages: std::sync::Mutex::new(vec![
-            make_msg(vec![ContentBlock::Text { text: "Step 4 main".to_string(), cache_control: None }]),
-            make_msg(vec![ContentBlock::Text { text: "Step 3 branch".to_string(), cache_control: None }]),
-            make_msg(vec![ContentBlock::Text { text: "Step 3 main".to_string(), cache_control: None }]),
-            make_msg(vec![ContentBlock::Text { text: "Step 2 main".to_string(), cache_control: None }]),
-            make_msg(vec![ContentBlock::Text { text: "Step 1 main".to_string(), cache_control: None }]),
+            make_msg(vec![ContentBlock::Text {
+                text: "Step 4 main".to_string(),
+                cache_control: None,
+            }]),
+            make_msg(vec![ContentBlock::Text {
+                text: "Step 3 branch".to_string(),
+                cache_control: None,
+            }]),
+            make_msg(vec![ContentBlock::Text {
+                text: "Step 3 main".to_string(),
+                cache_control: None,
+            }]),
+            make_msg(vec![ContentBlock::Text {
+                text: "Step 2 main".to_string(),
+                cache_control: None,
+            }]),
+            make_msg(vec![ContentBlock::Text {
+                text: "Step 1 main".to_string(),
+                cache_control: None,
+            }]),
         ]),
     });
 
@@ -397,25 +488,41 @@ async fn test_fork_and_hydrate() {
 
     // Turn 1 -> Step 1
     let outcome = engine.execute_turn(state, &ctx).await.unwrap();
-    let state = match outcome { TurnExecutionOutcome::Completed(s) => s, _ => panic!() };
+    let state = match outcome {
+        TurnExecutionOutcome::Completed(s) => s,
+        _ => panic!(),
+    };
 
     // Turn 2 -> Step 2
     let outcome = engine.execute_turn(state, &ctx).await.unwrap();
-    let state = match outcome { TurnExecutionOutcome::Completed(s) => s, _ => panic!() };
+    let state = match outcome {
+        TurnExecutionOutcome::Completed(s) => s,
+        _ => panic!(),
+    };
     let step_2_cp_id = state.last_checkpoint_id.clone().unwrap();
 
     // Turn 3 -> Step 3 (main)
     let outcome = engine.execute_turn(state, &ctx).await.unwrap();
-    let state = match outcome { TurnExecutionOutcome::Completed(s) => s, _ => panic!() };
+    let state = match outcome {
+        TurnExecutionOutcome::Completed(s) => s,
+        _ => panic!(),
+    };
 
     // Fork at step 2 -> Step 3 (branch)
-    let branch_state = fork_thread_at_checkpoint(&ctx, &step_2_cp_id, "branch_thread".to_string(), None).unwrap();
+    let branch_state =
+        fork_thread_at_checkpoint(&ctx, &step_2_cp_id, "branch_thread".to_string(), None).unwrap();
     let outcome = engine.execute_turn(branch_state, &ctx).await.unwrap();
-    let _branch_state = match outcome { TurnExecutionOutcome::Completed(s) => s, _ => panic!() };
+    let _branch_state = match outcome {
+        TurnExecutionOutcome::Completed(s) => s,
+        _ => panic!(),
+    };
 
     // Turn 4 -> Step 4 (main)
     let outcome = engine.execute_turn(state, &ctx).await.unwrap();
-    let _state = match outcome { TurnExecutionOutcome::Completed(s) => s, _ => panic!() };
+    let _state = match outcome {
+        TurnExecutionOutcome::Completed(s) => s,
+        _ => panic!(),
+    };
 
     let main_hydrated = hydrate_thread_state_full(&ctx, "main_thread").unwrap();
     assert_eq!(main_hydrated.step_index, 4);

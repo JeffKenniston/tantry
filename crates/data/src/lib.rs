@@ -30,10 +30,17 @@ pub struct DataStoreManager {
 }
 
 impl DataStoreManager {
-    pub fn new(task_ledger_path: &str, interaction_chain_path: &str, audit_mmr_path: &str, vector_index_path: &str) -> Result<Self, DataError> {
+    pub fn new(
+        task_ledger_path: &str,
+        interaction_chain_path: &str,
+        audit_mmr_path: &str,
+        vector_index_path: &str,
+    ) -> Result<Self, DataError> {
         Ok(Self {
             task_ledger: Arc::new(task_ledger::TaskLedgerStore::new(task_ledger_path)?),
-            interaction_chain: Arc::new(interaction_chain::InteractionChainStore::new(interaction_chain_path)?),
+            interaction_chain: Arc::new(interaction_chain::InteractionChainStore::new(
+                interaction_chain_path,
+            )?),
             audit_mmr: Arc::new(audit_mmr::AuditMmrStore::new(audit_mmr_path)?),
             vector_index: Arc::new(vector_index::MatryoshkaVectorStore::new(vector_index_path)?),
         })

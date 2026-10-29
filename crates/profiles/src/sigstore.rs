@@ -83,8 +83,8 @@ pub fn build_hybrid_pq_signing_transcript(
     transcript
 }
 
-use sha2::{Sha256, Digest};
 use crate::error::ProfileError;
+use sha2::{Digest, Sha256};
 
 pub fn verify_rfc6962_inclusion_proof(
     leaf_bytes: &[u8],
@@ -94,7 +94,9 @@ pub fn verify_rfc6962_inclusion_proof(
     expected_root: &[u8; 32],
 ) -> Result<(), ProfileError> {
     if tree_size == 0 || log_index >= tree_size {
-        return Err(ProfileError::SigstoreMerkleProofInvalid("log_index out of bounds".into()));
+        return Err(ProfileError::SigstoreMerkleProofInvalid(
+            "log_index out of bounds".into(),
+        ));
     }
 
     let mut hasher = Sha256::new();
@@ -107,7 +109,9 @@ pub fn verify_rfc6962_inclusion_proof(
 
     for p in proof_hashes {
         if sn == 0 {
-            return Err(ProfileError::SigstoreMerkleProofInvalid("proof too long; sn reached 0 early".into()));
+            return Err(ProfileError::SigstoreMerkleProofInvalid(
+                "proof too long; sn reached 0 early".into(),
+            ));
         }
 
         if (fn_idx & 1) == 1 || fn_idx == sn {
@@ -133,7 +137,9 @@ pub fn verify_rfc6962_inclusion_proof(
     }
 
     if sn != 0 || r != *expected_root {
-        return Err(ProfileError::SigstoreMerkleProofInvalid("computed root hash mismatch".into()));
+        return Err(ProfileError::SigstoreMerkleProofInvalid(
+            "computed root hash mismatch".into(),
+        ));
     }
 
     Ok(())
@@ -160,10 +166,18 @@ impl SigstoreVerifier {
         hasher.update(artifact_bytes);
         let actual_sha256_arr: [u8; 32] = hasher.finalize().into();
 
-        let bundle_blake3 = hex::decode(&bundle.artifact_blake3_hex)
-            .map_err(|_| ProfileError::SigstoreDigestMismatch { expected: "hex".into(), actual: "invalid".into() })?;
-        let bundle_sha256 = hex::decode(&bundle.artifact_sha256_hex)
-            .map_err(|_| ProfileError::SigstoreDigestMismatch { expected: "hex".into(), actual: "invalid".into() })?;
+        let bundle_blake3 = hex::decode(&bundle.artifact_blake3_hex).map_err(|_| {
+            ProfileError::SigstoreDigestMismatch {
+                expected: "hex".into(),
+                actual: "invalid".into(),
+            }
+        })?;
+        let bundle_sha256 = hex::decode(&bundle.artifact_sha256_hex).map_err(|_| {
+            ProfileError::SigstoreDigestMismatch {
+                expected: "hex".into(),
+                actual: "invalid".into(),
+            }
+        })?;
 
         if bundle_blake3 != actual_blake3_arr || bundle_sha256 != actual_sha256_arr {
             return Err(ProfileError::SigstoreDigestMismatch {
@@ -174,19 +188,24 @@ impl SigstoreVerifier {
 
         // Stage 2
         if let Some(ref der_b64) = bundle.fulcio_cert.leaf_cert_der_b64 {
-            let der_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, der_b64)
-                .map_err(|_| ProfileError::SigstoreCertificateInvalid("invalid b64".into()))?;
+            let der_bytes =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, der_b64)
+                    .map_err(|_| ProfileError::SigstoreCertificateInvalid("invalid b64".into()))?;
             x509_parser::parse_x509_certificate(&der_bytes)
                 .map_err(|_| ProfileError::SigstoreCertificateInvalid("invalid der".into()))?;
         }
 
         let san = &bundle.fulcio_cert.san_uri;
         if !(san.starts_with("spiffe://") || san.starts_with("https://") || san.contains('@')) {
-            return Err(ProfileError::SigstoreCertificateInvalid("invalid SAN URI".into()));
+            return Err(ProfileError::SigstoreCertificateInvalid(
+                "invalid SAN URI".into(),
+            ));
         }
         if let Some(ref expected) = self.expected_oidc_issuer {
             if &bundle.fulcio_cert.oidc_issuer != expected {
-                return Err(ProfileError::SigstoreCertificateInvalid("issuer mismatch".into()));
+                return Err(ProfileError::SigstoreCertificateInvalid(
+                    "issuer mismatch".into(),
+                ));
             }
         }
 
@@ -194,7 +213,9 @@ impl SigstoreVerifier {
             .map_err(|_| ProfileError::SigstoreCertificateInvalid("invalid leaf pub hex".into()))?;
         let mut leaf_pub = [0u8; 32];
         if leaf_pub_hex.len() != 32 {
-            return Err(ProfileError::SigstoreCertificateInvalid("leaf pub wrong len".into()));
+            return Err(ProfileError::SigstoreCertificateInvalid(
+                "leaf pub wrong len".into(),
+            ));
         }
         leaf_pub.copy_from_slice(&leaf_pub_hex);
 
@@ -209,11 +230,17 @@ impl SigstoreVerifier {
         let fulcio_root_key = ed25519_dalek::VerifyingKey::from_bytes(&self.trusted_fulcio_root_pk)
             .map_err(|_| ProfileError::SigstoreCertificateInvalid("invalid root pk".into()))?;
         let issuer_sig_hex = hex::decode(&bundle.fulcio_cert.issuer_signature_ed25519_hex)
-            .map_err(|_| ProfileError::SigstoreCertificateInvalid("invalid issuer sig hex".into()))?;
-        let issuer_sig = ed25519_dalek::Signature::from_slice(&issuer_sig_hex)
-            .map_err(|_| ProfileError::SigstoreCertificateInvalid("invalid issuer sig len".into()))?;
-        fulcio_root_key.verify_strict(&transcript, &issuer_sig)
-            .map_err(|_| ProfileError::SigstoreCertificateInvalid("issuer sig verify failed".into()))?;
+            .map_err(|_| {
+                ProfileError::SigstoreCertificateInvalid("invalid issuer sig hex".into())
+            })?;
+        let issuer_sig = ed25519_dalek::Signature::from_slice(&issuer_sig_hex).map_err(|_| {
+            ProfileError::SigstoreCertificateInvalid("invalid issuer sig len".into())
+        })?;
+        fulcio_root_key
+            .verify_strict(&transcript, &issuer_sig)
+            .map_err(|_| {
+                ProfileError::SigstoreCertificateInvalid("issuer sig verify failed".into())
+            })?;
 
         let leaf_key = ed25519_dalek::VerifyingKey::from_bytes(&leaf_pub)
             .map_err(|_| ProfileError::SigstoreCertificateInvalid("invalid leaf key".into()))?;
@@ -221,7 +248,8 @@ impl SigstoreVerifier {
             .map_err(|_| ProfileError::SigstoreSignatureInvalid("invalid art sig hex".into()))?;
         let art_sig = ed25519_dalek::Signature::from_slice(&art_sig_hex)
             .map_err(|_| ProfileError::SigstoreSignatureInvalid("invalid art sig len".into()))?;
-        leaf_key.verify_strict(artifact_bytes, &art_sig)
+        leaf_key
+            .verify_strict(artifact_bytes, &art_sig)
             .map_err(|_| ProfileError::SigstoreSignatureInvalid("art sig verify failed".into()))?;
 
         // Stage 3
@@ -235,31 +263,51 @@ impl SigstoreVerifier {
         }
 
         // Stage 4
-        let can_body = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &bundle.rekor_entry.canonicalized_body_b64)
-            .map_err(|_| ProfileError::SigstoreMerkleProofInvalid("invalid can_body b64".into()))?;
-        let can_body_str = String::from_utf8(can_body)
-            .map_err(|_| ProfileError::SigstoreMerkleProofInvalid("invalid can_body utf8".into()))?;
+        let can_body = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            &bundle.rekor_entry.canonicalized_body_b64,
+        )
+        .map_err(|_| ProfileError::SigstoreMerkleProofInvalid("invalid can_body b64".into()))?;
+        let can_body_str = String::from_utf8(can_body).map_err(|_| {
+            ProfileError::SigstoreMerkleProofInvalid("invalid can_body utf8".into())
+        })?;
         if !can_body_str.contains(&hex::encode(actual_sha256_arr)) {
-             return Err(ProfileError::SigstoreMerkleProofInvalid("rekor missing sha256".into()));
+            return Err(ProfileError::SigstoreMerkleProofInvalid(
+                "rekor missing sha256".into(),
+            ));
         }
 
         let mut root_hash = [0u8; 32];
-        let root_hex = hex::decode(&bundle.rekor_entry.inclusion_proof.root_hash_hex)
-            .map_err(|_| ProfileError::SigstoreMerkleProofInvalid("invalid root_hash hex".into()))?;
-        if root_hex.len() != 32 { return Err(ProfileError::SigstoreMerkleProofInvalid("invalid root len".into())); }
+        let root_hex =
+            hex::decode(&bundle.rekor_entry.inclusion_proof.root_hash_hex).map_err(|_| {
+                ProfileError::SigstoreMerkleProofInvalid("invalid root_hash hex".into())
+            })?;
+        if root_hex.len() != 32 {
+            return Err(ProfileError::SigstoreMerkleProofInvalid(
+                "invalid root len".into(),
+            ));
+        }
         root_hash.copy_from_slice(&root_hex);
 
         let mut hashes = Vec::new();
         for h in &bundle.rekor_entry.inclusion_proof.hashes_hex {
-            let hb = hex::decode(h).map_err(|_| ProfileError::SigstoreMerkleProofInvalid("invalid hash hex".into()))?;
-            if hb.len() != 32 { return Err(ProfileError::SigstoreMerkleProofInvalid("invalid hash len".into())); }
+            let hb = hex::decode(h)
+                .map_err(|_| ProfileError::SigstoreMerkleProofInvalid("invalid hash hex".into()))?;
+            if hb.len() != 32 {
+                return Err(ProfileError::SigstoreMerkleProofInvalid(
+                    "invalid hash len".into(),
+                ));
+            }
             let mut arr = [0u8; 32];
             arr.copy_from_slice(&hb);
             hashes.push(arr);
         }
 
-        let leaf_can = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &bundle.rekor_entry.canonicalized_body_b64)
-            .unwrap(); // We just parsed it successfully
+        let leaf_can = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            &bundle.rekor_entry.canonicalized_body_b64,
+        )
+        .unwrap(); // We just parsed it successfully
 
         verify_rfc6962_inclusion_proof(
             &leaf_can,
@@ -271,28 +319,45 @@ impl SigstoreVerifier {
 
         // Stage 5
         let mut pq_verified = false;
-        if let (Some(pk_b64), Some(sig_b64)) = (&bundle.pq_public_key_mldsa65_b64, &bundle.pq_signature_mldsa65_b64) {
-            let pk_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, pk_b64)
-                .map_err(|_| ProfileError::SigstorePqSignatureInvalid("b64 pk".into()))?;
-            let sig_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, sig_b64)
-                .map_err(|_| ProfileError::SigstorePqSignatureInvalid("b64 sig".into()))?;
+        if let (Some(pk_b64), Some(sig_b64)) = (
+            &bundle.pq_public_key_mldsa65_b64,
+            &bundle.pq_signature_mldsa65_b64,
+        ) {
+            let pk_bytes =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, pk_b64)
+                    .map_err(|_| ProfileError::SigstorePqSignatureInvalid("b64 pk".into()))?;
+            let sig_bytes =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, sig_b64)
+                    .map_err(|_| ProfileError::SigstorePqSignatureInvalid("b64 sig".into()))?;
 
             if pk_bytes.len() != 1952 {
-                return Err(ProfileError::SigstorePqSignatureInvalid("pk len != 1952".into()));
+                return Err(ProfileError::SigstorePqSignatureInvalid(
+                    "pk len != 1952".into(),
+                ));
             }
             if sig_bytes.len() != 3309 {
-                return Err(ProfileError::SigstorePqSignatureInvalid("sig len != 3309".into()));
+                return Err(ProfileError::SigstorePqSignatureInvalid(
+                    "sig len != 3309".into(),
+                ));
             }
 
-            let transcript = build_hybrid_pq_signing_transcript(&actual_blake3_arr, &actual_sha256_arr);
+            let transcript =
+                build_hybrid_pq_signing_transcript(&actual_blake3_arr, &actual_sha256_arr);
 
-            let pk_arr: &[u8; 1952] = pk_bytes.as_slice().try_into().map_err(|_| ProfileError::SigstorePqSignatureInvalid("invalid pk arr".into()))?;
-            let sig_arr: &[u8; 3309] = sig_bytes.as_slice().try_into().map_err(|_| ProfileError::SigstorePqSignatureInvalid("invalid sig arr".into()))?;
+            let pk_arr: &[u8; 1952] = pk_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| ProfileError::SigstorePqSignatureInvalid("invalid pk arr".into()))?;
+            let sig_arr: &[u8; 3309] = sig_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| ProfileError::SigstorePqSignatureInvalid("invalid sig arr".into()))?;
 
             let vk = ml_dsa::VerifyingKey::<ml_dsa::MlDsa65>::decode(pk_arr.into());
 
-
-            let pq_sig = ml_dsa::Signature::<ml_dsa::MlDsa65>::decode(sig_arr.into()).ok_or(ProfileError::SigstorePqSignatureInvalid("decode fail".into()))?;
+            let pq_sig = ml_dsa::Signature::<ml_dsa::MlDsa65>::decode(sig_arr.into()).ok_or(
+                ProfileError::SigstorePqSignatureInvalid("decode fail".into()),
+            )?;
             vk.verify(&transcript, &pq_sig)
                 .map_err(|_| ProfileError::SigstorePqSignatureInvalid("pq verify failed".into()))?;
 
@@ -356,18 +421,25 @@ impl SigstoreVerifier {
         let mut pq_sig = None;
 
         if let Some(pq) = pq_sk {
-            use ml_dsa::signature::Signer as PqSigner;
             use ml_dsa::signature::Keypair;
+            use ml_dsa::signature::Signer as PqSigner;
 
             let pq_vk = pq.verifying_key();
             // MLDsa65 verifying key is 1952 bytes. EncodedVerifyingKey is the raw bytes.
 
             let raw_vk_bytes = pq_vk.to_bytes();
-            pq_pub = Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, raw_vk_bytes.as_slice()));
+            pq_pub = Some(base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                raw_vk_bytes.as_slice(),
+            ));
 
-            let pq_transcript = build_hybrid_pq_signing_transcript(&actual_blake3_arr, &actual_sha256_arr);
+            let pq_transcript =
+                build_hybrid_pq_signing_transcript(&actual_blake3_arr, &actual_sha256_arr);
             let sig = pq.sign(&pq_transcript);
-            pq_sig = Some(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, sig.to_bytes().as_slice()));
+            pq_sig = Some(base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                sig.to_bytes().as_slice(),
+            ));
         }
 
         let bundle = SigstoreBundle {
@@ -386,7 +458,10 @@ impl SigstoreVerifier {
             },
             rekor_entry: RekorTransparencyLogEntry {
                 integrated_time: not_before + 1,
-                canonicalized_body_b64: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, leaf_can.as_bytes()),
+                canonicalized_body_b64: base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    leaf_can.as_bytes(),
+                ),
                 inclusion_proof: RekorInclusionProof {
                     log_index: 0,
                     tree_size: 1,
@@ -398,6 +473,7 @@ impl SigstoreVerifier {
             pq_signature_mldsa65_b64: pq_sig,
         };
 
-        serde_json::to_string(&bundle).map_err(|e| ProfileError::SigstoreBundleParseError(e.to_string()))
+        serde_json::to_string(&bundle)
+            .map_err(|e| ProfileError::SigstoreBundleParseError(e.to_string()))
     }
 }

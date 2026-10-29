@@ -1,16 +1,16 @@
+pub mod engine;
 pub mod error;
 pub mod middleware;
 pub mod observability;
 pub mod slots;
 pub mod tool_scheduler;
-pub mod engine;
 
+pub use engine::*;
 pub use error::RuntimeError;
 pub use middleware::{
     AgentMiddleware, NextModelCall, ToolDefinition, ToolExecutionOutput, TurnExecutionContext,
 };
 pub use tool_scheduler::*;
-pub use engine::*;
 
 #[cfg(test)]
 mod tests {

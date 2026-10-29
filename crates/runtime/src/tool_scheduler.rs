@@ -2,8 +2,8 @@ use base::ast::Message;
 use base::state::TantryState;
 use base::tools_meta::ToolAccessFootprint;
 use chrono::Utc;
-use serde_json::Value;
 use futures::future::join_all;
+use serde_json::Value;
 use std::pin::Pin;
 
 #[derive(Debug, Clone)]
@@ -113,7 +113,17 @@ impl BernsteinToolScheduler {
         tool_executor: F,
     ) -> Result<Vec<Message>, crate::error::RuntimeError>
     where
-        F: Fn(TantryState, &'a ToolUseCall) -> Pin<Box<dyn std::future::Future<Output = (Result<Message, crate::error::RuntimeError>, TantryState)> + Send + 'a>>,
+        F: Fn(
+            TantryState,
+            &'a ToolUseCall,
+        ) -> Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = (Result<Message, crate::error::RuntimeError>, TantryState),
+                    > + Send
+                    + 'a,
+            >,
+        >,
     {
         let waves = Self::partition_into_waves(calls);
         let mut all_messages = vec![None; calls.len()];
@@ -147,31 +157,67 @@ impl BernsteinToolScheduler {
                     let msg = result?;
                     all_messages[idx] = Some(msg);
 
-                    let has_file_writes = new_child_state.files.root_hash() != base_vfs.root_hash() || calls[idx].footprint.writes.iter().any(|p| !p.starts_with("/__meta__/"));
+                    let has_file_writes = new_child_state.files.root_hash() != base_vfs.root_hash()
+                        || calls[idx]
+                            .footprint
+                            .writes
+                            .iter()
+                            .any(|p| !p.starts_with("/__meta__/"));
 
                     if has_file_writes {
-                        branches.push((format!("tool_{}_{}", calls[idx].tool_name, calls[idx].tool_use_id), new_child_state.files.clone()));
+                        branches.push((
+                            format!("tool_{}_{}", calls[idx].tool_name, calls[idx].tool_use_id),
+                            new_child_state.files.clone(),
+                        ));
                     }
 
-                    if calls[idx].footprint.writes.iter().any(|p| p == "/__meta__/todos") {
+                    if calls[idx]
+                        .footprint
+                        .writes
+                        .iter()
+                        .any(|p| p == "/__meta__/todos")
+                    {
                         state.todos = new_child_state.todos;
                     }
-                    if calls[idx].footprint.writes.iter().any(|p| p == "/__meta__/memory") {
+                    if calls[idx]
+                        .footprint
+                        .writes
+                        .iter()
+                        .any(|p| p == "/__meta__/memory")
+                    {
                         state.memory_contents = new_child_state.memory_contents;
                     }
-                    if calls[idx].footprint.writes.iter().any(|p| p == "/__meta__/async_tasks") {
+                    if calls[idx]
+                        .footprint
+                        .writes
+                        .iter()
+                        .any(|p| p == "/__meta__/async_tasks")
+                    {
                         state.async_tasks = new_child_state.async_tasks;
                     }
                 }
 
                 if !branches.is_empty() {
-                    let report = backends::merge::merge_subagent_trees(&base_vfs, branches, Utc::now());
+                    let report =
+                        backends::merge::merge_subagent_trees(&base_vfs, branches, Utc::now());
                     state.files = report.merged_tree;
 
-                    metrics.vfs_merge_conflicts_total.with_label_values(&["fast_path"]).inc_by(report.stage0_fast_forwards as u64);
-                    metrics.vfs_merge_conflicts_total.with_label_values(&["line_diff"]).inc_by(report.stage1_line_merges as u64);
-                    metrics.vfs_merge_conflicts_total.with_label_values(&["cst_ast"]).inc_by(report.stage2_cst_merges as u64);
-                    metrics.vfs_merge_conflicts_total.with_label_values(&["unresolved_conflict"]).inc_by(report.stage3_conflicts as u64);
+                    metrics
+                        .vfs_merge_conflicts_total
+                        .with_label_values(&["fast_path"])
+                        .inc_by(report.stage0_fast_forwards as u64);
+                    metrics
+                        .vfs_merge_conflicts_total
+                        .with_label_values(&["line_diff"])
+                        .inc_by(report.stage1_line_merges as u64);
+                    metrics
+                        .vfs_merge_conflicts_total
+                        .with_label_values(&["cst_ast"])
+                        .inc_by(report.stage2_cst_merges as u64);
+                    metrics
+                        .vfs_merge_conflicts_total
+                        .with_label_values(&["unresolved_conflict"])
+                        .inc_by(report.stage3_conflicts as u64);
                 }
             }
         }
