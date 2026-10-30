@@ -10,14 +10,13 @@ uuid = { version = "1", features = ["v7", "serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
-rkyv = { version = "0.8.18", features = ["bytecheck"] }
+rkyv = { version = "0.8.18" }
 rmp-serde = "1"
-bytecheck = "0.8.3"
 bytes = { version = "1", features = ["serde"] }
 blake3 = "1"
 toml = "1.1.8"
-num = "0.4.3"
+schemars = "0.8"
+smallvec = "1"
 
 [dev-dependencies]
 proptest = "1.6.0"
-tokio = { version = "1.0", features = ["full"] }
