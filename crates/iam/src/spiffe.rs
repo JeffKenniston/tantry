@@ -1,87 +1,115 @@
 use crate::error::IamError;
-use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpiffeId {
-    uri: Url,
+    uri: String,
+    trust_domain: String,
+    workload_path: String,
 }
 
 impl SpiffeId {
-    pub fn parse(uri_str: &str) -> Result<Self, IamError> {
-        let uri = Url::parse(uri_str)
-            .map_err(|_| IamError::InvalidSpiffeId("Invalid URL format".to_string()))?;
-
-        if uri.scheme() != "spiffe" {
-            return Err(IamError::InvalidSpiffeId(
-                "Scheme must be spiffe://".to_string(),
-            ));
+    pub fn parse(uri: &str) -> Result<Self, IamError> {
+        if !uri.starts_with("spiffe://") {
+            return Err(IamError::InvalidSpiffeId("must start with spiffe://".to_string()));
         }
 
-        if uri.host_str().is_none() || uri.host_str().unwrap().is_empty() {
-            return Err(IamError::InvalidSpiffeId(
-                "Trust domain (host) cannot be empty".to_string(),
-            ));
+        let stripped = &uri["spiffe://".len()..];
+        let mut parts = stripped.splitn(2, '/');
+        let trust_domain = parts.next().unwrap_or("");
+        let path = parts.next().unwrap_or("");
+
+        if trust_domain.is_empty() {
+            return Err(IamError::InvalidSpiffeId("trust domain cannot be empty".to_string()));
         }
 
-        let path = uri.path();
-        if path.is_empty() || path == "/" {
-            return Err(IamError::InvalidSpiffeId(
-                "Path cannot be empty".to_string(),
-            ));
-        }
-
-        let segments: Vec<&str> = uri.path_segments().unwrap_or("".split('/')).collect();
-        if segments.len() < 4 || segments[0] != "agent" || segments[2] != "task" {
-            return Err(IamError::InvalidSpiffeId(
-                "Path must follow /agent/{agent_name}/task/{task_id}".to_string(),
-            ));
-        }
-
-        for segment in segments {
-            if segment == "." || segment == ".." || segment.is_empty() {
-                return Err(IamError::InvalidSpiffeId(
-                    "Path segments cannot be empty, ., or ..".to_string(),
-                ));
+        for c in trust_domain.chars() {
+            if !((c.is_ascii_alphanumeric() && !c.is_ascii_uppercase()) || c == '.' || c == '-') {
+                return Err(IamError::InvalidSpiffeId("invalid trust domain format".to_string()));
             }
         }
 
-        Ok(Self { uri })
+        let segments: Vec<&str> = path.split('/').collect();
+        if segments.is_empty() || segments[0] != "agent" {
+            return Err(IamError::InvalidSpiffeId("invalid path prefix".to_string()));
+        }
+
+        for segment in &segments {
+            if segment.is_empty() || *segment == "." || *segment == ".." {
+                return Err(IamError::InvalidSpiffeId("invalid path segment".to_string()));
+            }
+        }
+
+        if segments.len() < 4 || segments[2] != "task" {
+            return Err(IamError::InvalidSpiffeId("must have at least agent and task segments".to_string()));
+        }
+
+        let mut idx = 4;
+        while idx < segments.len() {
+            if segments.len() < idx + 4 {
+                return Err(IamError::InvalidSpiffeId("incomplete subagent segments".to_string()));
+            }
+            if segments[idx] != "subagent" || segments[idx+2] != "task" {
+                return Err(IamError::InvalidSpiffeId("invalid subagent format".to_string()));
+            }
+            idx += 4;
+        }
+
+        if idx != segments.len() {
+            return Err(IamError::InvalidSpiffeId("trailing segments".to_string()));
+        }
+
+        Ok(Self {
+            uri: uri.to_string(),
+            trust_domain: trust_domain.to_string(),
+            workload_path: path.to_string(),
+        })
     }
 
-    pub fn derive_subagent(
-        &self,
-        subagent_name: &str,
-        child_task_id: &str,
-    ) -> Result<Self, IamError> {
-        let mut new_uri = self.uri.clone();
-        let mut path = new_uri.path().to_string();
-        if path.ends_with('/') {
-            path.pop();
+    pub fn new_root_agent(trust_domain: &str, agent_name: &str, task_id: &str) -> Result<Self, IamError> {
+        let uri = format!("spiffe://{}/agent/{}/task/{}", trust_domain, agent_name, task_id);
+        Self::parse(&uri)
+    }
+
+    pub fn derive_subagent(&self, subagent_name: &str, child_task_id: &str) -> Result<Self, IamError> {
+        if subagent_name.is_empty() || child_task_id.is_empty() {
+            return Err(IamError::InvalidSpiffeId("empty derivation segments".to_string()));
+        }
+        if subagent_name.contains('/') || subagent_name.contains('.') || child_task_id.contains('/') || child_task_id.contains('.') {
+            return Err(IamError::InvalidSpiffeId("invalid derivation segments".to_string()));
+        }
+        let child_uri = format!("{}/subagent/{}/task/{}", self.uri, subagent_name, child_task_id);
+        let child = Self::parse(&child_uri)?;
+
+        let prefix = format!("{}/subagent/", self.uri);
+        if !child.uri.starts_with(&prefix) {
+            return Err(IamError::HierarchyViolation { parent: self.uri.clone(), child: child.uri.clone() });
         }
 
-        path.push_str(&format!(
-            "/subagent/{}/task/{}",
-            subagent_name, child_task_id
-        ));
-        new_uri.set_path(&path);
+        Ok(child)
+    }
 
-        let mut base_str = self.uri.as_str().to_string();
-        if base_str.ends_with('/') {
-            base_str.pop();
+    pub fn verify_attenuation(&self, child: &SpiffeId) -> Result<(), IamError> {
+        let prefix = format!("{}/subagent/", self.uri);
+        if child.trust_domain == self.trust_domain && child.uri.starts_with(&prefix) {
+            Ok(())
+        } else {
+            Err(IamError::HierarchyViolation { parent: self.uri.clone(), child: child.uri.clone() })
         }
-        let expected_prefix = format!("{}/subagent/", base_str);
+    }
 
-        if !new_uri.as_str().starts_with(&expected_prefix) {
-            return Err(IamError::HierarchyViolation {
-                parent: self.uri.to_string(),
-                child: new_uri.to_string(),
-            });
-        }
+    pub fn is_subagent(&self) -> bool {
+        self.uri.contains("/subagent/")
+    }
 
-        Ok(Self { uri: new_uri })
+    pub fn workload_path(&self) -> &str {
+        &self.workload_path
     }
 
     pub fn uri(&self) -> &str {
-        self.uri.as_str()
+        &self.uri
+    }
+
+    pub fn trust_domain(&self) -> &str {
+        &self.trust_domain
     }
 }
