@@ -434,8 +434,7 @@ impl TantryConfig {
             .into());
         }
 
-        if config.cognitive.semantic_cache_similarity_threshold < 0.50
-            || config.cognitive.semantic_cache_similarity_threshold > 1.00
+        if !(0.80..=0.999).contains(&config.cognitive.semantic_cache_similarity_threshold)
         {
             return Err(ConfigValidationError::InvalidSimilarityThreshold(
                 config.cognitive.semantic_cache_similarity_threshold,
@@ -448,7 +447,7 @@ impl TantryConfig {
         }
 
         let check_tier = |t: &str| -> Result<(), BaseError> {
-            if !t.contains(':') {
+            if t.split_once(':').is_none() {
                 return Err(ConfigValidationError::InvalidModelTierFormat(t.to_string()).into());
             }
             Ok(())
@@ -468,9 +467,7 @@ impl TantryConfig {
             .into());
         }
 
-        if config.billing.soft_warning_ratio <= 0.0
-            || config.billing.soft_warning_ratio >= config.billing.hard_stop_ratio
-            || config.billing.hard_stop_ratio > 1.0
+        if !(0.0 < config.billing.soft_warning_ratio && config.billing.soft_warning_ratio < config.billing.hard_stop_ratio && config.billing.hard_stop_ratio <= 1.0)
         {
             return Err(ConfigValidationError::InvalidBudgetRatios {
                 soft: config.billing.soft_warning_ratio,
@@ -502,8 +499,7 @@ impl TantryConfig {
         config.sandboxes.max_workers = platform.effective_max_workers(config.sandboxes.max_workers);
 
         #[allow(clippy::manual_is_multiple_of)]
-        if config.sandboxes.wasm.max_memory_bytes % 65536 != 0
-            || config.sandboxes.wasm.max_memory_bytes < 16777216
+        if config.sandboxes.wasm.max_memory_bytes < 65536 || config.sandboxes.wasm.max_memory_bytes % 65536 != 0
         {
             return Err(ConfigValidationError::InvalidWasmMemoryBytes(
                 config.sandboxes.wasm.max_memory_bytes,

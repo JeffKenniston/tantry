@@ -9,10 +9,7 @@ pub fn validate_and_normalize_path(raw: &str) -> Result<PosixPath, PathValidatio
         return Err(PathValidationError::EmptyPath);
     }
 
-    if raw.chars().any(|c| {
-        let code = c as u32;
-        code <= 0x1F || code == 0x7F
-    }) {
+    if raw.bytes().any(|b| b <= 0x1F || b == 0x7F) {
         return Err(PathValidationError::NullByteOrControlChar);
     }
 
@@ -20,37 +17,19 @@ pub fn validate_and_normalize_path(raw: &str) -> Result<PosixPath, PathValidatio
         return Err(PathValidationError::BackslashForbidden);
     }
 
+    let mut segments = Vec::new();
     for segment in raw.split('/') {
         if segment == "." || segment == ".." {
             return Err(PathValidationError::TraversalAttempt);
         }
-    }
-
-    let mut normalized = String::new();
-    let mut prev_was_slash = false;
-
-    // ensure starts with slash
-    if !raw.starts_with('/') {
-        normalized.push('/');
-        prev_was_slash = true;
-    }
-
-    for c in raw.chars() {
-        if c == '/' {
-            if !prev_was_slash {
-                normalized.push(c);
-                prev_was_slash = true;
-            }
-        } else {
-            normalized.push(c);
-            prev_was_slash = false;
+        if !segment.is_empty() {
+            segments.push(segment);
         }
     }
 
-    // strip trailing slash unless root
-    if normalized.len() > 1 && normalized.ends_with('/') {
-        normalized.pop();
+    if segments.is_empty() {
+        Ok("/".to_string())
+    } else {
+        Ok(format!("/{}", segments.join("/")))
     }
-
-    Ok(normalized)
 }

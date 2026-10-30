@@ -90,25 +90,24 @@ impl RuntimePlatform {
     ) -> Result<PosixPath, PathValidationError> {
         let normalized = validate_and_normalize_path(path)?;
 
-        if strict_posix_paths {
-            return Ok(normalized);
-        }
-
         match self {
             RuntimePlatform::LinuxStandard => Ok(normalized),
             RuntimePlatform::AndroidTermux { prefix } => {
-                if normalized.starts_with(prefix) {
-                    return Ok(normalized);
-                }
-
-                if let Some(suffix) = normalized.strip_prefix("/var/lib/tantry") {
-                    Ok(format!("{}/var/lib/tantry{}", prefix, suffix))
-                } else if let Some(suffix) = normalized.strip_prefix("/run/spire") {
-                    Ok(format!("{}/var/run/spire{}", prefix, suffix))
-                } else if let Some(suffix) = normalized.strip_prefix("/var/run/tantry") {
-                    Ok(format!("{}/var/run/tantry{}", prefix, suffix))
-                } else if let Some(suffix) = normalized.strip_prefix("/usr/bin/") {
-                    Ok(format!("{}/bin/{}", prefix, suffix)) // termux binaries are in $PREFIX/bin, often overriding /usr/bin defaults
+                if !strict_posix_paths {
+                    if normalized.starts_with(prefix) {
+                        return Ok(normalized);
+                    }
+                    if let Some(suffix) = normalized.strip_prefix("/var/lib/tantry") {
+                        Ok(format!("{}/var/lib/tantry{}", prefix, suffix))
+                    } else if let Some(suffix) = normalized.strip_prefix("/run/spire") {
+                        Ok(format!("{}/var/run/spire{}", prefix, suffix))
+                    } else if let Some(suffix) = normalized.strip_prefix("/var/run/tantry") {
+                        Ok(format!("{}/var/run/tantry{}", prefix, suffix))
+                    } else if let Some(suffix) = normalized.strip_prefix("/usr/bin/") {
+                        Ok(format!("{}/bin/{}", prefix, suffix))
+                    } else {
+                        Ok(normalized)
+                    }
                 } else {
                     Ok(normalized)
                 }
@@ -120,7 +119,15 @@ impl RuntimePlatform {
     pub fn effective_max_workers(&self, configured: usize) -> usize {
         match self {
             RuntimePlatform::LinuxStandard => configured.max(1),
-            RuntimePlatform::AndroidTermux { .. } => configured.clamp(1, 8),
+            RuntimePlatform::AndroidTermux { .. } => configured.max(1).min(8),
+        }
+    }
+
+    /// effective_rayon_threads fn
+    pub fn effective_rayon_threads(&self, num_cpus: usize) -> usize {
+        match self {
+            RuntimePlatform::LinuxStandard => num_cpus.max(1),
+            RuntimePlatform::AndroidTermux { .. } => num_cpus.max(1).min(4),
         }
     }
 }

@@ -1,7 +1,6 @@
-use thiserror::Error;
 use uuid::Uuid;
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, thiserror::Error, Clone, PartialEq)]
 /// PathValidationError enum
 pub enum PathValidationError {
     #[error("path is empty")]
@@ -14,7 +13,7 @@ pub enum PathValidationError {
     TraversalAttempt,
 }
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, thiserror::Error, Clone, PartialEq)]
 /// StateReducerError enum
 pub enum StateReducerError {
     #[error("message ID not found: {0}")]
@@ -25,7 +24,7 @@ pub enum StateReducerError {
     InvalidToolUsePatch(String),
 }
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, thiserror::Error, Clone, PartialEq)]
 /// ExtensionError enum
 pub enum ExtensionError {
     #[error("unknown wire key: {0}")]
@@ -38,7 +37,7 @@ pub enum ExtensionError {
     DeserializationFailed(String),
 }
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, thiserror::Error, Clone, PartialEq)]
 /// ConfigValidationError enum
 pub enum ConfigValidationError {
     #[error("invalid trust domain: {0}")]
@@ -83,7 +82,7 @@ pub enum ConfigValidationError {
     InvalidQuicHandshakeFallbackTimeoutMs(u64),
 }
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, thiserror::Error, Clone, PartialEq)]
 /// BaseError enum
 pub enum BaseError {
     #[error("path validation error: {0}")]
