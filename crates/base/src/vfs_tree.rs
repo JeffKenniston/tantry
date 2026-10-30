@@ -49,12 +49,14 @@ impl MerkleDirNode {
         for (name, file) in &self.files {
             hasher.update(b"/F:");
             hasher.update(name.as_bytes());
+            hasher.update(b":");
             hasher.update(&file.blake3_hash);
         }
 
         for (name, dir) in &self.subdirs {
             hasher.update(b"/D:");
             hasher.update(name.as_bytes());
+            hasher.update(b":");
             hasher.update(&dir.subtree_blake3);
             count += dir.file_count;
         }
@@ -62,6 +64,13 @@ impl MerkleDirNode {
         self.subtree_blake3 = hasher.finalize().into();
         self.file_count = count;
     }
+}
+
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct DiffStats {
+    pub visited_nodes: usize,
+    pub skipped_subtrees: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -239,22 +248,22 @@ impl VfsTree {
 
     /// diff fn
     pub fn diff(&self, after: &Self) -> Vec<FileDelta> {
-        let (deltas, _) = self.diff_with_stats(after);
+        let (deltas, _stats) = self.diff_with_stats(after);
         deltas
     }
 
     /// diff_with_stats fn
-    pub fn diff_with_stats(&self, after: &Self) -> (Vec<FileDelta>, usize) {
+    pub fn diff_with_stats(&self, after: &Self) -> (Vec<FileDelta>, DiffStats) {
         let mut deltas = Vec::new();
-        let mut visited = 0;
+        let mut stats = DiffStats::default();
         Self::diff_recursive(
             &self.root,
             &after.root,
             String::new(),
             &mut deltas,
-            &mut visited,
+            &mut stats,
         );
-        (deltas, visited)
+        (deltas, stats)
     }
 
     fn diff_recursive(
@@ -262,10 +271,11 @@ impl VfsTree {
         after: &MerkleDirNode,
         path_prefix: String,
         deltas: &mut Vec<FileDelta>,
-        visited: &mut usize,
+        stats: &mut DiffStats,
     ) {
-        *visited += 1;
+        stats.visited_nodes += 1;
         if before.subtree_blake3 == after.subtree_blake3 {
+            stats.skipped_subtrees += 1;
             return;
         }
 
@@ -293,10 +303,10 @@ impl VfsTree {
                     });
                 }
             } else if let (Some(bd), Some(ad)) = (b_dir, a_dir) {
-                Self::diff_recursive(bd, ad, current_path, deltas, visited);
+                Self::diff_recursive(bd, ad, current_path, deltas, stats);
             } else {
                 if let Some(d) = b_dir {
-                    Self::collect_deletes(d, current_path.clone(), deltas, visited);
+                    Self::collect_deletes(d, current_path.clone(), deltas, stats);
                 } else if b_file.is_some() {
                     deltas.push(FileDelta::Delete {
                         path: current_path.clone(),
@@ -304,7 +314,7 @@ impl VfsTree {
                 }
 
                 if let Some(d) = a_dir {
-                    Self::collect_upserts(d, current_path, deltas, visited);
+                    Self::collect_upserts(d, current_path, deltas, stats);
                 } else if let Some(f) = a_file {
                     deltas.push(FileDelta::Upsert {
                         path: current_path,
@@ -319,9 +329,9 @@ impl VfsTree {
         dir: &MerkleDirNode,
         path_prefix: String,
         deltas: &mut Vec<FileDelta>,
-        visited: &mut usize,
+        stats: &mut DiffStats,
     ) {
-        *visited += 1;
+        stats.visited_nodes += 1;
 
         let keys: std::collections::BTreeSet<&String> =
             dir.files.keys().chain(dir.subdirs.keys()).collect();
@@ -334,7 +344,7 @@ impl VfsTree {
                     data: f.clone(),
                 });
             } else if let Some(d) = dir.subdirs.get(key) {
-                Self::collect_upserts(d, current_path, deltas, visited);
+                Self::collect_upserts(d, current_path, deltas, stats);
             }
         }
     }
@@ -343,9 +353,9 @@ impl VfsTree {
         dir: &MerkleDirNode,
         path_prefix: String,
         deltas: &mut Vec<FileDelta>,
-        visited: &mut usize,
+        stats: &mut DiffStats,
     ) {
-        *visited += 1;
+        stats.visited_nodes += 1;
 
         let keys: std::collections::BTreeSet<&String> =
             dir.files.keys().chain(dir.subdirs.keys()).collect();
@@ -355,7 +365,7 @@ impl VfsTree {
             if dir.files.contains_key(key) {
                 deltas.push(FileDelta::Delete { path: current_path });
             } else if let Some(d) = dir.subdirs.get(key) {
-                Self::collect_deletes(d, current_path, deltas, visited);
+                Self::collect_deletes(d, current_path, deltas, stats);
             }
         }
     }

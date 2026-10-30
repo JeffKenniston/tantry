@@ -20,8 +20,8 @@ impl Hasher for TypeIdHasher {
         self.0 = hash;
     }
 
-    fn write_u64(&mut self, i: u64) {
-        self.0 = i;
+    fn write_u64(&mut self, id: u64) {
+        self.0 = id;
     }
 
     fn finish(&self) -> u64 {
@@ -209,8 +209,10 @@ impl StateExtensionMap {
     pub fn fork_shared_only(&self) -> Self {
         let mut inner = FastTypeMap::default();
         for (k, v) in &self.inner {
-            if let Some(shared) = v.clone_shared_only() {
-                inner.insert(*k, shared);
+            if v.visibility() == SlotVisibility::Shared {
+                if let Some(shared) = v.clone_shared_only() {
+                    inner.insert(*k, shared);
+                }
             }
         }
         Self { inner }
