@@ -139,7 +139,7 @@ fn test_vfs_diff_with_stats() {
     let (deltas, visited) = before.diff_with_stats(&after);
     assert_eq!(deltas.len(), 2);
     // visited nodes...
-    assert!(visited <= 2 * 2 * 3); // some reasonable upper bound based on K log N
+    assert!(visited.visited_nodes <= 2 * 2 * 3); // some reasonable upper bound based on K log N
 }
 
 use base::error::PathValidationError;

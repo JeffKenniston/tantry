@@ -140,7 +140,18 @@ pub fn classify_tool_footprint(tool_name: &str, input: &Value) -> ToolAccessFoot
         .get("path")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    ToolAccessFootprint::for_tool(tool_name, path_arg)
+    let mut footprint = ToolAccessFootprint::for_tool(tool_name, path_arg);
+
+    footprint.reads.push("/__meta__/todos".to_string());
+    footprint.writes.push("/__meta__/todos".to_string());
+    footprint.reads.push("/__meta__/memory".to_string());
+    footprint.writes.push("/__meta__/memory".to_string());
+    footprint.reads.push("/__meta__/async_tasks".to_string());
+    footprint.writes.push("/__meta__/async_tasks".to_string());
+    footprint.reads.push("/__meta__/tunnel".to_string());
+    footprint.writes.push("/__meta__/tunnel".to_string());
+
+    footprint
 }
 
 /// maybe_offload_tool_output fn
