@@ -1,11 +1,12 @@
 use crate::lattice::PermissionMode;
 use bitflags::bitflags;
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::{GlobSet, GlobSetBuilder};
 use iam::spiffe::SpiffeId;
 use serde::{Deserialize, Serialize};
 
 bitflags! {
     /// Filesystem operations covered by policy rules.
+    #[repr(transparent)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
     pub struct FsOperation: u8 {
         /// Read operation.
@@ -22,7 +23,7 @@ bitflags! {
 }
 
 /// A policy rule defining a glob pattern and associated filesystem operations and evaluation mode.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FsPolicyRule {
     /// The glob pattern to match against.
     pub glob_pattern: String,
@@ -45,14 +46,10 @@ pub struct CompiledFsAutomaton {
 }
 
 impl CompiledFsAutomaton {
-    /// Creates a new `CompiledFsAutomaton` from the given default mode and policy rules.
-    pub fn new(
-        default_mode: PermissionMode,
-        rules: Vec<FsPolicyRule>,
-    ) -> Result<Self, globset::Error> {
+    pub fn compile(rules: Vec<FsPolicyRule>, default_mode: PermissionMode) -> Result<Self, globset::Error> {
         let mut builder = GlobSetBuilder::new();
         for rule in &rules {
-            let glob = Glob::new(&rule.glob_pattern)?;
+            let glob = globset::GlobBuilder::new(&rule.glob_pattern).literal_separator(false).build()?;
             builder.add(glob);
         }
         let glob_set = builder.build()?;
@@ -71,34 +68,43 @@ impl CompiledFsAutomaton {
             Err(_) => return PermissionMode::Deny,
         };
 
-        let matches = self.glob_set.matches(&normalized_path);
-        let my_mode = if matches.is_empty() {
-            self.default_mode
-        } else {
-            let mut final_mode: Option<PermissionMode> = None;
+        self.evaluate_normalized(svid, op, &normalized_path)
+    }
 
-            for rule_idx in matches {
-                let rule = &self.rules[rule_idx];
-                if !rule.operations.contains(op) {
-                    continue;
-                }
+    pub fn evaluate_normalized(&self, svid: &SpiffeId, op: FsOperation, norm_path: &str) -> PermissionMode {
+        let matches = self.glob_set.matches(norm_path);
+        if matches.is_empty() {
+            return self.default_mode;
+        }
 
-                let prefix_matches = match &rule.required_spiffe_prefix {
-                    Some(pfx) => svid.uri().starts_with(pfx),
-                    None => true,
-                };
-
-                if prefix_matches {
-                    let m = rule.mode;
-                    final_mode = Some(match final_mode {
-                        None => m,
-                        Some(existing) => existing.join(m),
-                    });
-                }
+        let matching_rules = matches.into_iter().filter_map(|rule_idx| {
+            let rule = &self.rules[rule_idx];
+            if !rule.operations.contains(op) {
+                return None;
             }
-            final_mode.unwrap_or(self.default_mode)
-        };
 
-        my_mode
+            let prefix_matches = match &rule.required_spiffe_prefix {
+                Some(pfx) => svid.uri().starts_with(pfx),
+                None => true,
+            };
+
+            if prefix_matches {
+                Some(rule)
+            } else {
+                None
+            }
+        });
+
+        let mut has_matches = false;
+        let final_mode = matching_rules.fold(PermissionMode::Allow, |acc, rule| {
+            has_matches = true;
+            acc.join(rule.mode)
+        });
+
+        if has_matches {
+            final_mode
+        } else {
+            self.default_mode
+        }
     }
 }
