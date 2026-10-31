@@ -1,7 +1,6 @@
 use crate::capabilities::{EnvCapability, FsCapability, McpCapability, NetCapability};
 use crate::lattice::PermissionMode;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 /// Represents a 4-dimensional permission lattice.
 #[derive(Debug, Clone)]
@@ -30,24 +29,11 @@ impl PermissionLattice {
                 .or_insert(*v);
         }
 
-        let effective_max = std::cmp::min(
-            self.mcp.effective_max_spend_micros(),
-            child.mcp.effective_max_spend_micros(),
-        );
-
         PermissionLattice {
             fs: self.fs.narrow(&child.fs),
             net: self.net.narrow(&child.net),
-            env: EnvCapability::Composite {
-                parent: Arc::new(self.env.clone()),
-                child: Arc::new(child.env.clone()),
-            },
-            mcp: McpCapability::Composite {
-                parent: Arc::new(self.mcp.clone()),
-                child: Arc::new(child.mcp.clone()),
-                max_spend_micros: effective_max,
-                effective_max_spend_micros: effective_max,
-            },
+            env: self.env.narrow(&child.env),
+            mcp: self.mcp.narrow(&child.mcp),
             interrupt_on_tools: new_interrupt,
         }
     }
