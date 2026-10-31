@@ -4,13 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-base = { path = "../base" }
-iam = { path = "../iam" }
+base = { workspace = true }
+iam = { workspace = true }
 thiserror = "1"
 globset = "0.4.15"
 url = "2.5"
 bitflags = { version = "2.6", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
+smallvec = "1"
 
 [dev-dependencies]
 proptest = "1.6.0"
