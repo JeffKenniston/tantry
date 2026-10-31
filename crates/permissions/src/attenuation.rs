@@ -36,14 +36,8 @@ impl PermissionLattice {
         );
 
         PermissionLattice {
-            fs: FsCapability::Composite {
-                parent: Arc::new(self.fs.clone()),
-                child: Arc::new(child.fs.clone()),
-            },
-            net: NetCapability::Composite {
-                parent: Arc::new(self.net.clone()),
-                child: Arc::new(child.net.clone()),
-            },
+            fs: self.fs.narrow(&child.fs),
+            net: self.net.narrow(&child.net),
             env: EnvCapability::Composite {
                 parent: Arc::new(self.env.clone()),
                 child: Arc::new(child.env.clone()),

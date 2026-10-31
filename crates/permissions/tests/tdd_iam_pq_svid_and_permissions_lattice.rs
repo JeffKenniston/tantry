@@ -1,20 +1,16 @@
 use iam::spiffe::SpiffeId;
 use permissions::attenuation::PermissionLattice;
 use permissions::capabilities::{EnvCapability, FsCapability, McpCapability, NetCapability};
-use permissions::glob_dfa::CompiledFsAutomaton;
 use permissions::lattice::PermissionMode;
 use permissions::zenoh_guard::evaluate_zenoh_topic;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 #[test]
 fn test_attenuation() {
     let mut i1 = BTreeMap::new();
     i1.insert("tool1".to_string(), PermissionMode::Interrupt);
     let p1 = PermissionLattice {
-        fs: FsCapability::Base(Arc::new(
-            CompiledFsAutomaton::new(PermissionMode::Allow, vec![]).unwrap(),
-        )),
+        fs: FsCapability::new(vec![], PermissionMode::Allow).unwrap(),
         net: NetCapability::new(PermissionMode::Allow, vec![]).unwrap(),
         env: EnvCapability::new(vec![], vec![]).unwrap(),
         mcp: McpCapability::new(PermissionMode::Allow, 1000, 1000, vec![]).unwrap(),
@@ -24,9 +20,7 @@ fn test_attenuation() {
     let mut i2 = BTreeMap::new();
     i2.insert("tool1".to_string(), PermissionMode::Deny);
     let p2 = PermissionLattice {
-        fs: FsCapability::Base(Arc::new(
-            CompiledFsAutomaton::new(PermissionMode::Allow, vec![]).unwrap(),
-        )),
+        fs: FsCapability::new(vec![], PermissionMode::Allow).unwrap(),
         net: NetCapability::new(PermissionMode::Allow, vec![]).unwrap(),
         env: EnvCapability::new(vec![], vec![]).unwrap(),
         mcp: McpCapability::new(PermissionMode::Allow, 500, 500, vec![]).unwrap(),
