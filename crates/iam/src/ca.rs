@@ -1,6 +1,6 @@
 use crate::error::IamError;
 use base64::Engine as _;
-use rand::RngCore;
+use rand_core::{RngCore, OsRng};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
@@ -76,7 +76,7 @@ impl SovereignCaIdentityManager {
             use ed25519_dalek::SigningKey;
 
             let mut secret = [0u8; 32];
-            rand::rngs::OsRng.fill_bytes(&mut secret);
+            OsRng.fill_bytes(&mut secret);
             let ed_sk = SigningKey::from_bytes(&secret);
             let ed_pub = ed_sk.verifying_key().to_bytes();
 
@@ -91,7 +91,7 @@ impl SovereignCaIdentityManager {
             use ml_dsa::signature::Keypair;
 
             let mut seed = [0u8; 32];
-            rand::rngs::OsRng.fill_bytes(&mut seed);
+            OsRng.fill_bytes(&mut seed);
 
             let ml_sk = ml_dsa::SigningKey::<MlDsa65>::from_seed((&seed).into());
 
@@ -126,7 +126,7 @@ impl SovereignCaIdentityManager {
             let plaintext = rmp_serde::to_vec_named(&keys)
                 .map_err(|e| IamError::CertificateGenerationError(e.to_string()))?;
 
-            let mut csprng2 = rand::rngs::OsRng;
+            let mut csprng2 = OsRng;
             let nonce = XChaCha20Poly1305::generate_nonce(&mut csprng2);
             let payload = Payload {
                 msg: &plaintext,
@@ -196,7 +196,7 @@ pub fn acquire_or_init_master_key(data_dir: &Path) -> Result<Zeroizing<[u8; 32]>
     }
 
     let mut new_key = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut new_key);
+    OsRng.fill_bytes(&mut new_key);
 
     #[cfg(unix)]
     {
