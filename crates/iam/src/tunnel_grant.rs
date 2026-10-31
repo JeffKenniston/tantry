@@ -57,7 +57,7 @@ impl ScopedTunnelRegistry {
         let exp = now + ttl_secs;
 
         let pq_pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(&svid.mldsa65_verifying_key_bytes);
+            .encode(&svid.mldsa65_pk);
 
         let claims = JwtSvidClaims {
             iss: svid.spiffe_id.uri().to_string(),

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub const PQ_MDSA65_EXT_OID: &[u64] = &[1, 3, 6, 1, 4, 1, 99999, 1, 204];
 
 #[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct PqExtensionPayload {
     pub subject_mldsa65_pk: Vec<u8>,
     pub issuer_mldsa65_sig: Vec<u8>,

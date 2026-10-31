@@ -39,10 +39,10 @@ pub trait IdentityManager: Send + Sync {
         let mut new_svid = parent_svid.clone();
         new_svid.spiffe_id = child_spiffe;
         let requested_exp = chrono::Utc::now() + chrono::Duration::seconds(requested_ttl);
-        new_svid.expires_at = if requested_exp < parent_svid.expires_at {
-            requested_exp
+        new_svid.expires_at_ms = if requested_exp.timestamp_millis() < parent_svid.expires_at_ms {
+            requested_exp.timestamp_millis()
         } else {
-            parent_svid.expires_at
+            parent_svid.expires_at_ms
         };
         Ok(new_svid)
     }
@@ -61,7 +61,7 @@ pub trait IdentityManager: Send + Sync {
             iat: now,
             jti: uuid::Uuid::now_v7().to_string(),
             pq_pk_b64: base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .encode(&svid.mldsa65_verifying_key_bytes),
+                .encode(&svid.mldsa65_pk),
             htm: None,
             htu: None,
         };

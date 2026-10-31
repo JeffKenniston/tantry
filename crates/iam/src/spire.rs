@@ -41,12 +41,12 @@ impl SpireSocketIdentityManager {
                 let sleep_duration = {
                     let current = active_clone.read().await;
                     if let Some(svid) = &*current {
-                        let ttl = svid.expires_at.timestamp() - svid.issued_at.timestamp();
-                        let target = svid.issued_at.timestamp() + (ttl as f64 * 0.8) as i64;
-                        let now = chrono::Utc::now().timestamp();
+                        let ttl = svid.expires_at_ms - svid.issued_at_ms;
+                        let target = svid.issued_at_ms + (ttl as f64 * 0.8) as i64;
+                        let now = chrono::Utc::now().timestamp_millis();
 
                         if target > now {
-                            Duration::from_secs((target - now) as u64)
+                            Duration::from_millis((target - now) as u64)
                         } else {
                             Duration::from_secs(60) // Retry soon if already past rotation threshold
                         }
@@ -110,8 +110,8 @@ impl crate::IdentityManager for SpireSocketIdentityManager {
             tree_size,
             timestamp_ms,
             *mmr_root_blake3,
-            svid.ed25519_pkcs8_der.as_ref(),
-            svid.mldsa65_signing_key_bytes.as_ref(),
+            svid.ed25519_seed.as_ref(),
+            svid.mldsa65_sk_bytes.as_ref(),
         )
     }
 
@@ -120,8 +120,8 @@ impl crate::IdentityManager for SpireSocketIdentityManager {
         if let Some(svid) = self.current_svid() {
             if crate::ca::verify_audit_sth(
                 sth,
-                &svid.ed25519_public_key,
-                &svid.mldsa65_verifying_key_bytes,
+                &svid.ed25519_pk,
+                &svid.mldsa65_pk,
             )
             .is_ok()
             {
@@ -138,8 +138,8 @@ impl crate::IdentityManager for SpireSocketIdentityManager {
         for svid in history.iter().rev() {
             if crate::ca::verify_audit_sth(
                 sth,
-                &svid.ed25519_public_key,
-                &svid.mldsa65_verifying_key_bytes,
+                &svid.ed25519_pk,
+                &svid.mldsa65_pk,
             )
             .is_ok()
             {

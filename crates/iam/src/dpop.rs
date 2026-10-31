@@ -2,7 +2,7 @@ use crate::error::IamError;
 use crate::svid::WorkloadSvid;
 use base64::Engine as _;
 use chrono::Utc;
-use ed25519_dalek::pkcs8::DecodePrivateKey;
+
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -33,7 +33,7 @@ pub fn mint_dpop_proof(
     });
 
     let ed25519_pk_b64 =
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(svid.ed25519_public_key);
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(svid.ed25519_pk);
     let header = json!({
         "typ": "dpop+jwt",
         "alg": "EdDSA",
@@ -61,8 +61,9 @@ pub fn mint_dpop_proof(
 
     let message = format!("{}.{}", header_b64, payload_b64);
 
-    let sk = SigningKey::from_pkcs8_der(svid.ed25519_pkcs8_der.as_ref())
-        .map_err(|e| IamError::CertificateGenerationError(e.to_string()))?;
+    let mut seed = [0u8; 32];
+    seed.copy_from_slice(svid.ed25519_seed.as_ref());
+    let sk = SigningKey::from_bytes(&seed);
 
     let signature = sk.sign(message.as_bytes());
     let sig_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.to_bytes());
