@@ -2037,6 +2037,7 @@ dependencies = [
  "ml-dsa",
  "parking_lot",
  "proptest",
+ "rand 0.10.3",
  "rand_core 0.6.4",
  "rcgen 0.13.2",
  "rmp-serde",

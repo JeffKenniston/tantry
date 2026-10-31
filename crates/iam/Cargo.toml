@@ -29,4 +29,5 @@ ed25519-dalek = { version = "3.0.0", features = ["rand_core", "pkcs8"] }
 
 [dev-dependencies]
 proptest = "1.6.0"
+rand = "0.10.3"
 tempfile = "3.10"

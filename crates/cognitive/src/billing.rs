@@ -165,7 +165,7 @@ impl BudgetLeaseGuard {
 
                     use base64::Engine;
                     let pq_pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                        .encode(&svid.mldsa65_verifying_key_bytes);
+                        .encode(&svid.mldsa65_pk);
                     let jti = uuid::Uuid::now_v7().to_string();
 
                     let claims = JwtSvidClaims {
