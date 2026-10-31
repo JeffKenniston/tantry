@@ -20,21 +20,27 @@ pub struct PermissionLattice {
 impl PermissionLattice {
     /// Constructs a composite lattice where every evaluation query computes the pointwise least upper bound.
     /// This enforces the pointwise join attenuation law $\text{Effective}(x) = \mathcal{P}_{\text{parent}}(x) \sqcup \mathcal{C}_{\text{child}}(x)$.
+    /// satisfying `Effective(x) = Parent(x).join(Child(x)) >= Parent(x)`.
     pub fn narrow_for_subagent(&self, child: &PermissionLattice) -> PermissionLattice {
-        let mut new_interrupt = self.interrupt_on_tools.clone();
-        for (k, v) in &child.interrupt_on_tools {
-            new_interrupt
-                .entry(k.clone())
-                .and_modify(|existing| *existing = existing.join(*v))
-                .or_insert(*v);
+        let fs = self.fs.narrow(&child.fs);
+        let net = self.net.narrow(&child.net);
+        let env = self.env.narrow(&child.env);
+        let mcp = self.mcp.narrow(&child.mcp);
+
+        let mut joined_tools = self.interrupt_on_tools.clone();
+        for (tool, mode) in &child.interrupt_on_tools {
+            joined_tools
+                .entry(tool.clone())
+                .and_modify(|m| *m = m.join(*mode))
+                .or_insert(*mode);
         }
 
         PermissionLattice {
-            fs: self.fs.narrow(&child.fs),
-            net: self.net.narrow(&child.net),
-            env: self.env.narrow(&child.env),
-            mcp: self.mcp.narrow(&child.mcp),
-            interrupt_on_tools: new_interrupt,
+            fs,
+            net,
+            env,
+            mcp,
+            interrupt_on_tools: joined_tools,
         }
     }
 }
