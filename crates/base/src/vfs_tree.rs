@@ -66,7 +66,6 @@ impl MerkleDirNode {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DiffStats {
     pub visited_nodes: usize,

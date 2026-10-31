@@ -1,7 +1,5 @@
 use crate::error::IamError;
-use crate::svid::WorkloadSvid;
 use base64::Engine as _;
-use chrono::Utc;
 
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
@@ -9,10 +7,11 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 pub fn mint_dpop_proof(
-    svid: &WorkloadSvid,
+    signing_key: &SigningKey,
     htm: &str,
     htu: &str,
     access_token: Option<&str>,
+    now_secs: i64,
 ) -> Result<String, IamError> {
     let normalized_htu = if let Some(pos) = htu.find('?') {
         &htu[..pos]
@@ -23,7 +22,7 @@ pub fn mint_dpop_proof(
     };
 
     let jti = Uuid::now_v7().to_string();
-    let iat = Utc::now().timestamp();
+    let iat = now_secs;
     let htm = htm.to_uppercase();
 
     let ath = access_token.map(|t| {
@@ -32,8 +31,8 @@ pub fn mint_dpop_proof(
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize())
     });
 
-    let ed25519_pk_b64 =
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(svid.ed25519_pk);
+    let ed25519_pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(signing_key.verifying_key().to_bytes());
     let header = json!({
         "typ": "dpop+jwt",
         "alg": "EdDSA",
@@ -61,11 +60,7 @@ pub fn mint_dpop_proof(
 
     let message = format!("{}.{}", header_b64, payload_b64);
 
-    let mut seed = [0u8; 32];
-    seed.copy_from_slice(svid.ed25519_seed.as_ref());
-    let sk = SigningKey::from_bytes(&seed);
-
-    let signature = sk.sign(message.as_bytes());
+    let signature = signing_key.sign(message.as_bytes());
     let sig_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.to_bytes());
 
     Ok(format!("{}.{}.{}", header_b64, payload_b64, sig_b64))
@@ -73,160 +68,189 @@ pub fn mint_dpop_proof(
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
-pub fn verify_dpop_proof(
-    proof: &str,
-    htm: &str,
-    htu: &str,
-    access_token: Option<&str>,
-    replay_cache: &dashmap::DashMap<String, i64>,
-) -> Result<(), IamError> {
-    let parts: Vec<&str> = proof.split('.').collect();
-    if parts.len() != 3 {
-        return Err(IamError::DpopValidationFailed(
-            "Invalid DPoP proof format".to_string(),
-        ));
+pub struct DpopVerifier {
+    replay_cache: dashmap::DashMap<String, i64>,
+    max_entries: usize,
+    max_clock_skew_secs: i64,
+}
+
+impl DpopVerifier {
+    pub fn new(max_entries: usize, max_clock_skew_secs: i64) -> Self {
+        Self {
+            replay_cache: dashmap::DashMap::new(),
+            max_entries,
+            max_clock_skew_secs,
+        }
     }
+}
 
-    let header_b64 = parts[0];
-    let payload_b64 = parts[1];
-    let sig_b64 = parts[2];
-
-    let header_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(header_b64)
-        .map_err(|_| IamError::DpopValidationFailed("Invalid header base64".to_string()))?;
-    let header: serde_json::Value = serde_json::from_slice(&header_bytes)
-        .map_err(|_| IamError::DpopValidationFailed("Invalid header JSON".to_string()))?;
-
-    if header.get("typ").and_then(|v| v.as_str()) != Some("dpop+jwt") {
-        return Err(IamError::DpopValidationFailed("Invalid typ".to_string()));
+impl Default for DpopVerifier {
+    fn default() -> Self {
+        Self::new(16_384, 60)
     }
+}
 
-    let jwk = header
-        .get("jwk")
-        .ok_or_else(|| IamError::DpopValidationFailed("Missing jwk".to_string()))?;
-    let crv = jwk.get("crv").and_then(|v| v.as_str());
-    if crv != Some("Ed25519") {
-        return Err(IamError::DpopValidationFailed(
-            "Unsupported crv".to_string(),
-        ));
-    }
+impl DpopVerifier {
+    pub fn verify_dpop_proof(
+        &self,
+        proof: &str,
+        htm: &str,
+        htu: &str,
+        access_token: Option<&str>,
+        now_secs: i64,
+    ) -> Result<[u8; 32], IamError> {
+        let parts: Vec<&str> = proof.split('.').collect();
+        if parts.len() != 3 {
+            return Err(IamError::DpopValidationFailed(
+                "Invalid DPoP proof format".to_string(),
+            ));
+        }
 
-    let x_b64 = jwk
-        .get("x")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| IamError::DpopValidationFailed("Missing x in jwk".to_string()))?;
-    let x_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(x_b64)
-        .map_err(|_| IamError::DpopValidationFailed("Invalid x base64".to_string()))?;
+        let header_b64 = parts[0];
+        let payload_b64 = parts[1];
+        let sig_b64 = parts[2];
 
-    let mut ed25519_pk = [0u8; 32];
-    if x_bytes.len() != 32 {
-        return Err(IamError::DpopValidationFailed(
-            "Invalid Ed25519 public key length".to_string(),
-        ));
-    }
-    ed25519_pk.copy_from_slice(&x_bytes);
+        let header_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(header_b64)
+            .map_err(|_| IamError::DpopValidationFailed("Invalid header base64".to_string()))?;
+        let header: serde_json::Value = serde_json::from_slice(&header_bytes)
+            .map_err(|_| IamError::DpopValidationFailed("Invalid header JSON".to_string()))?;
 
-    let message = format!("{}.{}", header_b64, payload_b64);
-    let sig_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(sig_b64)
-        .map_err(|_| IamError::DpopValidationFailed("Invalid signature base64".to_string()))?;
-    let ed_sig = Signature::from_slice(&sig_bytes)
-        .map_err(|_| IamError::DpopValidationFailed("Invalid Ed25519 signature".to_string()))?;
-    let ed_vk = VerifyingKey::from_bytes(&ed25519_pk)
-        .map_err(|_| IamError::DpopValidationFailed("Invalid Ed25519 public key".to_string()))?;
+        if header.get("typ").and_then(|v| v.as_str()) != Some("dpop+jwt") {
+            return Err(IamError::DpopValidationFailed("Invalid typ".to_string()));
+        }
 
-    ed_vk
-        .verify(message.as_bytes(), &ed_sig)
-        .map_err(|_| IamError::DpopValidationFailed("Signature verification failed".to_string()))?;
+        let jwk = header
+            .get("jwk")
+            .ok_or_else(|| IamError::DpopValidationFailed("Missing jwk".to_string()))?;
+        let crv = jwk.get("crv").and_then(|v| v.as_str());
+        if crv != Some("Ed25519") {
+            return Err(IamError::DpopValidationFailed(
+                "Unsupported crv".to_string(),
+            ));
+        }
 
-    let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload_b64)
-        .map_err(|_| IamError::DpopValidationFailed("Invalid payload base64".to_string()))?;
-    let payload: serde_json::Value = serde_json::from_slice(&payload_bytes)
-        .map_err(|_| IamError::DpopValidationFailed("Invalid payload JSON".to_string()))?;
-
-    let now = Utc::now().timestamp();
-    let iat = payload
-        .get("iat")
-        .and_then(|v| v.as_i64())
-        .ok_or_else(|| IamError::DpopValidationFailed("Missing iat".to_string()))?;
-    if (now - iat).abs() > 60 {
-        return Err(IamError::DpopValidationFailed(
-            "iat out of range".to_string(),
-        ));
-    }
-
-    let htm_payload = payload
-        .get("htm")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| IamError::DpopValidationFailed("Missing htm".to_string()))?;
-    if htm_payload != htm.to_uppercase() {
-        return Err(IamError::DpopValidationFailed("htm mismatch".to_string()));
-    }
-
-    let htu_payload = payload
-        .get("htu")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| IamError::DpopValidationFailed("Missing htu".to_string()))?;
-    let normalized_htu = if let Some(pos) = htu.find('?') {
-        &htu[..pos]
-    } else if let Some(pos) = htu.find('#') {
-        &htu[..pos]
-    } else {
-        htu
-    };
-    if htu_payload != normalized_htu {
-        return Err(IamError::DpopValidationFailed("htu mismatch".to_string()));
-    }
-
-    if let Some(at) = access_token {
-        let ath_payload = payload
-            .get("ath")
+        let x_b64 = jwk
+            .get("x")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| IamError::DpopValidationFailed("Missing ath".to_string()))?;
-        let mut hasher = Sha256::new();
-        hasher.update(at.as_bytes());
-        let expected_ath =
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize());
-        if ath_payload != expected_ath {
-            return Err(IamError::DpopValidationFailed("ath mismatch".to_string()));
+            .ok_or_else(|| IamError::DpopValidationFailed("Missing x in jwk".to_string()))?;
+        let x_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(x_b64)
+            .map_err(|_| IamError::DpopValidationFailed("Invalid x base64".to_string()))?;
+
+        let mut ed25519_pk = [0u8; 32];
+        if x_bytes.len() != 32 {
+            return Err(IamError::DpopValidationFailed(
+                "Invalid Ed25519 public key length".to_string(),
+            ));
         }
-    }
+        ed25519_pk.copy_from_slice(&x_bytes);
 
-    let jti = payload
-        .get("jti")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| IamError::DpopValidationFailed("Missing jti".to_string()))?;
+        let message = format!("{}.{}", header_b64, payload_b64);
+        let sig_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(sig_b64)
+            .map_err(|_| IamError::DpopValidationFailed("Invalid signature base64".to_string()))?;
+        let ed_sig = Signature::from_slice(&sig_bytes)
+            .map_err(|_| IamError::DpopValidationFailed("Invalid Ed25519 signature".to_string()))?;
+        let ed_vk = VerifyingKey::from_bytes(&ed25519_pk).map_err(|_| {
+            IamError::DpopValidationFailed("Invalid Ed25519 public key".to_string())
+        })?;
 
-    if replay_cache.len() > 1000 {
-        // Enforce bound by dropping expired entries. To avoid dropping arbitrary valid nonces,
-        // we collect expired keys in a separate pass.
-        let mut keys_to_remove = Vec::new();
-        for entry in replay_cache.iter() {
-            if (now - *entry.value()).abs() > 60 {
-                keys_to_remove.push(entry.key().clone());
+        ed_vk.verify(message.as_bytes(), &ed_sig).map_err(|_| {
+            IamError::DpopValidationFailed("Signature verification failed".to_string())
+        })?;
+
+        let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(payload_b64)
+            .map_err(|_| IamError::DpopValidationFailed("Invalid payload base64".to_string()))?;
+        let payload: serde_json::Value = serde_json::from_slice(&payload_bytes)
+            .map_err(|_| IamError::DpopValidationFailed("Invalid payload JSON".to_string()))?;
+
+        let iat = payload
+            .get("iat")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| IamError::DpopValidationFailed("Missing iat".to_string()))?;
+        if (now_secs - iat).abs() > self.max_clock_skew_secs {
+            return Err(IamError::DpopValidationFailed(
+                "iat out of range".to_string(),
+            ));
+        }
+
+        let htm_payload = payload
+            .get("htm")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| IamError::DpopValidationFailed("Missing htm".to_string()))?;
+        if htm_payload != htm.to_uppercase() {
+            return Err(IamError::DpopValidationFailed("htm mismatch".to_string()));
+        }
+
+        let htu_payload = payload
+            .get("htu")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| IamError::DpopValidationFailed("Missing htu".to_string()))?;
+        let normalized_htu = if let Some(pos) = htu.find('?') {
+            &htu[..pos]
+        } else if let Some(pos) = htu.find('#') {
+            &htu[..pos]
+        } else {
+            htu
+        };
+        if htu_payload != normalized_htu {
+            return Err(IamError::DpopValidationFailed("htu mismatch".to_string()));
+        }
+
+        if let Some(at) = access_token {
+            let ath_payload = payload
+                .get("ath")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| IamError::DpopValidationFailed("Missing ath".to_string()))?;
+            let mut hasher = Sha256::new();
+            hasher.update(at.as_bytes());
+            let expected_ath =
+                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize());
+            if ath_payload != expected_ath {
+                return Err(IamError::DpopValidationFailed("ath mismatch".to_string()));
             }
         }
-        for k in keys_to_remove {
-            replay_cache.remove(&k);
-        }
 
-        // If after pruning expired entries the cache is still somehow larger than 1000,
-        // it means we have >1000 valid DPoP tokens in a 60 second window.
-        // We will randomly drop to enforce the 1000 limit. (LRU would require a different data structure).
-        while replay_cache.len() > 1000 {
-            if let Some(k) = replay_cache.iter().next().map(|e| e.key().clone()) {
-                replay_cache.remove(&k);
-            } else {
-                break;
+        let jti = payload
+            .get("jti")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| IamError::DpopValidationFailed("Missing jti".to_string()))?;
+
+        if self.replay_cache.len() > self.max_entries {
+            // Enforce bound by dropping expired entries. To avoid dropping arbitrary valid nonces,
+            // we collect expired keys in a separate pass.
+            let mut keys_to_remove = Vec::new();
+            for entry in self.replay_cache.iter() {
+                if (now_secs - *entry.value()).abs() > self.max_clock_skew_secs {
+                    keys_to_remove.push(entry.key().clone());
+                }
+            }
+            for k in keys_to_remove {
+                self.replay_cache.remove(&k);
+            }
+
+            // If after pruning expired entries the cache is still somehow larger than 1000,
+            // it means we have >1000 valid DPoP tokens in a 60 second window.
+            // We will randomly drop to enforce the 1000 limit. (LRU would require a different data structure).
+            while self.replay_cache.len() > self.max_entries {
+                if let Some(k) = self.replay_cache.iter().next().map(|e| e.key().clone()) {
+                    self.replay_cache.remove(&k);
+                } else {
+                    break;
+                }
             }
         }
-    }
 
-    if replay_cache.insert(jti.to_string(), now).is_some() {
-        return Err(IamError::DpopReplayDetected(jti.to_string()));
-    }
+        if self
+            .replay_cache
+            .insert(jti.to_string(), now_secs)
+            .is_some()
+        {
+            return Err(IamError::DpopReplayDetected(jti.to_string()));
+        }
 
-    Ok(())
+        Ok(ed25519_pk)
+    }
 }

@@ -5,9 +5,9 @@ use async_trait::async_trait;
 use proptest::prelude::*;
 
 use profiles::budget_allocator::PromptTokenBudgetAllocator;
-use profiles::schema::{HarnessProfile, HarnessProfileOverride, parse_profile_key};
-use profiles::sigstore::{SigstoreVerifier, SigstoreBundle};
 use profiles::error::ProfileError;
+use profiles::schema::{HarnessProfile, HarnessProfileOverride, parse_profile_key};
+use profiles::sigstore::{SigstoreBundle, SigstoreVerifier};
 use runtime::middleware::AgentMiddleware;
 
 #[derive(Clone)]
@@ -28,10 +28,7 @@ fn test_parse_profile_key() {
         parse_profile_key("google_genai:gemini-3.1-pro:preview").unwrap(),
         ("google_genai", Some("gemini-3.1-pro:preview"))
     );
-    assert_eq!(
-        parse_profile_key("anthropic").unwrap(),
-        ("anthropic", None)
-    );
+    assert_eq!(parse_profile_key("anthropic").unwrap(), ("anthropic", None));
 }
 
 #[test]
@@ -42,20 +39,26 @@ fn test_merge_override_properties() {
         system_prompt_suffix: None,
         excluded_tools: BTreeSet::from(["tool_a".to_string()]),
         excluded_middleware: BTreeSet::from(["mw_a".to_string()]),
-        tool_description_overrides: BTreeMap::from([("tool_a".to_string(), "old_desc".to_string())]),
+        tool_description_overrides: BTreeMap::from([(
+            "tool_a".to_string(),
+            "old_desc".to_string(),
+        )]),
         extra_middleware: vec![
             Arc::new(DummyMiddleware { name: "mw_0" }),
             Arc::new(DummyMiddleware { name: "mw_1" }),
             Arc::new(DummyMiddleware { name: "mw_2" }),
         ],
         supported_media_kinds: None,
-        init_kwargs: BTreeMap::from([("key_a".to_string(), serde_json::Value::String("val_a".to_string()))]),
+        init_kwargs: BTreeMap::from([(
+            "key_a".to_string(),
+            serde_json::Value::String("val_a".to_string()),
+        )]),
         context_window_tokens: 1000,
         general_purpose_subagent: Some(Box::new(HarnessProfileOverride {
             excluded_tools: BTreeSet::from(["sub_tool_a".to_string()]),
             general_purpose_subagent: Some(Box::new(HarnessProfileOverride {
-                 excluded_tools: BTreeSet::from(["sub_sub_tool_a".to_string()]),
-                 ..Default::default()
+                excluded_tools: BTreeSet::from(["sub_sub_tool_a".to_string()]),
+                ..Default::default()
             })),
             ..Default::default()
         })),
@@ -66,19 +69,25 @@ fn test_merge_override_properties() {
         system_prompt_suffix: None,
         excluded_tools: BTreeSet::from(["tool_b".to_string()]),
         excluded_middleware: BTreeSet::from(["mw_b".to_string()]),
-        tool_description_overrides: BTreeMap::from([("tool_a".to_string(), "new_desc".to_string())]),
+        tool_description_overrides: BTreeMap::from([(
+            "tool_a".to_string(),
+            "new_desc".to_string(),
+        )]),
         extra_middleware: vec![
             Arc::new(DummyMiddleware { name: "mw_1" }),
             Arc::new(DummyMiddleware { name: "mw_3" }),
         ],
         supported_media_kinds: None,
-        init_kwargs: BTreeMap::from([("key_b".to_string(), serde_json::Value::String("val_b".to_string()))]),
+        init_kwargs: BTreeMap::from([(
+            "key_b".to_string(),
+            serde_json::Value::String("val_b".to_string()),
+        )]),
         context_window_tokens: None,
         general_purpose_subagent: Some(Box::new(HarnessProfileOverride {
             excluded_tools: BTreeSet::from(["sub_tool_b".to_string()]),
             general_purpose_subagent: Some(Box::new(HarnessProfileOverride {
-                 excluded_tools: BTreeSet::from(["sub_sub_tool_b".to_string()]),
-                 ..Default::default()
+                excluded_tools: BTreeSet::from(["sub_sub_tool_b".to_string()]),
+                ..Default::default()
             })),
             ..Default::default()
         })),
@@ -90,7 +99,10 @@ fn test_merge_override_properties() {
     assert!(base.excluded_tools.contains("tool_b"));
     assert!(base.excluded_middleware.contains("mw_a"));
     assert!(base.excluded_middleware.contains("mw_b"));
-    assert_eq!(base.tool_description_overrides.get("tool_a").unwrap(), "new_desc");
+    assert_eq!(
+        base.tool_description_overrides.get("tool_a").unwrap(),
+        "new_desc"
+    );
 
     assert_eq!(base.extra_middleware.len(), 4);
     assert_eq!(base.extra_middleware[0].name(), "mw_0");
@@ -98,8 +110,14 @@ fn test_merge_override_properties() {
     assert_eq!(base.extra_middleware[2].name(), "mw_2");
     assert_eq!(base.extra_middleware[3].name(), "mw_3");
 
-    assert_eq!(base.init_kwargs.get("key_a").unwrap().as_str().unwrap(), "val_a");
-    assert_eq!(base.init_kwargs.get("key_b").unwrap().as_str().unwrap(), "val_b");
+    assert_eq!(
+        base.init_kwargs.get("key_a").unwrap().as_str().unwrap(),
+        "val_a"
+    );
+    assert_eq!(
+        base.init_kwargs.get("key_b").unwrap().as_str().unwrap(),
+        "val_b"
+    );
 
     let subagent = base.general_purpose_subagent.as_ref().unwrap();
     assert!(subagent.excluded_tools.contains("sub_tool_a"));
@@ -125,8 +143,8 @@ proptest! {
 #[test]
 fn test_sigstore_verification() {
     use ed25519_dalek::SigningKey;
-    use rand_core::OsRng;
     use ml_dsa::Generate;
+    use rand_core::OsRng;
 
     let root_sk = SigningKey::generate(&mut OsRng);
     let leaf_sk = SigningKey::generate(&mut OsRng);
@@ -148,12 +166,16 @@ fn test_sigstore_verification() {
         &root_sk,
         &leaf_sk,
         Some(&pq_sk),
-    ).unwrap();
+    )
+    .unwrap();
 
     // Inject a sibling hash to be tampered with
     let mut bundle_obj: SigstoreBundle = serde_json::from_str(&bundle_str).unwrap();
-    bundle_obj.rekor_entry.inclusion_proof.hashes_hex.push(hex::encode([0x88; 32]));
-
+    bundle_obj
+        .rekor_entry
+        .inclusion_proof
+        .hashes_hex
+        .push(hex::encode([0x88; 32]));
 
     let root_vk = ed25519_dalek::VerifyingKey::from(&root_sk);
     let mut trusted_fulcio_root_pk = [0u8; 32];
@@ -174,13 +196,18 @@ fn test_sigstore_verification() {
         &root_sk,
         &leaf_sk,
         Some(&pq_sk),
-    ).unwrap();
-    let report = verifier.verify_bundle(&artifact_bytes, &bundle_str_base, true).unwrap();
+    )
+    .unwrap();
+    let report = verifier
+        .verify_bundle(&artifact_bytes, &bundle_str_base, true)
+        .unwrap();
     assert!(report.pq_verified);
 
     // Tamper artifact 1 byte
     artifact_bytes[0] ^= 1;
-    let err = verifier.verify_bundle(&artifact_bytes, &bundle_str_base, true).unwrap_err();
+    let err = verifier
+        .verify_bundle(&artifact_bytes, &bundle_str_base, true)
+        .unwrap_err();
     assert!(matches!(err, ProfileError::SigstoreDigestMismatch { .. }));
     artifact_bytes[0] ^= 1;
 
@@ -211,30 +238,58 @@ fn test_sigstore_verification() {
     bad_merkle_bundle.rekor_entry.inclusion_proof.log_index = 0;
 
     let valid_merkle_str = serde_json::to_string(&bad_merkle_bundle).unwrap();
-    let report = verifier.verify_bundle(&artifact_bytes, &valid_merkle_str, true).unwrap();
+    let report = verifier
+        .verify_bundle(&artifact_bytes, &valid_merkle_str, true)
+        .unwrap();
     assert!(report.pq_verified);
 
     // Tamper the single sibling hash
     let mut tampered_sibling = sibling_hash;
     tampered_sibling[0] ^= 1;
     bad_merkle_bundle.rekor_entry.inclusion_proof.hashes_hex = vec![hex::encode(tampered_sibling)];
-    let err = verifier.verify_bundle(&artifact_bytes, &serde_json::to_string(&bad_merkle_bundle).unwrap(), true).unwrap_err();
+    let err = verifier
+        .verify_bundle(
+            &artifact_bytes,
+            &serde_json::to_string(&bad_merkle_bundle).unwrap(),
+            true,
+        )
+        .unwrap_err();
     assert!(matches!(err, ProfileError::SigstoreMerkleProofInvalid(_)));
-
 
     let mut bundle_obj: SigstoreBundle = serde_json::from_str(&bundle_str_base).unwrap();
 
     // Tamper timestamp
     bundle_obj.rekor_entry.integrated_time = 3000;
-    let err = verifier.verify_bundle(&artifact_bytes, &serde_json::to_string(&bundle_obj).unwrap(), true).unwrap_err();
-    assert!(matches!(err, ProfileError::SigstoreTimestampOutOfRange { .. }));
+    let err = verifier
+        .verify_bundle(
+            &artifact_bytes,
+            &serde_json::to_string(&bundle_obj).unwrap(),
+            true,
+        )
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        ProfileError::SigstoreTimestampOutOfRange { .. }
+    ));
     bundle_obj.rekor_entry.integrated_time = 1500;
 
     // Missing ML-DSA
     bundle_obj.pq_signature_mldsa65_b64 = None;
-    let err = verifier.verify_bundle(&artifact_bytes, &serde_json::to_string(&bundle_obj).unwrap(), true).unwrap_err();
+    let err = verifier
+        .verify_bundle(
+            &artifact_bytes,
+            &serde_json::to_string(&bundle_obj).unwrap(),
+            true,
+        )
+        .unwrap_err();
     assert!(matches!(err, ProfileError::SigstoreMissingPqSignature));
 
-    let report_no_pq = verifier.verify_bundle(&artifact_bytes, &serde_json::to_string(&bundle_obj).unwrap(), false).unwrap();
+    let report_no_pq = verifier
+        .verify_bundle(
+            &artifact_bytes,
+            &serde_json::to_string(&bundle_obj).unwrap(),
+            false,
+        )
+        .unwrap();
     assert!(!report_no_pq.pq_verified);
 }

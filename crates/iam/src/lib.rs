@@ -60,8 +60,7 @@ pub trait IdentityManager: Send + Sync {
             exp,
             iat: now,
             jti: uuid::Uuid::now_v7().to_string(),
-            pq_pk_b64: base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .encode(&svid.mldsa65_pk),
+            pq_pk_b64: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&svid.mldsa65_pk),
             htm: None,
             htu: None,
         };
@@ -79,17 +78,26 @@ pub trait IdentityManager: Send + Sync {
         let svid = self
             .current_svid()
             .ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
-        crate::dpop::mint_dpop_proof(&svid, htm, htu, access_token)
+        let mut seed = [0u8; 32];
+        seed.copy_from_slice(svid.ed25519_seed.as_ref());
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+        crate::dpop::mint_dpop_proof(
+            &signing_key,
+            htm,
+            htu,
+            access_token,
+            chrono::Utc::now().timestamp(),
+        )
     }
     fn verify_dpop_proof(
         &self,
-        proof: &str,
-        htm: &str,
-        htu: &str,
-        access_token: Option<&str>,
-        replay_cache: &dashmap::DashMap<String, i64>,
+        _proof: &str,
+        _htm: &str,
+        _htu: &str,
+        _access_token: Option<&str>,
+        _replay_cache: &dashmap::DashMap<String, i64>,
     ) -> Result<(), IamError> {
-        crate::dpop::verify_dpop_proof(proof, htm, htu, access_token, replay_cache)
+        Err(IamError::NotImplemented)
     }
     fn request_scoped_tunnel_token(
         &self,

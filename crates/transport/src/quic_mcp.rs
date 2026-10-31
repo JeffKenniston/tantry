@@ -141,8 +141,17 @@ impl<I: IdentityManager> QuicMcpTransport<I> {
             .mint_jwt_svid(&[audience.to_string()], 300)
             .map_err(|e| TransportError::Internal(format!("Failed to mint JWT: {:?}", e)))?;
 
-        let proof = iam::dpop::mint_dpop_proof(&svid, method, url, Some(&jwt))
-            .map_err(|e| TransportError::Internal(format!("Failed to mint DPoP: {:?}", e)))?;
+        let mut seed = [0u8; 32];
+        seed.copy_from_slice(svid.ed25519_seed.as_ref());
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+        let proof = iam::dpop::mint_dpop_proof(
+            &signing_key,
+            method,
+            url,
+            Some(&jwt),
+            chrono::Utc::now().timestamp(),
+        )
+        .map_err(|e| TransportError::Internal(format!("Failed to mint DPoP: {:?}", e)))?;
 
         Ok((proof, jwt))
     }

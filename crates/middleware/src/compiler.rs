@@ -1,7 +1,7 @@
-use runtime::middleware::{AgentMiddleware, NextModelCall, TurnExecutionContext};
 use runtime::error::RuntimeError;
-use std::sync::Arc;
+use runtime::middleware::{AgentMiddleware, NextModelCall, TurnExecutionContext};
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 pub const SLOT1_IDENTITY_AND_BUDGET: &str = "IdentityAndBudgetMiddleware";
 pub const SLOT2_TODO_LIST: &str = "TodoListMiddleware";
@@ -31,7 +31,9 @@ impl MiddlewarePipelineCompiler {
         if excluded_middleware.contains(SLOT3_FILESYSTEM) {
             return Err(RuntimeError::MiddlewareError {
                 slot_name: SLOT3_FILESYSTEM.to_string(),
-                reason: "Mandatory scaffolding middleware 'FilesystemMiddleware' cannot be excluded".to_string(),
+                reason:
+                    "Mandatory scaffolding middleware 'FilesystemMiddleware' cannot be excluded"
+                        .to_string(),
             });
         }
 
@@ -66,15 +68,16 @@ impl MiddlewarePipelineCompiler {
 
         let compiled: Vec<Arc<dyn AgentMiddleware>> = zone1
             .into_iter()
-            .chain(zone2.into_iter())
-            .chain(zone3.into_iter())
+            .chain(zone2)
+            .chain(zone3)
             .filter(|m| !excluded_middleware.contains(m.name()))
             .collect();
 
         if !compiled.iter().any(|m| m.name() == SLOT3_FILESYSTEM) {
             return Err(RuntimeError::MiddlewareError {
                 slot_name: SLOT3_FILESYSTEM.to_string(),
-                reason: "Mandatory 'FilesystemMiddleware' is missing from compiled pipeline".to_string(),
+                reason: "Mandatory 'FilesystemMiddleware' is missing from compiled pipeline"
+                    .to_string(),
             });
         }
 

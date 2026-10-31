@@ -8,7 +8,7 @@ use iam::tunnel_grant::ScopedTunnelRegistry;
 use ml_dsa::MlDsa65;
 use ml_dsa::pkcs8::{EncodePrivateKey, EncodePublicKey};
 use ml_dsa::signature::Keypair;
-use rand_core::{RngCore, OsRng};
+use rand_core::{OsRng, RngCore};
 
 fn mint_dummy_svid_for_test(spiffe_id_str: &str) -> WorkloadSvid {
     let mut secret = [0u8; 32];
@@ -92,53 +92,61 @@ fn test_dpop_proof_verification_and_replay_rejection() {
 
     let svid = mint_dummy_svid_for_test("spiffe://example.org/agent/agent1/task/task1");
 
+    let mut seed = [0u8; 32];
+    seed.copy_from_slice(svid.ed25519_seed.as_ref());
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
     let proof = iam::dpop::mint_dpop_proof(
-        &svid,
+        &signing_key,
         "POST",
         "https://api.example.com/data?query=1",
         Some("token123"),
+        chrono::Utc::now().timestamp(),
     )
     .unwrap();
 
-    let cache = dashmap::DashMap::new();
+    let verifier = iam::dpop::DpopVerifier::default();
     assert!(
-        iam::dpop::verify_dpop_proof(
-            &proof,
-            "POST",
-            "https://api.example.com/data",
-            Some("token123"),
-            &cache
-        )
-        .is_ok()
+        verifier
+            .verify_dpop_proof(
+                &proof,
+                "POST",
+                "https://api.example.com/data",
+                Some("token123"),
+                chrono::Utc::now().timestamp(),
+            )
+            .is_ok()
     );
 
     assert!(
-        iam::dpop::verify_dpop_proof(
-            &proof,
-            "POST",
-            "https://api.example.com/data",
-            Some("token123"),
-            &cache
-        )
-        .is_err()
+        verifier
+            .verify_dpop_proof(
+                &proof,
+                "POST",
+                "https://api.example.com/data",
+                Some("token123"),
+                chrono::Utc::now().timestamp(),
+            )
+            .is_err()
     );
 
     let proof2 = iam::dpop::mint_dpop_proof(
-        &svid,
+        &signing_key,
         "GET",
         "https://api.example.com/data",
         Some("token123"),
+        chrono::Utc::now().timestamp(),
     )
     .unwrap();
     assert!(
-        iam::dpop::verify_dpop_proof(
-            &proof2,
-            "POST",
-            "https://api.example.com/data",
-            Some("token123"),
-            &cache
-        )
-        .is_err()
+        verifier
+            .verify_dpop_proof(
+                &proof2,
+                "POST",
+                "https://api.example.com/data",
+                Some("token123"),
+                chrono::Utc::now().timestamp(),
+            )
+            .is_err()
     );
 }
 
