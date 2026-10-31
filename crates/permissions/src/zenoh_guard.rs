@@ -15,11 +15,7 @@ pub enum ZenohAction {
 /// - Subagents (`spiffe://{td}/agent/{a}/task/{tid}/subagent/{s}/task/{child_tid}`)
 ///   can ONLY publish to `.../events` and `.../state`, and can ONLY subscribe to `.../cmd`.
 pub fn evaluate_zenoh_topic(svid: &SpiffeId, action: ZenohAction, topic: &str) -> PermissionMode {
-    if topic.contains("..")
-        || topic.contains('\0')
-        || topic.starts_with('/')
-        || topic.ends_with('/')
-    {
+    if topic.contains("..") || topic.contains('\0') || topic.starts_with('/') || topic.ends_with('/') {
         return PermissionMode::Deny;
     }
 
@@ -71,14 +67,8 @@ pub fn evaluate_zenoh_topic(svid: &SpiffeId, action: ZenohAction, topic: &str) -
         PermissionMode::Deny
     } else {
         if action == ZenohAction::Publish {
-            let events_path = format!(
-                "tantry/{}/subagents/{}/tasks/{}/events",
-                td, sub_s, child_tid
-            );
-            let state_path = format!(
-                "tantry/{}/subagents/{}/tasks/{}/state",
-                td, sub_s, child_tid
-            );
+            let events_path = format!("tantry/{}/subagents/{}/tasks/{}/events", td, sub_s, child_tid);
+            let state_path = format!("tantry/{}/subagents/{}/tasks/{}/state", td, sub_s, child_tid);
             if topic == events_path || topic == state_path {
                 return PermissionMode::Allow;
             }
