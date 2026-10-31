@@ -434,8 +434,7 @@ impl TantryConfig {
             .into());
         }
 
-        if !(0.80..=0.999).contains(&config.cognitive.semantic_cache_similarity_threshold)
-        {
+        if !(0.80..=0.999).contains(&config.cognitive.semantic_cache_similarity_threshold) {
             return Err(ConfigValidationError::InvalidSimilarityThreshold(
                 config.cognitive.semantic_cache_similarity_threshold,
             )
@@ -467,7 +466,9 @@ impl TantryConfig {
             .into());
         }
 
-        if !(0.0 < config.billing.soft_warning_ratio && config.billing.soft_warning_ratio < config.billing.hard_stop_ratio && config.billing.hard_stop_ratio <= 1.0)
+        if !(0.0 < config.billing.soft_warning_ratio
+            && config.billing.soft_warning_ratio < config.billing.hard_stop_ratio
+            && config.billing.hard_stop_ratio <= 1.0)
         {
             return Err(ConfigValidationError::InvalidBudgetRatios {
                 soft: config.billing.soft_warning_ratio,
@@ -499,7 +500,8 @@ impl TantryConfig {
         config.sandboxes.max_workers = platform.effective_max_workers(config.sandboxes.max_workers);
 
         #[allow(clippy::manual_is_multiple_of)]
-        if config.sandboxes.wasm.max_memory_bytes < 65536 || config.sandboxes.wasm.max_memory_bytes % 65536 != 0
+        if config.sandboxes.wasm.max_memory_bytes < 65536
+            || config.sandboxes.wasm.max_memory_bytes % 65536 != 0
         {
             return Err(ConfigValidationError::InvalidWasmMemoryBytes(
                 config.sandboxes.wasm.max_memory_bytes,

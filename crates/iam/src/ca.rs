@@ -1,6 +1,6 @@
 use crate::error::IamError;
 use base64::Engine as _;
-use rand_core::{RngCore, OsRng};
+use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;

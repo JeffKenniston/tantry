@@ -1,9 +1,9 @@
 use crate::error::IamError;
-use crate::spiffe::SpiffeId;
 use crate::pq_ext::PqExtensionPayload;
+use crate::spiffe::SpiffeId;
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
-use chrono::Utc;
 
 #[derive(Clone, Debug)]
 pub struct WorkloadSvid {
@@ -44,8 +44,6 @@ pub fn verify_svid_chain(
         .verify(cert.tbs_certificate.as_ref(), &ed_sig)
         .map_err(|_| IamError::Ed25519VerificationFailed)?;
 
-
-
     // We already have pq_extension parsed inside the svid for easy access but let's recompute the pre_tbs digest
     let serial_be = cert.tbs_certificate.raw_serial();
     let issuer_dn = cert.tbs_certificate.issuer.to_string();
@@ -54,7 +52,11 @@ pub fn verify_svid_chain(
     let not_before_s = cert.tbs_certificate.validity.not_before.timestamp();
     let not_after_s = cert.tbs_certificate.validity.not_after.timestamp();
 
-    let is_ca = cert.tbs_certificate.basic_constraints().map(|bc| bc.unwrap().value.ca).unwrap_or(false);
+    let is_ca = cert
+        .tbs_certificate
+        .basic_constraints()
+        .map(|bc| bc.unwrap().value.ca)
+        .unwrap_or(false);
 
     let expected_digest = crate::pq_ext::compute_pre_tbs_pq_digest(
         serial_be,
@@ -70,17 +72,15 @@ pub fn verify_svid_chain(
     // Get the pq extension bytes from cert
     let mut pq_ext = None;
     for ext in cert.tbs_certificate.extensions() {
-        if ext.oid == x509_parser::oid_registry::Oid::from(crate::pq_ext::PQ_MDSA65_EXT_OID).unwrap() {
+        if ext.oid
+            == x509_parser::oid_registry::Oid::from(crate::pq_ext::PQ_MDSA65_EXT_OID).unwrap()
+        {
             pq_ext = Some(ext);
         }
     }
     let ext = pq_ext.ok_or(IamError::PqSignatureVerificationFailed)?;
 
-    crate::pq_ext::verify_pq_custom_extension(
-        ext.value,
-        &expected_digest,
-        issuer_mldsa65_pk,
-    )?;
+    crate::pq_ext::verify_pq_custom_extension(ext.value, &expected_digest, issuer_mldsa65_pk)?;
 
     Ok(())
 }
@@ -115,8 +115,8 @@ pub struct JwtSvidClaims {
 }
 
 use base64::Engine as _;
-use ed25519_dalek::{Signer, SigningKey};
 use ed25519_dalek::pkcs8::DecodePrivateKey;
+use ed25519_dalek::{Signer, SigningKey};
 use ml_dsa::MlDsa65;
 use ml_dsa::SignatureEncoding;
 use serde_json::json;
@@ -133,18 +133,18 @@ pub fn mint_hybrid_jwt_svid(
 
     let claims_json = serde_json::to_string(claims)
         .map_err(|e| IamError::CertificateGenerationError(e.to_string()))?;
-    let claims_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims_json.as_bytes());
+    let claims_b64 =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims_json.as_bytes());
 
     let mut pq_hasher = blake3::Hasher::new();
     pq_hasher.update(b"tantry:jwt-pq-sig:v3");
     pq_hasher.update(claims_json.as_bytes());
     let claims_digest = pq_hasher.finalize();
 
-    let ml_sk =
-        ml_dsa::SigningKey::<MlDsa65>::from_pkcs8_der(svid.mldsa65_sk_bytes.as_ref())
-            .map_err(|_| {
-                IamError::CertificateGenerationError("invalid mldsa65 secret key".to_string())
-            })?;
+    let ml_sk = ml_dsa::SigningKey::<MlDsa65>::from_pkcs8_der(svid.mldsa65_sk_bytes.as_ref())
+        .map_err(|_| {
+            IamError::CertificateGenerationError("invalid mldsa65 secret key".to_string())
+        })?;
 
     let pq_sig = ml_sk.sign(claims_digest.as_bytes());
     let pq_sig_bytes = pq_sig.to_bytes();
@@ -164,7 +164,8 @@ pub fn mint_hybrid_jwt_svid(
 
     let header_json = serde_json::to_string(&header)
         .map_err(|e| IamError::CertificateGenerationError(e.to_string()))?;
-    let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(header_json.as_bytes());
+    let header_b64 =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(header_json.as_bytes());
 
     let message = format!("{}.{}", header_b64, claims_b64);
 

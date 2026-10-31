@@ -118,13 +118,7 @@ impl crate::IdentityManager for SpireSocketIdentityManager {
     #[allow(clippy::collapsible_if)]
     fn verify_audit_sth(&self, sth: &crate::ca::AuditSthSignature) -> Result<(), IamError> {
         if let Some(svid) = self.current_svid() {
-            if crate::ca::verify_audit_sth(
-                sth,
-                &svid.ed25519_pk,
-                &svid.mldsa65_pk,
-            )
-            .is_ok()
-            {
+            if crate::ca::verify_audit_sth(sth, &svid.ed25519_pk, &svid.mldsa65_pk).is_ok() {
                 return Ok(());
             }
         }
@@ -136,13 +130,7 @@ impl crate::IdentityManager for SpireSocketIdentityManager {
         };
 
         for svid in history.iter().rev() {
-            if crate::ca::verify_audit_sth(
-                sth,
-                &svid.ed25519_pk,
-                &svid.mldsa65_pk,
-            )
-            .is_ok()
-            {
+            if crate::ca::verify_audit_sth(sth, &svid.ed25519_pk, &svid.mldsa65_pk).is_ok() {
                 return Ok(());
             }
         }

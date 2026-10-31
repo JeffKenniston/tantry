@@ -44,7 +44,11 @@ impl SpiffeId {
             ));
         }
 
-        let path_to_split = if path.starts_with('/') { &path[1..] } else { path };
+        let path_to_split = if let Some(stripped) = path.strip_prefix('/') {
+            stripped
+        } else {
+            path
+        };
         let segments: Vec<&str> = path_to_split.split('/').collect();
 
         if segments.len() < 4 || segments[0] != "agent" || segments[2] != "task" {
@@ -53,9 +57,11 @@ impl SpiffeId {
             ));
         }
 
+        #[allow(clippy::manual_is_multiple_of)]
         if segments.len() % 4 != 0 {
             return Err(IamError::InvalidSpiffeId(
-                "Path must only contain root agent and pairs of /subagent/{name}/task/{id}".to_string(),
+                "Path must only contain root agent and pairs of /subagent/{name}/task/{id}"
+                    .to_string(),
             ));
         }
 
@@ -77,10 +83,16 @@ impl SpiffeId {
             }
         }
 
-        Ok(Self { uri: uri_str.to_string() })
+        Ok(Self {
+            uri: uri_str.to_string(),
+        })
     }
 
-    pub fn new_root_agent(trust_domain: &str, agent_name: &str, task_id: &str) -> Result<Self, IamError> {
+    pub fn new_root_agent(
+        trust_domain: &str,
+        agent_name: &str,
+        task_id: &str,
+    ) -> Result<Self, IamError> {
         let uri = format!("spiffe://{trust_domain}/agent/{agent_name}/task/{task_id}");
         Self::parse(&uri)
     }
@@ -91,7 +103,9 @@ impl SpiffeId {
         child_task_id: &str,
     ) -> Result<Self, IamError> {
         if subagent_name.is_empty() || child_task_id.is_empty() {
-            return Err(IamError::InvalidSpiffeId("subagent_name or child_task_id is empty".to_string()));
+            return Err(IamError::InvalidSpiffeId(
+                "subagent_name or child_task_id is empty".to_string(),
+            ));
         }
         for segment in [subagent_name, child_task_id] {
             if segment.contains('/') || segment.contains('.') || segment == ".." {
@@ -106,7 +120,10 @@ impl SpiffeId {
             base_str.pop();
         }
 
-        let new_uri = format!("{}/subagent/{}/task/{}", base_str, subagent_name, child_task_id);
+        let new_uri = format!(
+            "{}/subagent/{}/task/{}",
+            base_str, subagent_name, child_task_id
+        );
         let expected_prefix = format!("{}/subagent/", base_str);
 
         let child = Self::parse(&new_uri)?;
@@ -122,7 +139,11 @@ impl SpiffeId {
     }
 
     pub fn verify_attenuation(&self, child: &SpiffeId) -> Result<(), IamError> {
-        if child.trust_domain() == self.trust_domain() && child.uri().starts_with(&format!("{}/subagent/", self.uri())) {
+        if child.trust_domain() == self.trust_domain()
+            && child
+                .uri()
+                .starts_with(&format!("{}/subagent/", self.uri()))
+        {
             Ok(())
         } else {
             Err(IamError::HierarchyViolation {

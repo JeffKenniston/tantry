@@ -209,6 +209,7 @@ impl StateExtensionMap {
     pub fn fork_shared_only(&self) -> Self {
         let mut inner = FastTypeMap::default();
         for (k, v) in &self.inner {
+            #[allow(clippy::collapsible_if)]
             if v.visibility() == SlotVisibility::Shared {
                 if let Some(shared) = v.clone_shared_only() {
                     inner.insert(*k, shared);

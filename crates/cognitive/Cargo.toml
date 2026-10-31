@@ -19,3 +19,5 @@ uuid = { version = "1.29.0", features = ["v7"] }
 base64 = "0.23.1"
 iam = { path = "../iam" }
 futures = "0.3.34"
+ed25519-dalek = "3.0.0"
+chrono = "0.4"

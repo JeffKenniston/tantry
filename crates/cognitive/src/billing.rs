@@ -164,8 +164,8 @@ impl BudgetLeaseGuard {
                     };
 
                     use base64::Engine;
-                    let pq_pk_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                        .encode(&svid.mldsa65_pk);
+                    let pq_pk_b64 =
+                        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&svid.mldsa65_pk);
                     let jti = uuid::Uuid::now_v7().to_string();
 
                     let claims = JwtSvidClaims {
@@ -185,8 +185,16 @@ impl BudgetLeaseGuard {
                         // For simplicity in this implementation, we re-use the minting logic for DPoP with a different audience/subject or specific claims
                         // Since DPoP proof is a JWT, we will mint a second JWT for the DPoP header
                         // Use iam's DPoP proof minting
-                        if let Ok(dpop_proof) = iam::dpop::mint_dpop_proof(svid, "POST", url, None)
-                        {
+                        let mut seed = [0u8; 32];
+                        seed.copy_from_slice(svid.ed25519_seed.as_ref());
+                        let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+                        if let Ok(dpop_proof) = iam::dpop::mint_dpop_proof(
+                            &signing_key,
+                            "POST",
+                            url,
+                            None,
+                            chrono::Utc::now().timestamp(),
+                        ) {
                             if let Ok(client) = reqwest::blocking::Client::builder()
                                 .timeout(std::time::Duration::from_millis(webhook_timeout_ms))
                                 .build()

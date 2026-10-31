@@ -4,8 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub const PQ_MDSA65_EXT_OID: &[u64] = &[1, 3, 6, 1, 4, 1, 99999, 1, 204];
 
-#[derive(Serialize, Deserialize)]
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PqExtensionPayload {
     pub subject_mldsa65_pk: Vec<u8>,
     pub issuer_mldsa65_sig: Vec<u8>,
@@ -76,9 +75,8 @@ pub fn verify_pq_custom_extension(
     use ml_dsa::MlDsa65;
     use ml_dsa::signature::Verifier;
 
-    let payload: PqExtensionPayload = rmp_serde::from_slice(encoded_payload).map_err(|_| {
-        IamError::PqSignatureVerificationFailed
-    })?;
+    let payload: PqExtensionPayload = rmp_serde::from_slice(encoded_payload)
+        .map_err(|_| IamError::PqSignatureVerificationFailed)?;
 
     if payload.subject_mldsa65_pk.len() != 1952 {
         return Err(IamError::PqSignatureVerificationFailed);
@@ -101,9 +99,11 @@ pub fn verify_pq_custom_extension(
 
     let mut sig_arr = [0u8; 3309];
     sig_arr.copy_from_slice(&payload.issuer_mldsa65_sig);
-    let sig = ml_dsa::Signature::<MlDsa65>::decode((&sig_arr).into()).ok_or(IamError::PqSignatureVerificationFailed)?;
+    let sig = ml_dsa::Signature::<MlDsa65>::decode((&sig_arr).into())
+        .ok_or(IamError::PqSignatureVerificationFailed)?;
 
-    vk.verify(expected_pre_tbs_digest, &sig).map_err(|_| IamError::PqSignatureVerificationFailed)?;
+    vk.verify(expected_pre_tbs_digest, &sig)
+        .map_err(|_| IamError::PqSignatureVerificationFailed)?;
 
     Ok(payload)
 }

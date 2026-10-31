@@ -119,7 +119,7 @@ impl RuntimePlatform {
     pub fn effective_max_workers(&self, configured: usize) -> usize {
         match self {
             RuntimePlatform::LinuxStandard => configured.max(1),
-            RuntimePlatform::AndroidTermux { .. } => configured.max(1).min(8),
+            RuntimePlatform::AndroidTermux { .. } => configured.clamp(1, 8),
         }
     }
 
@@ -127,7 +127,7 @@ impl RuntimePlatform {
     pub fn effective_rayon_threads(&self, num_cpus: usize) -> usize {
         match self {
             RuntimePlatform::LinuxStandard => num_cpus.max(1),
-            RuntimePlatform::AndroidTermux { .. } => num_cpus.max(1).min(4),
+            RuntimePlatform::AndroidTermux { .. } => num_cpus.clamp(1, 4),
         }
     }
 }
