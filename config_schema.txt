@@ -1,0 +1,4 @@
+Declarative System Configuration Schema (`config.toml`)
+
+| Section & Key | Type | Default Value | Validation Invariant / Constraint |
+| :
