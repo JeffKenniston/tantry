@@ -12,8 +12,8 @@ fn test_attenuation() {
     let p1 = PermissionLattice {
         fs: FsCapability::new(vec![], PermissionMode::Allow).unwrap(),
         net: NetCapability::new(PermissionMode::Allow, vec![]).unwrap(),
-        env: EnvCapability::new(vec![], vec![]).unwrap(),
-        mcp: McpCapability::new(PermissionMode::Allow, 1000, 1000, vec![]).unwrap(),
+        env: EnvCapability::compile(vec![], std::collections::BTreeSet::new(), PermissionMode::Allow).unwrap(),
+        mcp: McpCapability::new(PermissionMode::Allow, 1000, vec![]).unwrap(),
         interrupt_on_tools: i1,
     };
 
@@ -22,13 +22,13 @@ fn test_attenuation() {
     let p2 = PermissionLattice {
         fs: FsCapability::new(vec![], PermissionMode::Allow).unwrap(),
         net: NetCapability::new(PermissionMode::Allow, vec![]).unwrap(),
-        env: EnvCapability::new(vec![], vec![]).unwrap(),
-        mcp: McpCapability::new(PermissionMode::Allow, 500, 500, vec![]).unwrap(),
+        env: EnvCapability::compile(vec![], std::collections::BTreeSet::new(), PermissionMode::Allow).unwrap(),
+        mcp: McpCapability::new(PermissionMode::Allow, 500, vec![]).unwrap(),
         interrupt_on_tools: i2,
     };
 
     let child = p1.narrow_for_subagent(&p2);
-    assert_eq!(child.mcp.max_spend_micros(), 500);
+    assert_eq!(child.mcp.effective_max_spend_micros_per_call, 500);
     assert_eq!(
         *child.interrupt_on_tools.get("tool1").unwrap(),
         PermissionMode::Deny

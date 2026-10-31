@@ -1,11 +1,9 @@
 use crate::glob_dfa::{CompiledFsAutomaton, FsOperation, FsPolicyRule};
 use crate::lattice::PermissionMode;
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use iam::spiffe::SpiffeId;
 use iam::ScopedTunnelRegistry;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::sync::Arc;
 
 /// Represents a filesystem capability.
 #[derive(Debug, Clone)]
@@ -168,108 +166,118 @@ impl NetCapability {
     }
 }
 
-/// Environment automaton.
+pub const MANDATORY_SECRET_DENY_PATTERNS: &[&str] = &[
+    "*KEY*",
+    "*TOKEN*",
+    "*SECRET*",
+    "*PASSWORD*",
+    "*CREDENTIAL*",
+    "*PRIVATE*",
+    "*BEARER*",
+];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvPolicyRule {
+    pub var_glob: String,
+    pub mode: PermissionMode,
+}
+
 #[derive(Debug, Clone)]
-pub struct EnvAutomaton {
-    /// Globs for allowed variables.
-    pub allow_globs: GlobSet,
-    /// Exact names for allowed overrides.
-    pub exact_allow_overrides: Vec<String>,
-    /// Globs for denying secret variables.
-    pub secret_deny_globset: GlobSet,
+pub struct CompiledEnvLayer {
+    pub glob_set: GlobSet,
+    pub rules: Vec<EnvPolicyRule>,
+    pub default_mode: PermissionMode,
 }
 
 /// Represents an environment capability.
 #[derive(Debug, Clone)]
-pub enum EnvCapability {
-    /// A base environment capability.
-    Base(Arc<EnvAutomaton>),
-    /// A composite environment capability.
-    Composite {
-        /// Parent capability.
-        parent: Arc<EnvCapability>,
-        /// Child capability.
-        child: Arc<EnvCapability>,
-    },
+pub struct EnvCapability {
+    pub secret_deny_globset: GlobSet,
+    pub explicit_secret_allowlist: std::collections::BTreeSet<String>,
+    pub layers: smallvec::SmallVec<[CompiledEnvLayer; 2]>,
 }
 
 impl EnvCapability {
-    /// Creates a new base environment capability.
-    pub fn new(
-        allow_globs: Vec<String>,
-        exact_allow_overrides: Vec<String>,
+    pub fn compile(
+        rules: Vec<EnvPolicyRule>,
+        explicit_secret_allowlist: std::collections::BTreeSet<String>,
+        default_mode: PermissionMode,
     ) -> Result<Self, globset::Error> {
-        let mut builder = GlobSetBuilder::new();
-        for glob in &allow_globs {
-            builder.add(Glob::new(glob)?);
-        }
-        let allow_globset = builder.build()?;
-
-        let secrets = [
-            "*KEY*",
-            "*TOKEN*",
-            "*SECRET*",
-            "*PASSWORD*",
-            "*CREDENTIAL*",
-            "*PRIVATE*",
-            "*BEARER*",
-        ];
         let mut secret_builder = GlobSetBuilder::new();
-        for secret in secrets {
-            secret_builder.add(Glob::new(secret)?);
+        for &pat in MANDATORY_SECRET_DENY_PATTERNS {
+            secret_builder.add(GlobBuilder::new(pat).case_insensitive(true).build()?);
         }
         let secret_deny_globset = secret_builder.build()?;
 
-        Ok(Self::Base(Arc::new(EnvAutomaton {
-            allow_globs: allow_globset,
-            exact_allow_overrides,
+        let mut builder = GlobSetBuilder::new();
+        for rule in &rules {
+            builder.add(Glob::new(&rule.var_glob)?);
+        }
+        let glob_set = builder.build()?;
+
+        let layer = CompiledEnvLayer {
+            glob_set,
+            rules,
+            default_mode,
+        };
+
+        let mut layers = smallvec::SmallVec::new();
+        layers.push(layer);
+
+        Ok(Self {
             secret_deny_globset,
-        })))
+            explicit_secret_allowlist,
+            layers,
+        })
     }
 
-    /// Scrubs host environment variables. For composites, variables must be allowed by both.
-    pub fn scrub_host_env<I>(&self, host_vars: I) -> BTreeMap<String, String>
+    pub fn evaluate_var(&self, var_name: &str) -> PermissionMode {
+        if var_name.is_empty() {
+            return PermissionMode::Deny;
+        }
+
+        if self.secret_deny_globset.is_match(var_name) {
+            if !self.explicit_secret_allowlist.contains(var_name) {
+                return PermissionMode::Deny;
+            }
+        }
+
+        self.layers.iter().fold(PermissionMode::Allow, |acc, layer| {
+            let matches = layer.glob_set.matches(var_name);
+            let layer_mode = if matches.is_empty() {
+                layer.default_mode
+            } else {
+                matches.into_iter().map(|idx| layer.rules[idx].mode).fold(PermissionMode::Allow, |acc_rule, mode| acc_rule.join(mode))
+            };
+            acc.join(layer_mode)
+        })
+    }
+
+    pub fn scrub_host_env<I, K, V>(&self, host_vars: I) -> std::collections::BTreeMap<String, String>
     where
-        I: IntoIterator<Item = (String, String)>,
+        I: IntoIterator<Item = (K, V)>,
+        K: AsRef<str>,
+        V: Into<String>,
     {
-        match self {
-            Self::Base(automaton) => {
-                let mut env = BTreeMap::new();
-                for (k, v) in host_vars {
-                    let is_exact_override = automaton
-                        .exact_allow_overrides
-                        .iter()
-                        .any(|allowed| allowed.eq_ignore_ascii_case(&k));
+        host_vars
+            .into_iter()
+            .filter(|(k, _)| self.evaluate_var(k.as_ref()) == PermissionMode::Allow)
+            .map(|(k, v)| (k.as_ref().to_owned(), v.into()))
+            .collect()
+    }
 
-                    if is_exact_override {
-                        env.insert(k, v);
-                        continue;
-                    }
-
-                    let uppercase_k = k.to_uppercase();
-                    if automaton.secret_deny_globset.is_match(&uppercase_k) {
-                        continue;
-                    }
-
-                    if automaton.allow_globs.is_match(&k) {
-                        env.insert(k, v);
-                    }
-                }
-                env
-            }
-            Self::Composite { parent, child } => {
-                let host_vars: Vec<(String, String)> = host_vars.into_iter().collect();
-                let p_env = parent.scrub_host_env(host_vars.clone());
-                let c_env = child.scrub_host_env(host_vars);
-
-                let mut final_env = BTreeMap::new();
-                for (k, v) in p_env {
-                    if c_env.contains_key(&k) {
-                        final_env.insert(k, v);
-                    }
-                }
-                final_env
-            }
+    pub fn narrow(&self, child: &EnvCapability) -> EnvCapability {
+        let mut layers = self.layers.clone();
+        layers.extend(child.layers.iter().cloned());
+        let explicit_secret_allowlist = self
+            .explicit_secret_allowlist
+            .intersection(&child.explicit_secret_allowlist)
+            .cloned()
+            .collect();
+        EnvCapability {
+            secret_deny_globset: self.secret_deny_globset.clone(),
+            explicit_secret_allowlist,
+            layers,
         }
     }
 }
@@ -285,74 +293,24 @@ pub struct McpPolicyRule {
     pub mode: PermissionMode,
 }
 
-/// MCP automaton.
 #[derive(Debug, Clone)]
-pub struct McpAutomaton {
-    /// Default evaluation mode.
-    pub default_mode: PermissionMode,
-    /// Rules.
-    pub rules: Vec<McpPolicyRule>,
-    /// Precompiled glob set.
+pub struct CompiledMcpLayer {
     pub glob_set: GlobSet,
+    pub rules: Vec<McpPolicyRule>,
+    pub default_mode: PermissionMode,
 }
 
 /// Represents an MCP capability.
 #[derive(Debug, Clone)]
-pub enum McpCapability {
-    /// A base MCP capability.
-    Base {
-        /// Base max spend micros.
-        max_spend_micros: u64,
-        /// Effective max spend micros.
-        effective_max_spend_micros: u64,
-        /// Automaton.
-        automaton: Arc<McpAutomaton>,
-    },
-    /// A composite MCP capability.
-    Composite {
-        /// Parent capability.
-        parent: Arc<McpCapability>,
-        /// Child capability.
-        child: Arc<McpCapability>,
-        /// Max spend micros.
-        max_spend_micros: u64,
-        /// Effective max spend micros.
-        effective_max_spend_micros: u64,
-    },
+pub struct McpCapability {
+    pub layers: smallvec::SmallVec<[CompiledMcpLayer; 2]>,
+    pub effective_max_spend_micros_per_call: u64,
 }
 
 impl McpCapability {
-    /// Returns the maximum spend in microseconds.
-    /// Returns the effective maximum spend in microseconds.
-    pub fn effective_max_spend_micros(&self) -> u64 {
-        match self {
-            Self::Base {
-                effective_max_spend_micros,
-                ..
-            } => *effective_max_spend_micros,
-            Self::Composite {
-                effective_max_spend_micros,
-                ..
-            } => *effective_max_spend_micros,
-        }
-    }
-
-    pub fn max_spend_micros(&self) -> u64 {
-        match self {
-            Self::Base {
-                max_spend_micros, ..
-            } => *max_spend_micros,
-            Self::Composite {
-                max_spend_micros, ..
-            } => *max_spend_micros,
-        }
-    }
-
-    /// Creates a new MCP capability.
     pub fn new(
         default_mode: PermissionMode,
-        max_spend_micros: u64,
-        effective_max_spend_micros: u64,
+        effective_max_spend_micros_per_call: u64,
         rules: Vec<McpPolicyRule>,
     ) -> Result<Self, globset::Error> {
         let mut builder = GlobSetBuilder::new();
@@ -361,67 +319,50 @@ impl McpCapability {
         }
         let glob_set = builder.build()?;
 
-        Ok(Self::Base {
-            max_spend_micros,
-            effective_max_spend_micros,
-            automaton: Arc::new(McpAutomaton {
-                default_mode,
-                rules,
-                glob_set,
-            }),
+        let layer = CompiledMcpLayer {
+            glob_set,
+            rules,
+            default_mode,
+        };
+
+        let mut layers = smallvec::SmallVec::new();
+        layers.push(layer);
+
+        Ok(Self {
+            layers,
+            effective_max_spend_micros_per_call,
         })
     }
 
-    /// Evaluates an MCP call pointwise.
-    pub fn evaluate_mcp_call(
+    pub fn evaluate_call(
         &self,
         server_name: &str,
         tool_name: &str,
         estimated_spend_micros: u64,
     ) -> PermissionMode {
-        match self {
-            Self::Base {
-                effective_max_spend_micros,
-                automaton,
-                ..
-            } => {
-                if estimated_spend_micros > *effective_max_spend_micros {
-                    return PermissionMode::Deny;
-                }
+        if estimated_spend_micros > self.effective_max_spend_micros_per_call {
+            return PermissionMode::Deny;
+        }
+        let call_target = format!("{server_name}:{tool_name}");
+        self.layers.iter().fold(PermissionMode::Allow, |acc, layer| {
+            let matches = layer.glob_set.matches(&call_target);
+            let layer_mode = if matches.is_empty() {
+                layer.default_mode
+            } else {
+                matches.into_iter().map(|idx| layer.rules[idx].mode).fold(PermissionMode::Allow, |acc_rule, mode| acc_rule.join(mode))
+            };
+            acc.join(layer_mode)
+        })
+    }
 
-                let query = format!("{}:{}", server_name, tool_name);
-                let matches = automaton.glob_set.matches(&query);
-
-                if matches.is_empty() {
-                    return automaton.default_mode;
-                }
-
-                let mut final_mode: Option<PermissionMode> = None;
-
-                for &rule_idx in &matches {
-                    let rule = &automaton.rules[rule_idx];
-                    let m = rule.mode;
-                    final_mode = Some(match final_mode {
-                        None => m,
-                        Some(existing) => existing.join(m),
-                    });
-                }
-
-                final_mode.unwrap_or(automaton.default_mode)
-            }
-            Self::Composite {
-                parent,
-                child,
-                effective_max_spend_micros,
-                ..
-            } => {
-                if estimated_spend_micros > *effective_max_spend_micros {
-                    return PermissionMode::Deny;
-                }
-                parent
-                    .evaluate_mcp_call(server_name, tool_name, estimated_spend_micros)
-                    .join(child.evaluate_mcp_call(server_name, tool_name, estimated_spend_micros))
-            }
+    pub fn narrow(&self, child: &McpCapability) -> McpCapability {
+        let mut layers = self.layers.clone();
+        layers.extend(child.layers.iter().cloned());
+        McpCapability {
+            layers,
+            effective_max_spend_micros_per_call: self
+                .effective_max_spend_micros_per_call
+                .min(child.effective_max_spend_micros_per_call),
         }
     }
 }
