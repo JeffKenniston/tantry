@@ -1,4 +1,4 @@
-use crate::glob_dfa::{CompiledFsAutomaton, FsOperation};
+use crate::glob_dfa::{CompiledFsAutomaton, FsOperation, FsPolicyRule};
 use crate::lattice::PermissionMode;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use iam::spiffe::SpiffeId;
@@ -9,27 +9,37 @@ use std::sync::Arc;
 
 /// Represents a filesystem capability.
 #[derive(Debug, Clone)]
-pub enum FsCapability {
-    /// A base capability wrapping a compiled automaton.
-    Base(Arc<CompiledFsAutomaton>),
-    /// A composite capability combining parent and child.
-    Composite {
-        /// Parent capability.
-        parent: Arc<FsCapability>,
-        /// Child capability.
-        child: Arc<FsCapability>,
-    },
+pub struct FsCapability {
+    pub layers: smallvec::SmallVec<[CompiledFsAutomaton; 2]>,
 }
 
 impl FsCapability {
-    /// Evaluates the filesystem operation pointwise.
+    pub fn new(rules: Vec<FsPolicyRule>, default_mode: PermissionMode) -> Result<Self, globset::Error> {
+        let automaton = CompiledFsAutomaton::compile(rules, default_mode)?;
+        let mut layers = smallvec::SmallVec::new();
+        layers.push(automaton);
+        Ok(Self { layers })
+    }
+
     pub fn evaluate(&self, svid: &SpiffeId, op: FsOperation, raw_path: &str) -> PermissionMode {
-        match self {
-            Self::Base(automaton) => automaton.evaluate(svid, op, raw_path),
-            Self::Composite { parent, child } => parent
-                .evaluate(svid, op, raw_path)
-                .join(child.evaluate(svid, op, raw_path)),
+        let norm_path = match base::path::validate_and_normalize_path(raw_path) {
+            Ok(p) => p,
+            Err(_) => return PermissionMode::Deny,
+        };
+
+        if self.layers.is_empty() {
+            return PermissionMode::Deny;
         }
+
+        self.layers.iter().fold(PermissionMode::Allow, |acc, layer| {
+            acc.join(layer.evaluate_normalized(svid, op, &norm_path))
+        })
+    }
+
+    pub fn narrow(&self, child: &FsCapability) -> FsCapability {
+        let mut new_layers = self.layers.clone();
+        new_layers.extend(child.layers.iter().cloned());
+        FsCapability { layers: new_layers }
     }
 }
 
@@ -46,51 +56,80 @@ pub struct NetPolicyRule {
     pub mode: PermissionMode,
 }
 
-/// Network automaton.
 #[derive(Debug, Clone)]
-pub struct NetAutomaton {
-    /// Default evaluation mode.
-    pub default_mode: PermissionMode,
-    /// Network rules.
-    pub rules: Vec<NetPolicyRule>,
-    /// Precompiled glob set.
+pub struct CompiledNetLayer {
     pub glob_set: GlobSet,
+    pub rules: Vec<NetPolicyRule>,
+    pub default_mode: PermissionMode,
 }
 
-/// Represents a network capability.
-#[derive(Debug, Clone)]
-pub enum NetCapability {
-    /// A base network capability.
-    Base(Arc<NetAutomaton>),
-    /// A composite capability.
-    Composite {
-        /// Parent capability.
-        parent: Arc<NetCapability>,
-        /// Child capability.
-        child: Arc<NetCapability>,
-    },
-}
-
-impl NetCapability {
-    /// Creates a new network capability from rules.
-    pub fn new(
-        default_mode: PermissionMode,
-        rules: Vec<NetPolicyRule>,
-    ) -> Result<Self, globset::Error> {
+impl CompiledNetLayer {
+    pub fn compile(rules: Vec<NetPolicyRule>, default_mode: PermissionMode) -> Result<Self, globset::Error> {
         let mut builder = GlobSetBuilder::new();
         for rule in &rules {
             builder.add(Glob::new(&rule.domain_glob)?);
         }
         let glob_set = builder.build()?;
-
-        Ok(Self::Base(Arc::new(NetAutomaton {
-            default_mode,
-            rules,
+        Ok(Self {
             glob_set,
-        })))
+            rules,
+            default_mode,
+        })
     }
 
-    /// Evaluates network egress constraints pointwise.
+    pub fn evaluate_target(&self, norm_host: &str, port: u16, method: Option<&str>) -> (PermissionMode, bool) {
+        let matches = self.glob_set.matches(norm_host);
+
+        let mut has_explicit_deny = false;
+        let mut has_matches = false;
+
+        let final_mode = matches.into_iter().filter_map(|rule_idx| {
+            let rule = &self.rules[rule_idx];
+
+            let port_match = rule.allowed_ports.is_empty()
+                || rule.allowed_ports.iter().any(|&(start, end)| port >= start && port <= end);
+
+            let method_match = rule.allowed_methods.is_empty()
+                || method.map_or(false, |m| rule.allowed_methods.iter().any(|allowed| allowed.eq_ignore_ascii_case(m)));
+
+            if port_match && method_match {
+                if rule.mode == PermissionMode::Deny {
+                    has_explicit_deny = true;
+                }
+                Some(rule.mode)
+            } else {
+                None
+            }
+        }).fold(PermissionMode::Allow, |acc, mode| {
+            has_matches = true;
+            acc.join(mode)
+        });
+
+        if !has_matches {
+            (self.default_mode, false)
+        } else {
+            (final_mode, has_explicit_deny)
+        }
+    }
+}
+
+/// Represents a network capability.
+#[derive(Debug, Clone)]
+pub struct NetCapability {
+    pub layers: smallvec::SmallVec<[CompiledNetLayer; 2]>,
+}
+
+impl NetCapability {
+    pub fn new(
+        default_mode: PermissionMode,
+        rules: Vec<NetPolicyRule>,
+    ) -> Result<Self, globset::Error> {
+        let layer = CompiledNetLayer::compile(rules, default_mode)?;
+        let mut layers = smallvec::SmallVec::new();
+        layers.push(layer);
+        Ok(Self { layers })
+    }
+
     pub fn evaluate_egress(
         &self,
         host: &str,
@@ -99,60 +138,33 @@ impl NetCapability {
         tunnel_registry: Option<&ScopedTunnelRegistry>,
         now_ms: i64,
     ) -> PermissionMode {
-        match self {
-            Self::Base(automaton) => {
-                let matches = automaton.glob_set.matches(host);
-                let mut host_has_deny = false;
-                let mut final_mode: Option<PermissionMode> = None;
+        let norm_host = host.trim().to_lowercase();
+        let norm_host = norm_host.strip_suffix('.').unwrap_or(norm_host.as_str());
 
-                for &rule_idx in &matches {
-                    let rule = &automaton.rules[rule_idx];
-                    if rule.mode == PermissionMode::Deny {
-                        host_has_deny = true;
-                    }
-
-                    let port_match = rule.allowed_ports.is_empty()
-                        || rule
-                            .allowed_ports
-                            .iter()
-                            .any(|&(start, end)| port >= start && port <= end);
-
-                    let method_match = rule.allowed_methods.is_empty()
-                        || match method {
-                            Some(m) => rule
-                                .allowed_methods
-                                .iter()
-                                .any(|allowed| allowed.eq_ignore_ascii_case(m)),
-                            None => true,
-                        };
-
-                    if port_match && method_match {
-                        let m = rule.mode;
-                        final_mode = Some(match final_mode {
-                            None => m,
-                            Some(existing) => existing.join(m),
-                        });
-                    }
-                }
-
-                if tunnel_registry.is_some_and(|r| r.is_service_active(host, now_ms)) {
-                    if host_has_deny {
-                        return PermissionMode::Deny;
-                    } else {
-                        return PermissionMode::Allow;
-                    }
-                }
-
-                if matches.is_empty() {
-                    automaton.default_mode
-                } else {
-                    final_mode.unwrap_or(automaton.default_mode)
-                }
-            }
-            Self::Composite { parent, child } => parent
-                .evaluate_egress(host, port, method, tunnel_registry, now_ms)
-                .join(child.evaluate_egress(host, port, method, tunnel_registry, now_ms)),
+        if norm_host.is_empty() || norm_host.contains('/') || norm_host.contains('\\') || norm_host.contains(|c: char| c.is_whitespace() || c.is_ascii_control()) {
+            return PermissionMode::Deny;
         }
+
+        let mut layer_modes = smallvec::SmallVec::<[PermissionMode; 2]>::new();
+        for layer in &self.layers {
+            let (mode, has_explicit_deny) = layer.evaluate_target(norm_host, port, method);
+            if has_explicit_deny {
+                return PermissionMode::Deny;
+            }
+            layer_modes.push(mode);
+        }
+
+        if tunnel_registry.is_some_and(|r| r.is_service_active(norm_host, now_ms)) {
+            return PermissionMode::Allow;
+        }
+
+        layer_modes.into_iter().fold(PermissionMode::Allow, |acc, mode| acc.join(mode))
+    }
+
+    pub fn narrow(&self, child: &NetCapability) -> NetCapability {
+        let mut new_layers = self.layers.clone();
+        new_layers.extend(child.layers.iter().cloned());
+        NetCapability { layers: new_layers }
     }
 }
 
