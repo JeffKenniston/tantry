@@ -7,48 +7,35 @@ pub enum ZenohAction {
     Subscribe,
 }
 
-/// Evaluates whether a given Zenoh key expression is permitted for a given SPIFFE ID.
-///
-/// Ensures compliance with strict Zenoh topic structure:
-/// - Rejects `..`, `\0`, or leading/trailing slashes.
-/// - Root agents (`spiffe://{td}/agent/{a}/task/{tid}`) can access `tantry/{td}/**`.
-/// - Subagents (`spiffe://{td}/agent/{a}/task/{tid}/subagent/{s}/task/{child_tid}`)
-///   can ONLY publish to `.../events` and `.../state`, and can ONLY subscribe to `.../cmd`.
 pub fn evaluate_zenoh_topic(svid: &SpiffeId, action: ZenohAction, topic: &str) -> PermissionMode {
-    if topic.contains("..") || topic.contains('\0') || topic.starts_with('/') || topic.ends_with('/') {
+    if topic.is_empty() || topic.starts_with('/') || topic.ends_with('/') {
+        return PermissionMode::Deny;
+    }
+    if topic.contains("//") || topic.contains("..") || topic.contains('\0') || topic.contains('\\') || topic.contains('*') || topic.contains('?') || topic.contains('$') {
         return PermissionMode::Deny;
     }
 
     let uri = svid.uri();
-
-    // Parse spiffe://{td}/agent/{a}/task/{tid} or subagent
-    // First, strip spiffe://
     if !uri.starts_with("spiffe://") {
         return PermissionMode::Deny;
     }
 
     let without_scheme = &uri["spiffe://".len()..];
     let mut parts = without_scheme.split('/');
-
     let td = match parts.next() {
         Some(t) => t,
         None => return PermissionMode::Deny,
     };
 
-    // root agent: spiffe://{td}/agent/{a}/task/{tid}
-    // subagent: spiffe://{td}/agent/{a}/task/{tid}/subagent/{s}/task/{child_tid}
-
+    let remaining: Vec<&str> = parts.collect();
     let is_subagent;
     let mut sub_s = "";
     let mut child_tid = "";
 
-    let remaining: Vec<&str> = parts.collect();
     if remaining.len() >= 4 && remaining[0] == "agent" && remaining[2] == "task" {
         if remaining.len() == 4 {
-            // Root agent
             is_subagent = false;
         } else if remaining.len() == 8 && remaining[4] == "subagent" && remaining[6] == "task" {
-            // Subagent
             is_subagent = true;
             sub_s = remaining[5];
             child_tid = remaining[7];
