@@ -11,7 +11,7 @@ use tokio::time::{Duration, sleep};
 pub struct SpireSocketIdentityManager {
     socket_path: PathBuf,
     active_svid: Arc<RwLock<Option<WorkloadSvid>>>,
-    historical_svids: Arc<RwLock<VecDeque<WorkloadSvid>>>,
+    historical_svids: Arc<RwLock<VecDeque<([u8; 32], Vec<u8>)>>>,
     rotation_watcher: watch::Receiver<()>,
     key_hierarchy: Arc<crate::key_hierarchy::KeyHierarchy>,
 }
@@ -63,7 +63,7 @@ impl SpireSocketIdentityManager {
                     if history.len() >= 16 {
                         history.pop_front();
                     }
-                    history.push_back(svid);
+                    history.push_back((svid.ed25519_pk, svid.mldsa65_pk));
                 }
 
                 let _ = tx.send(());
@@ -129,8 +129,8 @@ impl crate::IdentityManager for SpireSocketIdentityManager {
             return Err(IamError::SpireSocketUnavailable("No active svid".into()));
         };
 
-        for svid in history.iter().rev() {
-            if crate::ca::verify_audit_sth(sth, &svid.ed25519_pk, &svid.mldsa65_pk).is_ok() {
+        for (ed_pk, ml_pk) in history.iter().rev() {
+            if crate::ca::verify_audit_sth(sth, ed_pk, ml_pk).is_ok() {
                 return Ok(());
             }
         }

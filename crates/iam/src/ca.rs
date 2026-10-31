@@ -221,7 +221,7 @@ pub fn acquire_or_init_master_key(data_dir: &Path) -> Result<Zeroizing<[u8; 32]>
     Ok(Zeroizing::new(new_key))
 }
 
-pub fn compute_sth_digest(
+pub fn compute_audit_sth_digest(
     tree_size: u64,
     timestamp_ms: i64,
     mmr_root_blake3: &[u8; 32],
@@ -241,7 +241,7 @@ pub fn sign_audit_sth(
     ed25519_pkcs8_der: &[u8],
     mldsa65_signing_key_bytes: &[u8],
 ) -> Result<AuditSthSignature, IamError> {
-    let digest = compute_sth_digest(tree_size, timestamp_ms, &mmr_root_blake3);
+    let digest = compute_audit_sth_digest(tree_size, timestamp_ms, &mmr_root_blake3);
 
     use ed25519_dalek::pkcs8::DecodePrivateKey;
     use ed25519_dalek::{Signer, SigningKey};
@@ -274,7 +274,7 @@ pub fn verify_audit_sth(
     ed25519_public_key: &[u8; 32],
     mldsa65_verifying_key_bytes: &[u8],
 ) -> Result<(), IamError> {
-    let digest = compute_sth_digest(sth.tree_size, sth.timestamp_ms, &sth.mmr_root_blake3);
+    let digest = compute_audit_sth_digest(sth.tree_size, sth.timestamp_ms, &sth.mmr_root_blake3);
 
     use ed25519_dalek::{Signature, Verifier, VerifyingKey};
     let ed_vk = VerifyingKey::from_bytes(ed25519_public_key)
