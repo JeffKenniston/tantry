@@ -103,16 +103,15 @@ impl tantry::runtime::tunnel::Host for WasmHostState {
     ) -> Result<String, String> {
         let _state = self.state.lock().unwrap();
 
-        let svid = match self.identity_manager.current_svid() {
-            Some(s) => s,
-            None => return Err("No SVID".to_string()),
-        };
+        if self.identity_manager.current_svid().is_none() {
+            return Err("No SVID".to_string());
+        }
 
         let grant = self
             .tunnel_registry
-            .issue_grant(ttl_secs as i64, &service, &svid)
+            .request_scoped_tunnel_token(&service, ttl_secs as u64, chrono::Utc::now().timestamp_millis())
             .map_err(|e| e.to_string())?;
-        Ok(grant.token)
+        Ok(serde_json::to_string(&grant).unwrap_or_default())
     }
 }
 

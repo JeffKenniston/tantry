@@ -113,8 +113,8 @@ async fn test_quic_fallback() {
         }
         fn verify_scoped_tunnel_token(
             &self,
-            _token: &str,
-        ) -> Result<iam::ScopedTunnelGrant, iam::error::IamError> {
+            _token: &iam::ScopedTunnelToken,
+        ) -> Result<iam::ScopedTunnelToken, iam::error::IamError> {
             unimplemented!()
         }
         fn verify_audit_sth(
@@ -189,8 +189,8 @@ async fn test_mcp_headers_and_dpop() {
         }
         fn verify_scoped_tunnel_token(
             &self,
-            _token: &str,
-        ) -> Result<iam::ScopedTunnelGrant, iam::error::IamError> {
+            _token: &iam::ScopedTunnelToken,
+        ) -> Result<iam::ScopedTunnelToken, iam::error::IamError> {
             unimplemented!()
         }
         fn verify_audit_sth(
@@ -254,8 +254,8 @@ async fn test_mcp_sampling_create_message_recursion_limit() {
         }
         fn verify_scoped_tunnel_token(
             &self,
-            _token: &str,
-        ) -> Result<iam::ScopedTunnelGrant, iam::error::IamError> {
+            _token: &iam::ScopedTunnelToken,
+        ) -> Result<iam::ScopedTunnelToken, iam::error::IamError> {
             unimplemented!()
         }
         fn verify_audit_sth(

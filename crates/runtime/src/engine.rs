@@ -1073,7 +1073,7 @@ pub async fn execute_single_tool(
                 .unwrap_or(3600);
             match ctx.iam.request_scoped_tunnel_token(service_name, ttl_secs) {
                 Ok(grant) => {
-                    let output = serde_json::to_string_pretty(&grant.token).unwrap_or_default();
+                    let output = serde_json::to_string_pretty(&grant).unwrap_or_default();
                     Ok(ToolExecutionOutput {
                         raw_output: output,
                         is_error: false,
