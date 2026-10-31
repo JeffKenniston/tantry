@@ -2968,6 +2968,7 @@ dependencies = [
  "iam",
  "proptest",
  "serde",
+ "smallvec",
  "thiserror 1.0.69",
  "url",
 ]

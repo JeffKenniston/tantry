@@ -21,6 +21,9 @@ rust-version = "1.85"
 publish = false
 
 [workspace.dependencies]
+base = { path = "crates/base" }
+iam = { path = "crates/iam" }
+permissions = { path = "crates/permissions" }
 rpds = "1.1"
 quinn = "0.11.12"
 quinn-proto = ">=0.11.18"
