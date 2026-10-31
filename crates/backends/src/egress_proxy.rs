@@ -29,7 +29,7 @@ impl EgressProxy {
 
     /// Evaluates whether a connection to the given hostname should be permitted
     pub fn evaluate_connection(&self, hostname: &str, now_ms: i64) -> Result<(), BackendError> {
-        let normalized = ScopedTunnelRegistry::normalize_host(hostname);
+        let normalized = iam::normalize_service_authority(hostname).unwrap_or_else(|_| hostname.to_string());
 
         if self.allowlisted_mirrors.iter().any(|m| m == &normalized) {
             return Ok(());

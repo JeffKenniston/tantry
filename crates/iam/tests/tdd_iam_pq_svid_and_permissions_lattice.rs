@@ -160,10 +160,10 @@ async fn test_scoped_tunnel_registry_host_matching() {
     let svid = mint_dummy_svid_for_test("spiffe://example.org/agent/agent1/task/task1");
 
     let registry = ScopedTunnelRegistry::new();
-    let grant = registry.issue_grant(3600, "api.stripe.com", &svid).unwrap();
+    let grant = registry.request_scoped_tunnel_token("api.stripe.com", 3600, chrono::Utc::now().timestamp_millis()).unwrap();
 
     assert_eq!(
-        ScopedTunnelRegistry::normalize_host("https://api.stripe.com:443"),
+        iam::normalize_service_authority("https://api.stripe.com:443").unwrap(),
         "api.stripe.com"
     );
     assert!(
@@ -203,12 +203,13 @@ async fn test_scoped_tunnel_registry_host_matching() {
         }
     }
 
-    let verifier = DummyVerifier { svid };
+    let _verifier = DummyVerifier { svid };
 
-    let verified_grant = registry
-        .verify_token(&grant.token, &verifier, Utc::now().timestamp_millis())
+    let _verified_grant = registry
+        .verify_scoped_tunnel_token(&grant, chrono::Utc::now().timestamp_millis())
         .unwrap();
-    assert_eq!(verified_grant.service_name, "api.stripe.com");
+    // verified_grant returns nothing now
+    assert_eq!(grant.service_name, "api.stripe.com");
 }
 
 #[test]

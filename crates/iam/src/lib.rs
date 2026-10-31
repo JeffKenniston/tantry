@@ -103,10 +103,10 @@ pub trait IdentityManager: Send + Sync {
         &self,
         _service_name: &str,
         _ttl_secs: i64,
-    ) -> Result<ScopedTunnelGrant, IamError> {
+    ) -> Result<ScopedTunnelToken, IamError> {
         Err(IamError::NotImplemented)
     }
-    fn verify_scoped_tunnel_token(&self, _token: &str) -> Result<ScopedTunnelGrant, IamError> {
+    fn verify_scoped_tunnel_token(&self, _token: &ScopedTunnelToken) -> Result<ScopedTunnelToken, IamError> {
         Err(IamError::NotImplemented)
     }
     fn is_service_tunnel_active(&self, _host_or_authority: &str) -> bool {
@@ -200,20 +200,13 @@ impl IdentityManager for DualModeIdentityProvider {
         &self,
         service_name: &str,
         ttl_secs: i64,
-    ) -> Result<ScopedTunnelGrant, IamError> {
-        let svid = self
-            .current_svid()
-            .ok_or_else(|| IamError::SpireSocketUnavailable("No active svid".into()))?;
-        self.registry.issue_grant(
-            ttl_secs,
-            &ScopedTunnelRegistry::normalize_host(service_name),
-            &svid,
-        )
+    ) -> Result<ScopedTunnelToken, IamError> {
+        self.registry.request_scoped_tunnel_token(service_name, ttl_secs as u64, chrono::Utc::now().timestamp_millis())
     }
 
-    fn verify_scoped_tunnel_token(&self, token: &str) -> Result<ScopedTunnelGrant, IamError> {
-        self.registry
-            .verify_token(token, self, chrono::Utc::now().timestamp_millis())
+    fn verify_scoped_tunnel_token(&self, token: &ScopedTunnelToken) -> Result<ScopedTunnelToken, IamError> {
+        self.registry.verify_scoped_tunnel_token(token, chrono::Utc::now().timestamp_millis())?;
+        Ok(token.clone())
     }
 
     fn is_service_tunnel_active(&self, host_or_authority: &str) -> bool {

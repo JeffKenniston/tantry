@@ -116,7 +116,7 @@ impl IdentityManager for DummyIam {
         &self,
         _service_name: &str,
         _ttl_secs: i64,
-    ) -> Result<iam::tunnel_grant::ScopedTunnelGrant, iam::error::IamError> {
+    ) -> Result<iam::ScopedTunnelToken, iam::error::IamError> {
         unimplemented!()
     }
 }
