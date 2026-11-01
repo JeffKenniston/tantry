@@ -88,7 +88,7 @@ impl CompiledNetLayer {
                 || rule.allowed_ports.iter().any(|&(start, end)| port >= start && port <= end);
 
             let method_match = rule.allowed_methods.is_empty()
-                || method.map_or(false, |m| rule.allowed_methods.iter().any(|allowed| allowed.eq_ignore_ascii_case(m)));
+                || method.is_some_and(|m| rule.allowed_methods.iter().any(|allowed| allowed.eq_ignore_ascii_case(m)));
 
             if port_match && method_match {
                 if rule.mode == PermissionMode::Deny {
@@ -236,10 +236,9 @@ impl EnvCapability {
             return PermissionMode::Deny;
         }
 
-        if self.secret_deny_globset.is_match(var_name) {
-            if !self.explicit_secret_allowlist.contains(var_name) {
+        if self.secret_deny_globset.is_match(var_name)
+            && !self.explicit_secret_allowlist.contains(var_name) {
                 return PermissionMode::Deny;
-            }
         }
 
         self.layers.iter().fold(PermissionMode::Allow, |acc, layer| {
