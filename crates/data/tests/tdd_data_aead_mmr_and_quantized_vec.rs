@@ -11,19 +11,21 @@ fn test_writer_first_dbhandle() {
     let tmp = std::env::temp_dir().join("test_writer.sqlite");
     let _ = std::fs::remove_file(&tmp);
     let ddl = "CREATE TABLE test(id INTEGER PRIMARY KEY);";
-    let db = DbHandle::new(tmp.to_str().unwrap(), ddl).expect("DbHandle new");
+    let db = DbHandle::open(tmp.to_str().unwrap(), 4, &base::platform::RuntimePlatform::LinuxStandard, |conn| { conn.execute_batch(ddl)?; Ok(()) }).expect("DbHandle new");
 
     // Writer initialized
-    let conn = db.writer.lock().unwrap();
+    let conn = db.writer.lock();
     let mode: String = conn
-        .pragma_query_value(None, "journal_mode", |r| r.get(0))
+        .pragma_query_value(None, "journal_mode", |r: &rusqlite::Row| r.get(0))
         .unwrap();
     assert_eq!(mode.to_lowercase(), "wal");
 
     // Can open reader
-    let reader = db.get_reader().unwrap();
-    let mut stmt = reader.prepare("SELECT * FROM test").unwrap();
-    let _ = stmt.query([]).unwrap();
+    db.with_reader(|reader| {
+        let mut stmt = reader.prepare("SELECT * FROM test").unwrap();
+        let _ = stmt.query([]).unwrap();
+        Ok(())
+    }).unwrap();
 }
 
 #[test]
@@ -41,7 +43,7 @@ fn test_checkpoint_encryption() {
     // Swapping blobs (using wrong AAD) fails canonical AAD verification 100% of the time
     let wrong_aad = compute_canonical_aad("test", "pk2", "thread1", 1);
     let result = decrypt_envelope(&encrypted, &dek, &wrong_aad);
-    assert!(matches!(result, Err(DataError::AadMismatch)));
+    assert!(matches!(result, Err(DataError::AeadDecryptionFailed { .. })));
 }
 
 #[test]
@@ -49,9 +51,9 @@ fn test_crypto_shred_thread() {
     let tmp = std::env::temp_dir().join("test_shred.sqlite");
     let _ = std::fs::remove_file(&tmp);
     let ddl = "CREATE TABLE key_epochs (thread_id TEXT, key_epoch INTEGER, epoch_salt BLOB, thread_salt BLOB, shredded INTEGER);";
-    let db = DbHandle::new(tmp.to_str().unwrap(), ddl).unwrap();
+    let db = DbHandle::open(tmp.to_str().unwrap(), 4, &base::platform::RuntimePlatform::LinuxStandard, |conn| { conn.execute_batch(ddl)?; Ok(()) }).unwrap();
 
-    let mut writer = db.writer.lock().unwrap();
+    let mut writer = db.writer.lock();
     let thread_id = "shred_thread";
 
     // Provision
@@ -63,7 +65,7 @@ fn test_crypto_shred_thread() {
 
     // Attempting to read after shredding should fail
     let result = get_or_provision_key_epoch(&writer, thread_id, 1);
-    assert!(matches!(result, Err(DataError::CryptoShredded(id)) if id == thread_id));
+    assert!(matches!(result, Err(DataError::KeyEpochShredded { thread_id, .. }) if thread_id == thread_id));
 }
 
 struct MockIdentityManager;
@@ -104,7 +106,7 @@ fn test_audit_mmr() {
     let sth = mmr.record_signed_tree_head(&iam).unwrap();
     assert_eq!(sth.tree_size, 1000);
 
-    let w = mmr.db.lock().unwrap();
+    let w = mmr.db.lock();
     w.execute("INSERT INTO audit_signed_tree_heads (tree_size, timestamp_ms, mmr_root_blake3, ed25519_sig, mldsa65_sig) VALUES (?1, ?2, ?3, ?4, ?5)",
               rusqlite::params![sth.tree_size as i64, sth.timestamp_ms, sth.mmr_root_blake3.as_slice(), sth.ed25519_sig.as_slice(), sth.mldsa65_sig.as_slice()]).unwrap();
     drop(w);
@@ -120,7 +122,7 @@ fn test_audit_mmr() {
     assert!(mmr.verify_all_chain_and_sths(&iam).is_ok());
 
     // Tamper test
-    let w = mmr.db.lock().unwrap();
+    let w = mmr.db.lock();
     w.execute(
         "UPDATE audit_log SET payload_json = '{\"tampered\": true}' WHERE seq_no = 500",
         [],

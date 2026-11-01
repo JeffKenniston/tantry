@@ -166,7 +166,7 @@ impl SemanticCache {
         let encrypted = data::crypto::encrypt_envelope_xchacha20(&plaintext, dek, aad)
             .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
 
-        let conn = self.store.db.lock().unwrap();
+        let conn = self.store.db.lock();
         conn.execute(
             "CREATE TABLE IF NOT EXISTS semantic_cache_payloads (
                 id TEXT PRIMARY KEY,
@@ -215,7 +215,7 @@ impl SemanticCache {
         dek: &[u8; 32],
         expected_aad: &[u8; 32],
     ) -> Result<Option<Vec<Message>>, crate::error::CognitiveError> {
-        let conn = self.store.db.lock().unwrap();
+        let conn = self.store.db.lock();
 
         // Ensure the table exists before querying.
         conn.execute(

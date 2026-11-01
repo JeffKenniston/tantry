@@ -12,6 +12,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Computes the canonical 32-byte BLAKE3 hash used as Additional Authenticated Data (AAD) to cryptographically bind rows to their thread and epoch.
+
+pub enum AeadCipherSuite {
+    XChaCha20Poly1305,
+    Aes256GcmSiv,
+}
+
 pub fn compute_canonical_aad(
     table_name: &str,
     primary_key: &str,
