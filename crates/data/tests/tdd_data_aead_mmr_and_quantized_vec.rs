@@ -34,7 +34,7 @@ fn test_checkpoint_encryption() {
     let aad = compute_canonical_aad("test", "pk1", "thread1", 1);
 
     let plaintext = b"Hello, time travel!";
-    let encrypted = encrypt_envelope_xchacha20(plaintext, &dek, &aad).unwrap();
+    let encrypted = encrypt_envelope(plaintext, &dek, &aad, AeadCipherSuite::default()).unwrap();
 
     // Verify successful decryption
     let decrypted = decrypt_envelope(&encrypted, &dek, &aad).unwrap();
