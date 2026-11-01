@@ -127,7 +127,7 @@ impl TaskLedgerStore {
         drop(stmt);
 
         if spent + reserved + lease_micros > hard {
-            return Err(DataError::BudgetExhausted("Budget exhausted".to_string()));
+            return Err(DataError::BudgetExhausted { task_id: task_id.to_string(), requested_micros: lease_micros as u64, remaining_micros: (hard - spent - reserved) as u64 });
         }
 
         let now = SystemTime::now()
@@ -157,7 +157,7 @@ impl TaskLedgerStore {
         drop(stmt);
 
         if spent + reserved + additional_micros > hard {
-            return Err(DataError::BudgetExhausted("Budget exhausted".to_string()));
+            return Err(DataError::BudgetExhausted { task_id: task_id.to_string(), requested_micros: additional_micros as u64, remaining_micros: (hard - spent - reserved) as u64 });
         }
 
         let now = SystemTime::now()

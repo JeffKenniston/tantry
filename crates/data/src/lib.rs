@@ -52,7 +52,7 @@ impl DataStoreManager {
     ) -> Result<IntegrityReport, DataError> {
         self.audit_mmr
             .verify_all_chain_and_sths(iam)
-            .map_err(DataError::TamperedAuditEntry)?;
+            .map_err(|seq_no| DataError::CorruptedAuditChain { seq_no, reason: "Tampered".to_string() })?;
 
         let conn = self.interaction_chain.db.lock().unwrap();
         let mut stmt = conn.prepare("

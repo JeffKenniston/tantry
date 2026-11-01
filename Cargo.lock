@@ -1158,15 +1158,21 @@ dependencies = [
  "aes-gcm-siv",
  "base",
  "blake3",
+ "bytes",
  "chacha20poly1305 0.11.0",
- "hex",
+ "chrono",
+ "dashmap",
  "iam",
- "rand 0.8.8",
+ "parking_lot",
+ "rand_core 0.6.4",
+ "rkyv",
  "rmp-serde",
  "rusqlite",
+ "serde",
  "serde_json",
+ "sqlite-vec",
  "thiserror 2.0.21",
- "tokio",
+ "uuid",
  "zeroize",
  "zstd 0.14.3",
 ]
@@ -4622,6 +4628,15 @@ name = "sponge-cursor"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a0219bd7d979d58245a4f41f695e1ac9f8befdffadd7f61f1bae9e39abc6620"
+
+[[package]]
+name = "sqlite-vec"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0ba424237a9a5db2f6071f193319e2b6a32f7f3961debb2fbbfe67067abce3f"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "sqlite-wasm-rs"
