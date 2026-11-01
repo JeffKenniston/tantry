@@ -1,7 +1,7 @@
 use crate::error::DataError;
 use iam::{AuditSthSignature, IdentityManager};
 use rusqlite::Connection;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Implements an RFC 6962 compliant Merkle Mountain Range (MMR) for tamper-evident, append-only audit logging.
 pub const AUDIT_MMR_DDL: &str = "
@@ -31,13 +31,13 @@ CREATE TABLE IF NOT EXISTS audit_signed_tree_heads (
 
 pub struct AuditMmrStore {
     /// The thread-safe SQLite connection pool shared by all operations in this store.
-    pub db: Arc<Mutex<Connection>>,
+    pub db: Arc<parking_lot::Mutex<Connection>>,
 }
 
 impl AuditMmrStore {
     /// Initializes a new AuditMmrStore wrapping the provided database connection.
     pub fn new(path: &str) -> Result<Self, DataError> {
-        let handle = crate::db::DbHandle::new(path, AUDIT_MMR_DDL)?;
+        let handle = crate::db::DbHandle::open(path, 4, &base::platform::RuntimePlatform::LinuxStandard, |conn| { conn.execute_batch(AUDIT_MMR_DDL)?; Ok(()) })?;
         Ok(Self { db: handle.writer })
     }
 
@@ -51,7 +51,7 @@ impl AuditMmrStore {
         event_kind: &str,
         payload_json: &str,
     ) -> Result<(), DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
 
         let seq_no = if seq_no == 0 {
             let mut stmt = conn.prepare("SELECT MAX(seq_no) FROM audit_log").unwrap();
@@ -155,7 +155,7 @@ impl AuditMmrStore {
             return Ok([0u8; 32]);
         }
 
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
 
         let mut size = 2 * tree_size - (tree_size.count_ones() as u64);
         let mut peak_positions = Vec::new();
@@ -212,7 +212,7 @@ impl AuditMmrStore {
     /// Generates the structural MMR nodes necessary to prove inclusion of a specific sequence number.
     pub fn mountain_audit_path(&self, seq_no: u64) -> Result<Vec<[u8; 32]>, DataError> {
         let tree_size: u64 = {
-            let conn = self.db.lock().unwrap();
+            let conn = self.db.lock();
             conn.query_row("SELECT COALESCE(MAX(seq_no), 0) FROM audit_log", [], |r| {
                 let s: i64 = r.get(0)?;
                 Ok(s as u64)
@@ -227,7 +227,7 @@ impl AuditMmrStore {
             )));
         }
 
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let leaf_pos = 2 * (seq_no - 1) - ((seq_no - 1).count_ones() as u64) + 1;
 
         let mut proof = Vec::new();
@@ -349,7 +349,7 @@ impl AuditMmrStore {
             return Ok(vec![]);
         }
 
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let mut proof = Vec::new();
 
         // Standard RFC 6962 logic adapted for MMRs:
@@ -477,7 +477,7 @@ impl AuditMmrStore {
         iam: &dyn IdentityManager,
     ) -> Result<AuditSthSignature, DataError> {
         let tree_size: u64 = {
-            let conn = self.db.lock().unwrap();
+            let conn = self.db.lock();
             conn.query_row("SELECT COALESCE(MAX(seq_no), 0) FROM audit_log", [], |r| {
                 let s: i64 = r.get(0)?;
                 Ok(s as u64)
@@ -496,7 +496,7 @@ impl AuditMmrStore {
 
     /// Cryptographically verifies the entire linear chain, all MMR nodes, and signatures, returning the sequence number on failure.
     pub fn verify_all_chain_and_sths(&self, iam: &dyn IdentityManager) -> Result<(), u64> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
 
         let mut stmt = conn.prepare("SELECT seq_no, timestamp_ms, spiffe_id, thread_id, event_kind, payload_json, entry_hash FROM audit_log ORDER BY seq_no ASC")
             .map_err(|_| 0u64)?;
@@ -533,7 +533,7 @@ impl AuditMmrStore {
         drop(stmt);
         drop(conn);
 
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let mut stmt = conn.prepare("SELECT tree_size, timestamp_ms, mmr_root_blake3, ed25519_sig, mldsa65_sig FROM audit_signed_tree_heads").map_err(|_| 0u64)?;
         let mut rows = stmt.query([]).map_err(|_| 0u64)?;
 
