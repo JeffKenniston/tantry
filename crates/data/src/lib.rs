@@ -54,7 +54,7 @@ impl DataStoreManager {
             .verify_all_chain_and_sths(iam)
             .map_err(|seq_no| DataError::CorruptedAuditChain { seq_no, reason: "Tampered".to_string() })?;
 
-        let conn = self.interaction_chain.db.lock().unwrap();
+        let conn = self.interaction_chain.db.lock();
         let mut stmt = conn.prepare("
             SELECT i.thread_id, i.checkpoint_id, i.key_epoch, i.message_delta_aead, i.file_deltas_aead, i.extension_slots_aead
             FROM interaction_checkpoints i

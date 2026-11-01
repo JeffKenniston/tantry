@@ -1,6 +1,6 @@
 use crate::error::DataError;
 use rusqlite::{Connection, TransactionBehavior, params};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Manages persistent storage for agent task budgets, lifecycle states, and contextual multi-armed bandit (LinUCB) models.
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS linucb_bandit_arms (
 
 pub struct TaskLedgerStore {
     /// The thread-safe SQLite connection pool shared by all operations in this store.
-    pub db: Arc<Mutex<Connection>>,
+    pub db: Arc<parking_lot::Mutex<Connection>>,
 }
 
 /// Represents an asynchronous task with a strict financial budget and lifecycle status.
@@ -63,13 +63,13 @@ pub struct LinUcbArm {
 impl TaskLedgerStore {
     /// Initializes a new TaskLedgerStore wrapping the provided database connection.
     pub fn new(path: &str) -> Result<Self, DataError> {
-        let handle = crate::db::DbHandle::new(path, TASK_LEDGER_DDL)?;
+        let handle = crate::db::DbHandle::open(path, 4, &base::platform::RuntimePlatform::LinuxStandard, |conn| { conn.execute_batch(TASK_LEDGER_DDL)?; Ok(()) })?;
         Ok(Self { db: handle.writer })
     }
 
     /// Inserts a new pending task into the ledger with a predefined hard budget.
     pub fn create_task(&self, task_id: &str, hard_budget_micros: i64) -> Result<(), DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -83,7 +83,7 @@ impl TaskLedgerStore {
 
     /// Retrieves the current state and budget of a specific task.
     pub fn get_task(&self, task_id: &str) -> Result<Option<Task>, DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let mut stmt = conn.prepare("SELECT task_id, status, spent_budget_micros, reserved_budget_micros, hard_budget_micros, webhook_90_fired, updated_at_ms FROM task_ledger WHERE task_id = ?1")?;
         let mut rows = stmt.query(params![task_id])?;
 
@@ -104,7 +104,7 @@ impl TaskLedgerStore {
 
     /// Updates the lifecycle status string of a task.
     pub fn update_task_status(&self, task_id: &str, status: &str) -> Result<(), DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -118,7 +118,7 @@ impl TaskLedgerStore {
 
     /// Atomically attempts to lease additional budget, failing if the hard budget would be exceeded.
     pub fn try_reserve_budget(&self, task_id: &str, lease_micros: i64) -> Result<(), DataError> {
-        let mut conn = self.db.lock().unwrap();
+        let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         let mut stmt = tx.prepare("SELECT spent_budget_micros, reserved_budget_micros, hard_budget_micros FROM task_ledger WHERE task_id = ?1")?;
@@ -148,7 +148,7 @@ impl TaskLedgerStore {
         task_id: &str,
         additional_micros: i64,
     ) -> Result<(), DataError> {
-        let mut conn = self.db.lock().unwrap();
+        let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         let mut stmt = tx.prepare("SELECT spent_budget_micros, reserved_budget_micros, hard_budget_micros FROM task_ledger WHERE task_id = ?1")?;
@@ -180,7 +180,7 @@ impl TaskLedgerStore {
         actual_cost_micros: i64,
         soft_warning_ratio: f64,
     ) -> Result<bool, DataError> {
-        let mut conn = self.db.lock().unwrap();
+        let mut conn = self.db.lock();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         let mut stmt = tx.prepare("SELECT spent_budget_micros, hard_budget_micros, webhook_90_fired FROM task_ledger WHERE task_id = ?1")?;
@@ -207,7 +207,7 @@ impl TaskLedgerStore {
 
     /// Records that the 90% budget warning webhook has been sent, preventing duplicates.
     pub fn mark_webhook_90_fired(&self, task_id: &str) -> Result<(), DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -221,7 +221,7 @@ impl TaskLedgerStore {
 
     /// Loads all existing contextual bandit arms and their matrices from the database.
     pub fn load_linucb_arms(&self) -> Result<Vec<LinUcbArm>, DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let mut stmt = conn.prepare("SELECT arm_tier, matrix_a_blob, vector_b_blob, pull_count, updated_at_ms FROM linucb_bandit_arms")?;
         let rows = stmt.query_map([], |row| {
             Ok(LinUcbArm {
@@ -248,7 +248,7 @@ impl TaskLedgerStore {
         b_blob: &[u8],
         pull_count: i64,
     ) -> Result<(), DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

@@ -3,7 +3,7 @@ use base::ast::Message;
 use base::delta::{FileDelta, MessageDelta};
 use base::state::TantryState;
 use rusqlite::{Connection, params};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Provides append-only, time-travel-capable storage for agent interaction checkpoints and messages.
 pub const INTERACTION_CHAIN_DDL: &str = "
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS archived_messages (
 
 pub struct InteractionChainStore {
     /// The thread-safe SQLite connection pool shared by all operations in this store.
-    pub db: Arc<Mutex<Connection>>,
+    pub db: Arc<parking_lot::Mutex<Connection>>,
 }
 
 /// Represents a fully hydrated agent state constructed by replaying deltas from genesis to a target checkpoint.
@@ -70,7 +70,7 @@ struct RawCheckpointRow {
 impl InteractionChainStore {
     /// Initializes a new InteractionChainStore wrapping the provided database connection.
     pub fn new(path: &str) -> Result<Self, DataError> {
-        let handle = crate::db::DbHandle::new(path, INTERACTION_CHAIN_DDL)?;
+        let handle = crate::db::DbHandle::open(path, 4, &base::platform::RuntimePlatform::LinuxStandard, |conn| { conn.execute_batch(INTERACTION_CHAIN_DDL)?; Ok(()) })?;
         Ok(Self { db: handle.writer })
     }
 
@@ -89,7 +89,7 @@ impl InteractionChainStore {
         todos_json: Option<&str>,
         async_tasks_json: Option<&str>,
     ) -> Result<[u8; 32], DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
 
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"tantry:cp:v3");
@@ -140,7 +140,7 @@ impl InteractionChainStore {
         registry: &dyn base::typemap::StateExtensionRegistry,
         key_hierarchy: &iam::key_hierarchy::KeyHierarchy,
     ) -> Result<ReconstructedCheckpoint, DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
 
         let mut chain = Vec::new();
         let mut current_id = Some(target_checkpoint_id.to_string());
@@ -300,7 +300,7 @@ impl InteractionChainStore {
         plaintext: &[u8],
         key_hierarchy: &iam::key_hierarchy::KeyHierarchy,
     ) -> Result<Vec<u8>, DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let (epoch_salt, thread_salt) =
             crate::crypto::get_or_provision_key_epoch(&conn, thread_id, key_epoch)?;
         let dek = key_hierarchy
@@ -320,7 +320,7 @@ impl InteractionChainStore {
         &self,
         thread_id: &str,
     ) -> Result<Option<(String, i64)>, DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let mut stmt = conn.prepare("SELECT checkpoint_id, step_index FROM interaction_checkpoints WHERE thread_id = ?1 ORDER BY step_index DESC LIMIT 1")?;
         let mut rows = stmt.query(params![thread_id])?;
 
@@ -337,7 +337,7 @@ impl InteractionChainStore {
         thread_id: &str,
         step_index: i64,
     ) -> Result<Option<String>, DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let mut stmt = conn.prepare("SELECT checkpoint_id FROM interaction_checkpoints WHERE thread_id = ?1 AND step_index = ?2")?;
         let mut rows = stmt.query(params![thread_id, step_index])?;
 
@@ -350,7 +350,7 @@ impl InteractionChainStore {
 
     /// Retrieves the full sequential history of plaintext archived messages for a thread.
     pub fn list_archived_messages(&self, thread_id: &str) -> Result<Vec<Message>, DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
         let mut stmt = conn.prepare("SELECT message_json FROM archived_messages WHERE thread_id = ?1 ORDER BY archived_at_ms ASC")?;
         let rows = stmt.query_map(params![thread_id], |row| {
             let text: String = row.get(0)?;

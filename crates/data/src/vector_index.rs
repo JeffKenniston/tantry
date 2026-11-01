@@ -1,6 +1,6 @@
 use crate::error::DataError;
 use rusqlite::{Connection, params};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Implements a two-stage vector database using binary quantization for coarse filtering and Int8 RaBitQ for exact rescoring.
 pub const VECTOR_INDEX_DDL: &str = "
@@ -14,19 +14,19 @@ CREATE TABLE IF NOT EXISTS vector_index (
 
 pub struct MatryoshkaVectorStore {
     /// The thread-safe SQLite connection pool shared by all operations in this store.
-    pub db: Arc<Mutex<Connection>>,
+    pub db: Arc<parking_lot::Mutex<Connection>>,
 }
 
 impl MatryoshkaVectorStore {
     /// Initializes a new MatryoshkaVectorStore wrapping the provided database connection.
     pub fn new(path: &str) -> Result<Self, DataError> {
-        let handle = crate::db::DbHandle::new(path, VECTOR_INDEX_DDL)?;
+        let handle = crate::db::DbHandle::open(path, 4, &base::platform::RuntimePlatform::LinuxStandard, |conn| { conn.execute_batch(VECTOR_INDEX_DDL)?; Ok(()) })?;
         Ok(Self { db: handle.writer })
     }
 
     /// Normalizes, quantizes (1-bit and Int8), and persists a dense embedding vector into the store.
     pub fn insert_vector(&self, id: &str, vector: &[f32]) -> Result<(), DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
 
         let mut packed_sign = [0u64; 8];
         #[allow(clippy::needless_range_loop)]
@@ -83,7 +83,7 @@ impl MatryoshkaVectorStore {
         top_k: usize,
         threshold: f32,
     ) -> Result<Vec<(String, f32)>, DataError> {
-        let conn = self.db.lock().unwrap();
+        let conn = self.db.lock();
 
         let mut q_packed_sign = [0u64; 8];
         #[allow(clippy::needless_range_loop)]
