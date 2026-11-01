@@ -11,6 +11,7 @@ use tokio::time::{Duration, sleep};
 pub struct SpireSocketIdentityManager {
     socket_path: PathBuf,
     active_svid: Arc<RwLock<Option<WorkloadSvid>>>,
+    #[allow(clippy::type_complexity)]
     historical_svids: Arc<RwLock<VecDeque<([u8; 32], Vec<u8>)>>>,
     rotation_watcher: watch::Receiver<()>,
     key_hierarchy: Arc<crate::key_hierarchy::KeyHierarchy>,

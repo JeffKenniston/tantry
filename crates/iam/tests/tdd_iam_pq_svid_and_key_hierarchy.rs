@@ -206,7 +206,7 @@ async fn test_scoped_tunnel_registry_host_matching() {
 
     let _verifier = DummyVerifier { svid };
 
-    let _verified_grant = registry
+    registry
         .verify_scoped_tunnel_token(&grant, chrono::Utc::now().timestamp_millis())
         .unwrap();
     // verified_grant returns nothing now
