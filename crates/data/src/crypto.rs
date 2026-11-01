@@ -62,6 +62,40 @@ pub fn compute_canonical_aad(
     hasher.finalize().into()
 }
 
+pub fn build_checkpoint_aad(thread_id: &str, checkpoint_id: &str, step_index: u64, key_epoch: u32) -> Vec<u8> {
+    let mut aad = Vec::new();
+    aad.extend_from_slice(b"tantry:checkpoint:v3:");
+    aad.extend_from_slice(thread_id.as_bytes());
+    aad.push(b':');
+    aad.extend_from_slice(checkpoint_id.as_bytes());
+    aad.push(b':');
+    aad.extend_from_slice(&step_index.to_be_bytes());
+    aad.push(b':');
+    aad.extend_from_slice(&key_epoch.to_be_bytes());
+    aad
+}
+
+pub fn build_archive_aad(thread_id: &str, checkpoint_id: &str, key_epoch: u32) -> Vec<u8> {
+    let mut aad = Vec::new();
+    aad.extend_from_slice(b"tantry:archive:v3:");
+    aad.extend_from_slice(thread_id.as_bytes());
+    aad.push(b':');
+    aad.extend_from_slice(checkpoint_id.as_bytes());
+    aad.push(b':');
+    aad.extend_from_slice(&key_epoch.to_be_bytes());
+    aad
+}
+
+pub fn build_semcache_aad(cache_key_hex: &str, model_tier: &str) -> Vec<u8> {
+    let mut aad = Vec::new();
+    aad.extend_from_slice(b"tantry:semcache:v3:");
+    aad.extend_from_slice(cache_key_hex.as_bytes());
+    aad.push(b':');
+    aad.extend_from_slice(model_tier.as_bytes());
+    aad
+}
+
+
 static ATOMIC_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Generates a 24-byte cryptographically secure nonce using a combination of timestamp, atomic counter, and OS randomness to prevent VM snapshot vulnerabilities.
