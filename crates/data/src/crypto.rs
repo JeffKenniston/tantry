@@ -7,7 +7,6 @@ use chacha20poly1305::{
 };
 use core::convert::TryInto;
 use iam::key_hierarchy::KeyHierarchy;
-use rand::RngCore;
 use rusqlite::Connection;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -43,7 +42,7 @@ pub fn generate_xchacha20_nonce() -> [u8; 24] {
     nonce[8..16].copy_from_slice(&counter.to_be_bytes());
 
     let mut os_csprng = [0u8; 8];
-    rand::thread_rng().fill_bytes(&mut os_csprng);
+    rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut os_csprng);
     nonce[16..24].copy_from_slice(&os_csprng);
     nonce
 }
@@ -55,7 +54,7 @@ pub fn encrypt_envelope_xchacha20(
     aad: &[u8; 32],
 ) -> Result<Vec<u8>, DataError> {
     let compressed =
-        zstd::encode_all(plaintext, 3).map_err(|e| DataError::ZstdError(e.to_string()))?;
+        zstd::encode_all(plaintext, 3).map_err(|e| DataError::Compression(e.to_string()))?;
 
     let nonce_bytes = generate_xchacha20_nonce();
     let nonce = chacha20poly1305::XNonce::from(nonce_bytes);
@@ -70,7 +69,7 @@ pub fn encrypt_envelope_xchacha20(
 
     let ciphertext = cipher
         .encrypt(&nonce, payload)
-        .map_err(|e| DataError::AeadError(e.to_string()))?;
+        .map_err(|_| DataError::AeadEncryptionFailed)?;
 
     let mut wire = Vec::with_capacity(1 + 1 + 24 + ciphertext.len());
     wire.push(0x03);
@@ -118,7 +117,7 @@ pub fn decrypt_envelope(
             };
             cipher
                 .decrypt(&nonce, payload)
-                .map_err(|_| DataError::AadMismatch)?
+                .map_err(|_| DataError::AeadDecryptionFailed { context: "AAD mismatch".to_string() })?
         }
         0x02 => {
             // Aes256GcmSiv
@@ -140,13 +139,13 @@ pub fn decrypt_envelope(
             };
             cipher
                 .decrypt(&nonce, payload)
-                .map_err(|_| DataError::AadMismatch)?
+                .map_err(|_| DataError::AeadDecryptionFailed { context: "AAD mismatch".to_string() })?
         }
         _ => return Err(DataError::Serialization("Unknown cipher ID".to_string())),
     };
 
     let plaintext =
-        zstd::decode_all(compressed.as_slice()).map_err(|e| DataError::ZstdError(e.to_string()))?;
+        zstd::decode_all(compressed.as_slice()).map_err(|e| DataError::Compression(e.to_string()))?;
     Ok(plaintext)
 }
 
@@ -164,7 +163,7 @@ pub fn get_or_provision_key_epoch(
     if let Some(row) = rows.next()? {
         let shredded: i32 = row.get(1)?;
         if shredded != 0 {
-            return Err(DataError::CryptoShredded(thread_id.to_string()));
+            return Err(DataError::KeyEpochShredded { thread_id: thread_id.to_string(), epoch: key_epoch });
         }
 
         let thread_salt_val: Option<Vec<u8>> = row.get(0)?;
@@ -191,14 +190,14 @@ pub fn get_or_provision_key_epoch(
             }
             return Ok((epoch_arr, arr));
         } else {
-            return Err(DataError::CryptoShredded(thread_id.to_string()));
+            return Err(DataError::KeyEpochShredded { thread_id: thread_id.to_string(), epoch: key_epoch });
         }
     }
 
     let mut epoch_salt = [0u8; 32];
     let mut thread_salt = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut epoch_salt);
-    rand::thread_rng().fill_bytes(&mut thread_salt);
+    rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut epoch_salt);
+    rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut thread_salt);
 
     conn.execute(
         "INSERT INTO key_epochs (thread_id, key_epoch, epoch_salt, thread_salt, shredded) VALUES (?1, ?2, ?3, ?4, 0)",
