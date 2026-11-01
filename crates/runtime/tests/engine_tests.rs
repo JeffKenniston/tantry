@@ -123,12 +123,10 @@ impl IdentityManager for DummyIam {
 
 fn create_lattice(fs_mode: PermissionMode) -> PermissionLattice {
     PermissionLattice {
-        fs: FsCapability::Base(Arc::new(
-            permissions::glob_dfa::CompiledFsAutomaton::new(fs_mode, vec![]).unwrap(),
-        )),
+        fs: FsCapability::new(vec![], fs_mode).unwrap(),
         net: NetCapability::new(PermissionMode::Allow, vec![]).unwrap(),
-        env: EnvCapability::new(vec![], vec![]).unwrap(),
-        mcp: McpCapability::new(PermissionMode::Allow, 1000000, 1000000, vec![]).unwrap(),
+        env: EnvCapability::compile(vec![], std::collections::BTreeSet::new(), permissions::lattice::PermissionMode::Allow).unwrap(),
+        mcp: McpCapability::new(PermissionMode::Allow, 1000000, vec![]).unwrap(),
         interrupt_on_tools: BTreeMap::new(),
     }
 }
@@ -268,11 +266,7 @@ async fn test_runtime_engine_execute_turn_real_tools() {
     let tmp = format!("/tmp/tantry_test_{}", uuid::Uuid::now_v7());
     std::fs::create_dir_all(&tmp).unwrap();
     let root = tmp.clone();
-    let db_l = format!("{}/l", root);
-    let db_i = format!("{}/i", root);
-    let db_a = format!("{}/a", root);
-    let db_v = format!("{}/v", root);
-    let data_stores = Arc::new(DataStoreManager::new(&db_l, &db_i, &db_a, &db_v).unwrap());
+    let data_stores = Arc::new(DataStoreManager::open(&root, data::AeadCipherSuite::XChaCha20Poly1305, &base::platform::RuntimePlatform::LinuxStandard).unwrap());
 
     let backend = Arc::new(DummyVfsBackend);
 
@@ -376,11 +370,7 @@ async fn test_runtime_engine_interrupt_and_resume() {
     let tmp = format!("/tmp/tantry_test_{}", uuid::Uuid::now_v7());
     std::fs::create_dir_all(&tmp).unwrap();
     let root = tmp.clone();
-    let db_l = format!("{}/l", root);
-    let db_i = format!("{}/i", root);
-    let db_a = format!("{}/a", root);
-    let db_v = format!("{}/v", root);
-    let data_stores = Arc::new(DataStoreManager::new(&db_l, &db_i, &db_a, &db_v).unwrap());
+    let data_stores = Arc::new(DataStoreManager::open(&root, data::AeadCipherSuite::XChaCha20Poly1305, &base::platform::RuntimePlatform::LinuxStandard).unwrap());
 
     let backend = Arc::new(DummyVfsBackend);
 
@@ -447,11 +437,7 @@ async fn test_fork_and_hydrate() {
     let tmp = format!("/tmp/tantry_test_{}", uuid::Uuid::now_v7());
     std::fs::create_dir_all(&tmp).unwrap();
     let root = tmp.clone();
-    let db_l = format!("{}/l", root);
-    let db_i = format!("{}/i", root);
-    let db_a = format!("{}/a", root);
-    let db_v = format!("{}/v", root);
-    let data_stores = Arc::new(DataStoreManager::new(&db_l, &db_i, &db_a, &db_v).unwrap());
+    let data_stores = Arc::new(DataStoreManager::open(&root, data::AeadCipherSuite::XChaCha20Poly1305, &base::platform::RuntimePlatform::LinuxStandard).unwrap());
 
     let backend = Arc::new(DummyVfsBackend);
     let engine = RuntimeEngine::new(vec![Arc::new(DummyMiddleware)]);

@@ -23,6 +23,9 @@ impl MatryoshkaVectorStore {
         let handle = crate::db::DbHandle::open(path, 4, &base::platform::RuntimePlatform::LinuxStandard, |conn| { conn.execute_batch(VECTOR_INDEX_DDL)?; Ok(()) })?;
         Ok(Self { db: handle.writer })
     }
+        pub fn from_handle(db: Arc<parking_lot::Mutex<Connection>>) -> Self {
+        Self { db }
+    }
 
     /// Normalizes, quantizes (1-bit and Int8), and persists a dense embedding vector into the store.
     pub fn insert_vector(&self, id: &str, vector: &[f32]) -> Result<(), DataError> {

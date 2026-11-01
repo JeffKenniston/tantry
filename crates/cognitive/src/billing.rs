@@ -210,7 +210,7 @@ impl BudgetLeaseGuard {
 
                         let _ = self.ledger.mark_webhook_90_fired(&self.task_id);
 
-                        let conn = self.ledger.db.lock().unwrap();
+                        let conn = self.ledger.db.lock();
                         let _ = conn.execute(
                             "CREATE TABLE IF NOT EXISTS audit_log (
                                 seq_no INTEGER PRIMARY KEY,
