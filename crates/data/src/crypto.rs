@@ -1,3 +1,4 @@
+use std::time::{SystemTime, UNIX_EPOCH};
 use crate::error::DataError;
 use aes_gcm_siv::Aes256GcmSiv;
 use blake3;
@@ -6,10 +7,8 @@ use chacha20poly1305::{
     aead::{Aead, Key},
 };
 use core::convert::TryInto;
-use iam::key_hierarchy::KeyHierarchy;
 use rusqlite::Connection;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Computes the canonical 32-byte BLAKE3 hash used as Additional Authenticated Data (AAD) to cryptographically bind rows to their thread and epoch.
 
@@ -51,14 +50,14 @@ pub fn compute_canonical_aad(
     table_name: &str,
     primary_key: &str,
     thread_id: &str,
-    key_epoch: u32,
+    epoch_id: u32,
 ) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"tantry:aad:v3");
     hasher.update(table_name.as_bytes());
     hasher.update(primary_key.as_bytes());
     hasher.update(thread_id.as_bytes());
-    hasher.update(&key_epoch.to_be_bytes());
+    hasher.update(&epoch_id.to_be_bytes());
     hasher.finalize().into()
 }
 
@@ -185,86 +184,121 @@ pub fn decrypt_envelope(
 }
 
 /// Retrieves the epoch and thread salts for a given thread and epoch, or securely provisions them with CSPRNG if they do not exist.
-pub fn get_or_provision_key_epoch(
-    conn: &Connection,
-    thread_id: &str,
-    key_epoch: u32,
-) -> Result<([u8; 32], [u8; 32]), DataError> {
-    let mut stmt = conn.prepare(
-        "SELECT thread_salt, shredded FROM key_epochs WHERE thread_id = ?1 AND key_epoch = ?2",
-    )?;
-    let mut rows = stmt.query(rusqlite::params![thread_id, key_epoch])?;
+use std::sync::Arc;
+use zeroize::Zeroizing;
 
-    if let Some(row) = rows.next()? {
-        let shredded: i32 = row.get(1)?;
-        if shredded != 0 {
-            return Err(DataError::KeyEpochShredded { thread_id: thread_id.to_string(), epoch: key_epoch });
-        }
+pub const KEY_EPOCH_DDL: &str = "
+CREATE TABLE IF NOT EXISTS key_epochs (
+    thread_id TEXT NOT NULL,
+    epoch_id INTEGER NOT NULL,
+    epoch_salt BLOB NOT NULL,
+    thread_salt BLOB,
+    created_at_ms INTEGER NOT NULL,
+    shredded INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (thread_id, epoch_id)
+);
+";
 
-        let thread_salt_val: Option<Vec<u8>> = row.get(0)?;
-        if let Some(salt) = thread_salt_val {
-            if salt.len() != 32 {
-                return Err(DataError::Serialization(
-                    "Invalid thread salt length".to_string(),
-                ));
-            }
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(&salt);
-
-            let mut epoch_stmt = conn.prepare(
-                "SELECT epoch_salt FROM key_epochs WHERE thread_id = ?1 AND key_epoch = ?2",
-            )?;
-            let mut epoch_arr = [0u8; 32];
-            #[allow(clippy::collapsible_if)]
-            if let Ok(r) = epoch_stmt.query_row(rusqlite::params![thread_id, key_epoch], |r| {
-                r.get::<_, Vec<u8>>(0)
-            }) {
-                if r.len() == 32 {
-                    epoch_arr.copy_from_slice(&r);
-                }
-            }
-            return Ok((epoch_arr, arr));
-        } else {
-            return Err(DataError::KeyEpochShredded { thread_id: thread_id.to_string(), epoch: key_epoch });
-        }
-    }
-
-    let mut epoch_salt = [0u8; 32];
-    let mut thread_salt = [0u8; 32];
-    rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut epoch_salt);
-    rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut thread_salt);
-
-    conn.execute(
-        "INSERT INTO key_epochs (thread_id, key_epoch, epoch_salt, thread_salt, shredded) VALUES (?1, ?2, ?3, ?4, 0)",
-        rusqlite::params![thread_id, key_epoch, epoch_salt.to_vec(), thread_salt.to_vec()]
-    )?;
-
-    Ok((epoch_salt, thread_salt))
+pub struct KeyEpochStore {
+    pub db: Arc<parking_lot::Mutex<Connection>>,
 }
 
-/// Executes the two-phase cryptographic shredding of a thread's keys by zeroing and nullifying the thread_salt in SQLite and memory.
-pub fn crypto_shred_thread(
-    conn: &mut Connection,
-    thread_id: &str,
-    key_hierarchy: &KeyHierarchy,
-) -> Result<(), DataError> {
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+impl KeyEpochStore {
+    pub fn new(db: Arc<parking_lot::Mutex<Connection>>) -> Self {
+        Self { db }
+    }
 
-    tx.execute(
-        "UPDATE key_epochs SET thread_salt = zeroblob(32) WHERE thread_id = ?1",
-        rusqlite::params![thread_id],
-    )?;
+    pub fn resolve_or_init_thread_dek(
+        &self,
+        iam_keys: &iam::key_hierarchy::KeyHierarchy,
+        thread_id: &str,
+        epoch_id: u32,
+    ) -> Result<Zeroizing<[u8; 32]>, DataError> {
+        let conn = self.db.lock();
+        let mut stmt = conn.prepare(
+            "SELECT epoch_salt, thread_salt, shredded FROM key_epochs WHERE thread_id = ?1 AND epoch_id = ?2",
+        )?;
+        let mut rows = stmt.query(rusqlite::params![thread_id, epoch_id])?;
 
-    tx.execute(
-        "UPDATE key_epochs SET thread_salt = NULL, shredded = 1 WHERE thread_id = ?1",
-        rusqlite::params![thread_id],
-    )?;
+        if let Some(row) = rows.next()? {
+            let shredded: i32 = row.get(2)?;
+            let thread_salt_val: Option<Vec<u8>> = row.get(1)?;
+            if shredded != 0 || thread_salt_val.is_none() {
+                return Err(DataError::KeyEpochShredded {
+                    thread_id: thread_id.to_string(),
+                    epoch: epoch_id,
+                });
+            }
 
-    tx.commit()?;
+            let epoch_salt_val: Vec<u8> = row.get(0)?;
+            let mut epoch_arr = [0u8; 32];
+            if epoch_salt_val.len() == 32 {
+                epoch_arr.copy_from_slice(&epoch_salt_val);
+            }
 
-    conn.pragma_update(None, "wal_checkpoint", "TRUNCATE")?;
+            let mut thread_arr = [0u8; 32];
+            if let Some(salt) = thread_salt_val {
+                if salt.len() == 32 {
+                    thread_arr.copy_from_slice(&salt);
+                }
+            }
 
-    key_hierarchy.crypto_shred_thread(thread_id);
+            return Ok(iam_keys.derive_thread_dek(thread_id, epoch_id, &epoch_arr, &thread_arr)?);
+        }
 
-    Ok(())
+        // If row does not exist, check if any epoch for thread_id has shredded != 0
+        let mut check_stmt = conn.prepare(
+            "SELECT 1 FROM key_epochs WHERE thread_id = ?1 AND shredded != 0 LIMIT 1",
+        )?;
+        if check_stmt.exists(rusqlite::params![thread_id])? {
+            return Err(DataError::KeyEpochShredded {
+                thread_id: thread_id.to_string(),
+                epoch: epoch_id,
+            });
+        }
+
+        let mut epoch_salt = [0u8; 32];
+        let mut thread_salt = [0u8; 32];
+        rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut epoch_salt);
+        rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut thread_salt);
+
+        let created_at_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        conn.execute(
+            "INSERT INTO key_epochs (thread_id, epoch_id, epoch_salt, thread_salt, created_at_ms, shredded) VALUES (?1, ?2, ?3, ?4, ?5, 0)",
+            rusqlite::params![thread_id, epoch_id, epoch_salt.to_vec(), thread_salt.to_vec(), created_at_ms]
+        )?;
+
+        Ok(iam_keys.derive_thread_dek(thread_id, epoch_id, &epoch_salt, &thread_salt)?)
+    }
+
+    pub fn crypto_shred_thread(
+        &self,
+        iam_keys: &iam::key_hierarchy::KeyHierarchy,
+        thread_id: &str,
+    ) -> Result<(), DataError> {
+        let mut conn = self.db.lock();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+
+        tx.execute(
+            "UPDATE key_epochs SET thread_salt = zeroblob(32) WHERE thread_id = ?1",
+            rusqlite::params![thread_id],
+        )?;
+
+        tx.execute(
+            "UPDATE key_epochs SET thread_salt = NULL, shredded = 1 WHERE thread_id = ?1",
+            rusqlite::params![thread_id],
+        )?;
+
+        tx.commit()?;
+
+        conn.pragma_update(None, "wal_checkpoint", "TRUNCATE")?;
+
+        iam_keys.crypto_shred_thread(thread_id);
+
+        Ok(())
+    }
 }
