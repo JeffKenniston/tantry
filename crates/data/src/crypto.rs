@@ -13,9 +13,38 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Computes the canonical 32-byte BLAKE3 hash used as Additional Authenticated Data (AAD) to cryptographically bind rows to their thread and epoch.
 
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
 pub enum AeadCipherSuite {
-    XChaCha20Poly1305,
-    Aes256GcmSiv,
+    #[default]
+    XChaCha20Poly1305 = 0x01,
+    Aes256GcmSiv = 0x02,
+}
+
+impl AeadCipherSuite {
+    pub const WIRE_VERSION: u8 = 0x03;
+
+    #[inline]
+    pub const fn cipher_id(self) -> u8 {
+        self as u8
+    }
+
+    #[inline]
+    pub const fn from_cipher_id(id: u8) -> Option<Self> {
+        match id {
+            0x01 => Some(Self::XChaCha20Poly1305),
+            0x02 => Some(Self::Aes256GcmSiv),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub const fn nonce_len(self) -> usize {
+        match self {
+            Self::XChaCha20Poly1305 => 24,
+            Self::Aes256GcmSiv => 12,
+        }
+    }
 }
 
 pub fn compute_canonical_aad(
