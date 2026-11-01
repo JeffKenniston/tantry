@@ -7,20 +7,12 @@ use std::sync::Arc;
 
 /// Provides append-only, time-travel-capable storage for agent interaction checkpoints and messages.
 pub const INTERACTION_CHAIN_DDL: &str = "
-CREATE TABLE IF NOT EXISTS key_epochs (
-    thread_id TEXT NOT NULL,
-    key_epoch INTEGER NOT NULL,
-    epoch_salt BLOB NOT NULL,
-    thread_salt BLOB,
-    shredded INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (thread_id, key_epoch)
-);
 CREATE TABLE IF NOT EXISTS interaction_checkpoints (
     checkpoint_id TEXT PRIMARY KEY,
     previous_checkpoint_id TEXT,
     thread_id TEXT NOT NULL,
     step_index INTEGER NOT NULL,
-    key_epoch INTEGER NOT NULL,
+    epoch_id INTEGER NOT NULL,
     message_delta_aead BLOB,
     file_deltas_aead BLOB,
     extension_slots_aead BLOB,
@@ -31,7 +23,7 @@ CREATE TABLE IF NOT EXISTS interaction_checkpoints (
 CREATE TABLE IF NOT EXISTS archived_messages (
     message_id TEXT PRIMARY KEY,
     thread_id TEXT NOT NULL,
-    key_epoch INTEGER NOT NULL,
+    epoch_id INTEGER NOT NULL,
     message_aead BLOB NOT NULL,
     archived_at_ms INTEGER NOT NULL
 );
@@ -59,7 +51,7 @@ struct RawCheckpointRow {
     previous_checkpoint_id: Option<String>,
     thread_id: String,
     step_index: i64,
-    key_epoch: u32,
+    epoch_id: u32,
     message_delta_aead: Option<Vec<u8>>,
     file_deltas_aead: Option<Vec<u8>>,
     extension_slots_aead: Option<Vec<u8>>,
@@ -82,7 +74,7 @@ impl InteractionChainStore {
         step_index: i64,
         prev_cp_id: Option<&str>,
         checkpoint_id: &str,
-        key_epoch: u32,
+        epoch_id: u32,
         msg_delta: Option<&[u8]>,
         file_deltas: Option<&[u8]>,
         ext_slots: Option<&[u8]>,
@@ -112,7 +104,7 @@ impl InteractionChainStore {
         // Strict INSERT INTO Invariant
         conn.execute(
             "INSERT INTO interaction_checkpoints (
-                checkpoint_id, previous_checkpoint_id, thread_id, step_index, key_epoch,
+                checkpoint_id, previous_checkpoint_id, thread_id, step_index, epoch_id,
                 message_delta_aead, file_deltas_aead, extension_slots_aead,
                 todos_json, async_tasks_json
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -121,7 +113,7 @@ impl InteractionChainStore {
                 prev_cp_id,
                 thread_id,
                 step_index,
-                key_epoch,
+                epoch_id,
                 msg_delta,
                 file_deltas,
                 ext_slots,
@@ -147,7 +139,7 @@ impl InteractionChainStore {
 
         while let Some(cid) = current_id {
             let mut stmt = conn.prepare(
-                "SELECT checkpoint_id, previous_checkpoint_id, thread_id, step_index, key_epoch,
+                "SELECT checkpoint_id, previous_checkpoint_id, thread_id, step_index, epoch_id,
                         message_delta_aead, file_deltas_aead, extension_slots_aead,
                         todos_json, async_tasks_json
                  FROM interaction_checkpoints WHERE checkpoint_id = ?1",
@@ -161,7 +153,7 @@ impl InteractionChainStore {
                     previous_checkpoint_id: prev_id.clone(),
                     thread_id: row.get(2)?,
                     step_index: row.get(3)?,
-                    key_epoch: row.get(4)?,
+                    epoch_id: row.get(4)?,
                     message_delta_aead: row.get(5)?,
                     file_deltas_aead: row.get(6)?,
                     extension_slots_aead: row.get(7)?,
@@ -182,6 +174,7 @@ impl InteractionChainStore {
             .unwrap_or_default();
 
         chain.reverse();
+        drop(conn); // Drop the lock before iterating to prevent deadlock when calling KeyEpochStore
 
         let mut state = TantryState {
             thread_id: "".to_string(),
@@ -221,10 +214,9 @@ impl InteractionChainStore {
             final_checkpoint_blake3 = hasher.finalize().into();
 
             // Deriving DEK securely via thread and epoch salts
-            let (epoch_salt, thread_salt) =
-                crate::crypto::get_or_provision_key_epoch(&conn, &row.thread_id, row.key_epoch)?;
-            let dek = key_hierarchy
-                .derive_thread_dek(&row.thread_id, row.key_epoch, &epoch_salt, &thread_salt)
+            let key_epoch_store = crate::crypto::KeyEpochStore::new(self.db.clone());
+            let dek = key_epoch_store
+                .resolve_or_init_thread_dek(key_hierarchy, &row.thread_id, row.epoch_id)
                 .map(|z| *z)
                 .unwrap_or([0u8; 32]);
 
@@ -232,7 +224,7 @@ impl InteractionChainStore {
                 "interaction_checkpoints",
                 &row.checkpoint_id,
                 &row.thread_id,
-                row.key_epoch,
+                row.epoch_id,
             );
 
             if let Some(md_aead) = row.message_delta_aead {
@@ -296,22 +288,20 @@ impl InteractionChainStore {
         &self,
         checkpoint_id: &str,
         thread_id: &str,
-        key_epoch: u32,
+        epoch_id: u32,
         plaintext: &[u8],
         key_hierarchy: &iam::key_hierarchy::KeyHierarchy,
     ) -> Result<Vec<u8>, DataError> {
-        let conn = self.db.lock();
-        let (epoch_salt, thread_salt) =
-            crate::crypto::get_or_provision_key_epoch(&conn, thread_id, key_epoch)?;
-        let dek = key_hierarchy
-            .derive_thread_dek(thread_id, key_epoch, &epoch_salt, &thread_salt)
+        let key_epoch_store = crate::crypto::KeyEpochStore::new(self.db.clone());
+        let dek = key_epoch_store
+            .resolve_or_init_thread_dek(key_hierarchy, thread_id, epoch_id)
             .map(|z| *z)
             .unwrap_or([0u8; 32]);
         let aad = crate::crypto::compute_canonical_aad(
             "interaction_checkpoints",
             checkpoint_id,
             thread_id,
-            key_epoch,
+            epoch_id,
         );
         crate::crypto::encrypt_envelope_xchacha20(plaintext, &dek, &aad)
     }

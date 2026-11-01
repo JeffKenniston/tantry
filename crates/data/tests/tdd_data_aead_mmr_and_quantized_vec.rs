@@ -50,21 +50,20 @@ fn test_checkpoint_encryption() {
 fn test_crypto_shred_thread() {
     let tmp = std::env::temp_dir().join("test_shred.sqlite");
     let _ = std::fs::remove_file(&tmp);
-    let ddl = "CREATE TABLE key_epochs (thread_id TEXT, key_epoch INTEGER, epoch_salt BLOB, thread_salt BLOB, shredded INTEGER);";
-    let db = DbHandle::open(tmp.to_str().unwrap(), 4, &base::platform::RuntimePlatform::LinuxStandard, |conn| { conn.execute_batch(ddl)?; Ok(()) }).unwrap();
+    let db = DbHandle::open(tmp.to_str().unwrap(), 4, &base::platform::RuntimePlatform::LinuxStandard, |conn| { conn.execute_batch(KEY_EPOCH_DDL)?; Ok(()) }).unwrap();
 
-    let mut writer = db.writer.lock();
+    let store = KeyEpochStore::new(db.writer.clone());
     let thread_id = "shred_thread";
+    let kh = KeyHierarchy::new([0u8; 32]);
 
     // Provision
-    let _ = get_or_provision_key_epoch(&writer, thread_id, 1).unwrap();
+    let _ = store.resolve_or_init_thread_dek(&kh, thread_id, 1).unwrap();
 
     // Shred
-    let kh = KeyHierarchy::new([0u8; 32]);
-    crypto_shred_thread(&mut writer, thread_id, &kh).unwrap();
+    store.crypto_shred_thread(&kh, thread_id).unwrap();
 
     // Attempting to read after shredding should fail
-    let result = get_or_provision_key_epoch(&writer, thread_id, 1);
+    let result = store.resolve_or_init_thread_dek(&kh, thread_id, 1);
     assert!(matches!(result, Err(DataError::KeyEpochShredded { thread_id, .. }) if thread_id == thread_id));
 }
 
