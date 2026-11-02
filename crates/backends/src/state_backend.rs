@@ -145,12 +145,18 @@ impl VfsBackend for StateBackend {
             .files
             .insert(normalized.clone(), file_data);
 
+        let mut cst_diagnostics = vec![];
+        let parser = repo::parser::Parser::new();
+        if let Some(tree) = parser.parse(&normalized.to_string(), content, [0; 32]) {
+            cst_diagnostics = repo::linting_hooks::check_cst_diagnostics(&normalized.to_string(), &tree, content);
+        }
+
         let new_blake3_hash = *blake3::hash(content.as_bytes()).as_bytes();
         Ok(WriteReceipt {
             path: normalized,
             bytes_written: content.len(),
             new_blake3_hash,
-            cst_diagnostics: vec![],
+            cst_diagnostics,
         })
     }
 
@@ -172,10 +178,12 @@ impl VfsBackend for StateBackend {
 
         let occurrences = content.matches(old_string).count();
         if occurrences == 0 {
-            return Err(BackendError::OldStringNotFound);
+            let norm_path = base::path::validate_and_normalize_path(path).unwrap_or_default();
+            return Err(BackendError::OldStringNotFound { path: norm_path });
         }
         if occurrences > 1 && !replace_all {
-            return Err(BackendError::OccurrenceMismatch { count: occurrences });
+            let norm_path = base::path::validate_and_normalize_path(path).unwrap_or_default();
+            return Err(BackendError::OccurrenceMismatch { path: norm_path, count: occurrences });
         }
 
         let new_content = if replace_all {
