@@ -1,24 +1,9 @@
 #![allow(clippy::all)]
 pub mod indexer;
 pub mod linting_hooks;
+pub use linting_hooks::CstDiagnostic;
 pub mod parser;
 
-/// A diagnostic message extracted from a Concrete Syntax Tree.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CstDiagnostic {
-    /// The 1-based start line of the diagnostic.
-    pub start_line: usize,
-    /// The 1-based start column of the diagnostic.
-    pub start_col: usize,
-    /// The 1-based end line of the diagnostic.
-    pub end_line: usize,
-    /// The 1-based end column of the diagnostic.
-    pub end_col: usize,
-    /// The source code snippet corresponding to the diagnostic.
-    pub snippet: String,
-    /// The diagnostic message.
-    pub message: String,
-}
 
 /// Analysis report of file mutations, containing diagnostics and blast radius impacts.
 #[derive(Debug, Clone, PartialEq)]
