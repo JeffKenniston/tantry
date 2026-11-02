@@ -154,25 +154,10 @@ impl RepoEngine {
                                                 );
 
                                             let source_bytes = source.as_bytes();
-                                            let max_sig_end = (node.start_byte() + 100)
-                                                .min(node.end_byte())
-                                                .min(source_bytes.len());
-                                            let sig_bytes =
-                                                &source_bytes[node.start_byte()..max_sig_end];
-
-                                            let body_end = node.end_byte().min(source_bytes.len());
-                                            let body_bytes =
-                                                &source_bytes[node.start_byte()..body_end];
-
-                                            let mut signature_blake3 = [0u8; 32];
-                                            signature_blake3.copy_from_slice(
-                                                blake3::hash(sig_bytes).as_bytes(),
-                                            );
-
-                                            let mut body_blake3 = [0u8; 32];
-                                            body_blake3.copy_from_slice(
-                                                blake3::hash(body_bytes).as_bytes(),
-                                            );
+                                                                                        let signature_blake3 =
+                                                crate::scope_graph::compute_normalized_signature_blake3(node, source_bytes);
+                                            let body_blake3 =
+                                                crate::scope_graph::compute_normalized_body_blake3(node, source_bytes);
 
                                             defs.push(crate::scope_graph::SymbolDef {
                                                 symbol_id,
@@ -181,6 +166,7 @@ impl RepoEngine {
                                                 body_blake3,
                                                 file_path: file_path.clone(),
                                                 scope_qualified_name: name.clone(),
+                                                is_public_trait_impl: false,
                                             });
                                         }
                                     }
@@ -206,12 +192,26 @@ impl RepoEngine {
                                     #[allow(clippy::collapsible_if)]
                                     if kind == "use_declaration" || kind == "import_statement" {
                                         if let Ok(text) = node.utf8_text(source.as_bytes()) {
-                                            imports.push(crate::scope_graph::ImportEdge {
-                                                file_path: file_path.clone(),
-                                                import_name: text.to_string(),
-                                                target_symbol_id: None,
-                                                is_wildcard: text.contains('*'),
-                                            });
+                                            if text.contains('*') {
+                                                imports.push(crate::scope_graph::ImportEdge::Wildcard {
+                                                    file_path: file_path.clone(),
+                                                    import_name: text.to_string(),
+                                                    target_path: file_path.clone(),
+                                                });
+                                            } else {
+                                                let local_alias = if let Some(last) = text.split("::").last() {
+                                                    last.trim_end_matches(';').trim().to_string()
+                                                } else {
+                                                    text.trim_end_matches(';').trim().to_string()
+                                                };
+                                                imports.push(crate::scope_graph::ImportEdge::ExplicitNamed {
+                                                    file_path: file_path.clone(),
+                                                    local_alias,
+                                                    target_path: file_path.clone(),
+                                                    target_symbol: text.to_string(),
+                                                    target_symbol_id: None,
+                                                });
+                                            }
                                         }
                                     }
 
