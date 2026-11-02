@@ -310,26 +310,33 @@ fn cst_merge(base: &str, a: &str, b: &str, path: &str) -> Option<String> {
     let _ta = parser.parse(a, None)?;
     let _tb = parser.parse(b, None)?;
 
-    // CommutativeParent Stage 2d: duplicate signature_blake3 check
-    let check_distinct = |tree: &tree_sitter::Tree, src: &str| -> bool {
+    // CommutativeParent Stage 2d: duplicate signature_blake3 guard
+    let mut duplicates = false;
+    let get_children_sigs = |tree: &tree_sitter::Tree, src: &str| {
+        let mut map: std::collections::HashMap<[u8; 32], std::collections::HashSet<String>> = std::collections::HashMap::new();
         let mut cursor = tree.walk();
-        let mut distinct = true;
-        let mut sigs = std::collections::HashSet::new();
         loop {
             let node = cursor.node();
             let kind = node.kind();
-            if kind == "function_item"
-                || kind == "method_declaration"
-                || kind == "function_declaration"
+            if kind == "use_declaration"
+                || kind == "field_declaration_list"
+                || kind == "declaration_list"
+                || kind == "class_body"
+                || kind == "module"
             {
-                let start = node.start_byte();
-                let end = (start + 100).min(node.end_byte()).min(src.len());
-                let sig_bytes = &src.as_bytes()[start..end];
-                let mut hash = [0u8; 32];
-                hash.copy_from_slice(blake3::hash(sig_bytes).as_bytes());
-                if !sigs.insert(hash) {
-                    distinct = false;
-                    break;
+                let mut child_cursor = cursor.clone();
+                if child_cursor.goto_first_child() {
+                    loop {
+                        let child = child_cursor.node();
+                        if child.is_named() {
+                            let sig_hash = repo::scope_graph::compute_normalized_signature_blake3(child, src.as_bytes());
+                            let full_text = child.utf8_text(src.as_bytes()).unwrap_or("").to_string();
+                            map.entry(sig_hash).or_default().insert(full_text);
+                        }
+                        if !child_cursor.goto_next_sibling() {
+                            break;
+                        }
+                    }
                 }
             }
             if cursor.goto_first_child() {
@@ -352,13 +359,29 @@ fn cst_merge(base: &str, a: &str, b: &str, path: &str) -> Option<String> {
                 break;
             }
         }
-        distinct
+        map
     };
 
-    if !check_distinct(&_ta, a) || !check_distinct(&_tb, b) {
-        return None; // Fallback to stage 3
+    let sigs_a = get_children_sigs(&_ta, a);
+    let sigs_b = get_children_sigs(&_tb, b);
+
+    for (sig, texts_a) in &sigs_a {
+        if let Some(texts_b) = sigs_b.get(sig) {
+            for ta in texts_a {
+                for tb in texts_b {
+                    if ta != tb {
+                        duplicates = true;
+                    }
+                }
+            }
+        }
     }
 
+    if duplicates {
+        return None;
+    }
+
+    // Stage 2c: Construct Parent-Child-Successor (PCS) triples and compute T_merged
     let base_tokens: Vec<&str> = base
         .split(|c: char| !c.is_alphanumeric() && c != '_')
         .filter(|s| !s.is_empty())
@@ -396,7 +419,10 @@ fn cst_merge(base: &str, a: &str, b: &str, path: &str) -> Option<String> {
         #[allow(clippy::collapsible_if)]
         if let Some(t_merged) = parser.parse(&result, None) {
             if !t_merged.root_node().has_error() {
-                return Some(result);
+                let diagnostics = repo::linting_hooks::check_cst_diagnostics(path, &t_merged, &result);
+                if diagnostics.is_empty() {
+                    return Some(result);
+                }
             }
         }
     }
