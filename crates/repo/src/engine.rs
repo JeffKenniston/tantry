@@ -23,9 +23,10 @@ impl RepoEngine {
         let num_cpus = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
-        let max_threads = match &config.platform {
-            RuntimePlatform::AndroidTermux { .. } => num_cpus.min(4),
-            RuntimePlatform::LinuxStandard => num_cpus,
+        let max_threads = if matches!(config.platform, RuntimePlatform::AndroidTermux { .. }) {
+            num_cpus.clamp(1, 4)
+        } else {
+            num_cpus.max(1)
         };
 
         let pool = rayon::ThreadPoolBuilder::new()
