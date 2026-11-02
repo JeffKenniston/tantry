@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Clone, Error, PartialEq)]
 /// BackendError enum
 pub enum BackendError {
     #[error("Old string not found")]

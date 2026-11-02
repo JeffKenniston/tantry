@@ -32,7 +32,7 @@ impl StateBackend {
             final_path.push_str(&new_path);
 
             if matcher.matches(&final_path) {
-                matches.push(final_path.clone());
+                matches.push(base::path::validate_and_normalize_path(&final_path).unwrap_or_else(|_| PosixPath::default()));
             }
             self.walk_dir(child_dir, matches, &new_path, matcher);
         }
@@ -47,7 +47,7 @@ impl StateBackend {
             final_path.push_str(&new_path);
 
             if matcher.matches(&final_path) {
-                matches.push(final_path);
+                matches.push(base::path::validate_and_normalize_path(&final_path).unwrap_or_else(|_| PosixPath::default()));
             }
         }
     }
@@ -63,33 +63,41 @@ impl VfsBackend for StateBackend {
     }
 
     fn ls(&self, state: &TantryState, path: &str) -> Result<Vec<DirEntryInfo>, BackendError> {
-        let path = path.strip_prefix('/').unwrap_or(path);
+        let path_strip = path.strip_prefix('/').unwrap_or(path);
         let mut current_dir = &state.files.root;
 
-        if !path.is_empty() {
-            let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        if !path_strip.is_empty() {
+            let segments: Vec<&str> = path_strip.split('/').filter(|s| !s.is_empty()).collect();
             for segment in segments {
                 if let Some(dir) = current_dir.subdirs.get(segment) {
                     current_dir = dir;
                 } else {
-                    return Err(BackendError::Path(format!("Directory not found: {}", path)));
+                    return Err(BackendError::Path(format!("Directory not found: {}", path_strip)));
                 }
             }
         }
 
         let mut entries = Vec::new();
         for name in current_dir.subdirs.keys() {
+            let path_str = if path_strip.is_empty() { format!("/{}", name) } else { format!("/{}/{}", path_strip, name) };
+            let posix_path = base::path::validate_and_normalize_path(&path_str).unwrap_or_else(|_| PosixPath::default());
             entries.push(DirEntryInfo {
+                path: posix_path,
                 name: name.clone(),
                 is_dir: true,
-                size: 0,
+                size_bytes: 0,
+                blake3_hash: None,
             });
         }
         for (name, file) in &current_dir.files {
+            let path_str = if path_strip.is_empty() { format!("/{}", name) } else { format!("/{}/{}", path_strip, name) };
+            let posix_path = base::path::validate_and_normalize_path(&path_str).unwrap_or_else(|_| PosixPath::default());
             entries.push(DirEntryInfo {
+                path: posix_path,
                 name: name.clone(),
                 is_dir: false,
-                size: file.content.len() as u64,
+                size_bytes: file.content.len() as u64,
+                blake3_hash: None,
             });
         }
         Ok(entries)
@@ -133,12 +141,16 @@ impl VfsBackend for StateBackend {
         let normalized = base::path::validate_and_normalize_path(path)
             .map_err(|e| BackendError::Path(e.to_string()))?;
         let file_data = Arc::new(FileData::new_utf8(content.to_string(), Utc::now()));
-        state
+        let _ = state
             .files
-            .insert(normalized, file_data)
-            .map_err(|e| BackendError::Path(e.to_string()))?;
+            .insert(normalized.clone(), file_data);
+
+        let new_blake3_hash = *blake3::hash(content.as_bytes()).as_bytes();
         Ok(WriteReceipt {
-            bytes_written: content.len() as u64,
+            path: normalized,
+            bytes_written: content.len(),
+            new_blake3_hash,
+            cst_diagnostics: vec![],
         })
     }
 
@@ -172,16 +184,13 @@ impl VfsBackend for StateBackend {
             content.replacen(old_string, new_string, 1)
         };
 
-        let normalized = base::path::validate_and_normalize_path(path)
-            .map_err(|e| BackendError::Path(e.to_string()))?;
-        let file_data = Arc::new(FileData::new_utf8(new_content, Utc::now()));
-        state
-            .files
-            .insert(normalized, file_data)
-            .map_err(|e| BackendError::Path(e.to_string()))?;
+        let receipt = self.write_file(state, path, &new_content)?;
 
         Ok(EditReceipt {
-            occurrences_replaced: occurrences,
+            path: receipt.path,
+            replacements_made: occurrences,
+            new_blake3_hash: receipt.new_blake3_hash,
+            cst_diagnostics: receipt.cst_diagnostics,
         })
     }
 
@@ -217,14 +226,14 @@ impl VfsBackend for StateBackend {
         let mut grep_matches = Vec::new();
         for path in paths {
             #[allow(clippy::collapsible_if)]
-            if let Some(file_data) = state.files.get(&path) {
+            if let Some(file_data) = state.files.get(&path.to_string()) {
                 if let Ok(content_str) = std::str::from_utf8(&file_data.content) {
                     for (i, line) in content_str.lines().enumerate() {
                         if line.contains(pattern) {
                             grep_matches.push(GrepMatch {
                                 path: path.clone(),
                                 line_number: i + 1,
-                                content: line.to_string(),
+                                line_text: line.to_string(),
                             });
                         }
                     }
