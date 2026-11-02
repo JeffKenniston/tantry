@@ -197,11 +197,11 @@ impl AuditMmrStore {
             }
         }
 
-        let mut acc = peaks.pop().unwrap();
-        while let Some(left_peak) = peaks.pop() {
+        let mut acc = *peaks.last().unwrap();
+        for left_peak in peaks[..peaks.len() - 1].iter().rev() {
             let mut h = blake3::Hasher::new();
-            h.update(&[0x02]);
-            h.update(&left_peak);
+            h.update(&[0x01]);
+            h.update(left_peak);
             h.update(&acc);
             acc = h.finalize().into();
         }
@@ -324,9 +324,9 @@ impl AuditMmrStore {
             let cand1: [u8; 32] = h1.finalize().into();
 
             let mut h2 = blake3::Hasher::new();
-            h2.update(&[0x02]);
-            h2.update(sibling);
+            h2.update(&[0x01]);
             h2.update(&acc);
+            h2.update(sibling);
             let cand2: [u8; 32] = h2.finalize().into();
 
             if &cand1 == expected_mmr_root || &cand2 == expected_mmr_root {

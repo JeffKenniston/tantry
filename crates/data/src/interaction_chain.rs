@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS archived_messages (
     message_aead BLOB NOT NULL,
     archived_at_ms INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS thread_heads (
+    thread_id TEXT PRIMARY KEY,
+    head_checkpoint_id TEXT NOT NULL,
+    head_step_index INTEGER NOT NULL
+);
 ";
 
 pub struct InteractionChainStore {
@@ -80,6 +85,7 @@ impl InteractionChainStore {
         ext_slots: Option<&[u8]>,
         todos_json: Option<&str>,
         async_tasks_json: Option<&str>,
+        key_hierarchy: &iam::key_hierarchy::KeyHierarchy,
     ) -> Result<[u8; 32], DataError> {
         let conn = self.db.lock();
 
@@ -101,6 +107,19 @@ impl InteractionChainStore {
         }
         let checkpoint_blake3: [u8; 32] = hasher.finalize().into();
 
+        let key_epoch_store = crate::crypto::KeyEpochStore::new(self.db.clone());
+        let dek = key_epoch_store
+            .resolve_or_init_thread_dek(key_hierarchy, thread_id, epoch_id)
+            .map(|z| *z)
+            .unwrap_or([0u8; 32]);
+        let aad = crate::crypto::build_checkpoint_aad(thread_id, checkpoint_id, step_index as u64, epoch_id);
+        let mut aad_arr = [0u8; 32];
+        let aad_len = aad.len().min(32);
+        aad_arr[..aad_len].copy_from_slice(&aad[..aad_len]);
+        let msg_delta_aead = msg_delta.map(|p| crate::crypto::encrypt_envelope(p, &dek, &aad_arr, crate::crypto::AeadCipherSuite::default())).transpose()?;
+        let file_deltas_aead = file_deltas.map(|p| crate::crypto::encrypt_envelope(p, &dek, &aad_arr, crate::crypto::AeadCipherSuite::default())).transpose()?;
+        let ext_slots_aead = ext_slots.map(|p| crate::crypto::encrypt_envelope(p, &dek, &aad_arr, crate::crypto::AeadCipherSuite::default())).transpose()?;
+
         // Strict INSERT INTO Invariant
         conn.execute(
             "INSERT INTO interaction_checkpoints (
@@ -114,12 +133,18 @@ impl InteractionChainStore {
                 thread_id,
                 step_index,
                 epoch_id,
-                msg_delta,
-                file_deltas,
-                ext_slots,
+                msg_delta_aead,
+                file_deltas_aead,
+                ext_slots_aead,
                 todos_json,
                 async_tasks_json
             ],
+        )?;
+
+        conn.execute(
+            "INSERT INTO thread_heads (thread_id, head_checkpoint_id, head_step_index) VALUES (?1, ?2, ?3)
+             ON CONFLICT(thread_id) DO UPDATE SET head_checkpoint_id=excluded.head_checkpoint_id, head_step_index=excluded.head_step_index",
+             params![thread_id, checkpoint_id, step_index]
         )?;
 
         Ok(checkpoint_blake3)
@@ -168,10 +193,9 @@ impl InteractionChainStore {
 
         // Step-Index Capture Invariant
         let target_step_index = chain.first().map(|r| r.step_index).unwrap_or(0) as u64;
-        let target_thread_id = chain
-            .first()
-            .map(|r| r.thread_id.clone())
-            .unwrap_or_default();
+        let target_thread_id = chain.first().map(|r| r.thread_id.clone()).unwrap_or_default();
+        let target_checkpoint_id = chain.first().map(|r| r.checkpoint_id.clone()).unwrap_or_default();
+        let mut target_vfs_root = [0u8; 32];
 
         chain.reverse();
         drop(conn); // Drop the lock before iterating to prevent deadlock when calling KeyEpochStore
@@ -215,20 +239,22 @@ impl InteractionChainStore {
 
             // Deriving DEK securely via thread and epoch salts
             let key_epoch_store = crate::crypto::KeyEpochStore::new(self.db.clone());
-            let dek = key_epoch_store
-                .resolve_or_init_thread_dek(key_hierarchy, &row.thread_id, row.epoch_id)
+            let dek = key_epoch_store.resolve_existing_thread_dek(key_hierarchy, &row.thread_id, row.epoch_id)
                 .map(|z| *z)
                 .unwrap_or([0u8; 32]);
 
-            let aad = crate::crypto::compute_canonical_aad(
-                "interaction_checkpoints",
-                &row.checkpoint_id,
+            let aad = crate::crypto::build_checkpoint_aad(
                 &row.thread_id,
+                &row.checkpoint_id,
+                row.step_index as u64,
                 row.epoch_id,
             );
+            let mut aad_arr = [0u8; 32];
+            let aad_len = aad.len().min(32);
+            aad_arr[..aad_len].copy_from_slice(&aad[..aad_len]);
 
             if let Some(md_aead) = row.message_delta_aead {
-                let plaintext = crate::crypto::decrypt_envelope(&md_aead, &dek, &aad)?;
+                let plaintext = crate::crypto::decrypt_envelope(&md_aead, &dek, &aad_arr)?;
                 let msg_delta: MessageDelta =
                     rmp_serde::from_slice(&plaintext).map_err(|e: rmp_serde::decode::Error| {
                         DataError::Serialization(e.to_string())
@@ -238,7 +264,7 @@ impl InteractionChainStore {
             }
 
             if let Some(fd_aead) = row.file_deltas_aead {
-                let plaintext = crate::crypto::decrypt_envelope(&fd_aead, &dek, &aad)?;
+                let plaintext = crate::crypto::decrypt_envelope(&fd_aead, &dek, &aad_arr)?;
                 let file_deltas: Vec<FileDelta> =
                     rmp_serde::from_slice(&plaintext).map_err(|e: rmp_serde::decode::Error| {
                         DataError::Serialization(e.to_string())
@@ -248,15 +274,14 @@ impl InteractionChainStore {
             }
 
             if let Some(ext_aead) = row.extension_slots_aead {
-                let plaintext = crate::crypto::decrypt_envelope(&ext_aead, &dek, &aad)?;
-                let raw_slots: std::collections::BTreeMap<String, Vec<u8>> =
-                    rmp_serde::from_slice(&plaintext).map_err(|e: rmp_serde::decode::Error| {
-                        DataError::Serialization(e.to_string())
-                    })?;
-                state
-                    .extensions
-                    .hydrate_all(&raw_slots, registry)
-                    .map_err(|e| DataError::Serialization(format!("{:?}", e)))?;
+                if row.checkpoint_id == target_checkpoint_id {
+                    let plaintext = crate::crypto::decrypt_envelope(&ext_aead, &dek, &aad_arr)?;
+                    let raw_slots: std::collections::BTreeMap<String, Vec<u8>> =
+                        rmp_serde::from_slice(&plaintext).map_err(|e: rmp_serde::decode::Error| {
+                            DataError::Serialization(e.to_string())
+                        })?;
+                    state.extensions.hydrate_all(&raw_slots, registry).map_err(|e| DataError::Serialization(format!("{:?}", e)))?;
+                }
             }
 
             if let Some(t_json) = row.todos_json {
@@ -266,13 +291,21 @@ impl InteractionChainStore {
             if let Some(at_json) = row.async_tasks_json {
                 state.async_tasks = serde_json::from_str(&at_json).unwrap_or_default();
             }
+
+            if row.checkpoint_id == target_checkpoint_id {
+                 target_vfs_root = state.files.root_hash();
+            }
+        }
+
+        if state.files.root_hash() != target_vfs_root {
+            return Err(DataError::Serialization("VFS root hash mismatch".into()));
         }
 
         state.step_index = target_step_index;
         state.thread_id = target_thread_id;
-        state.last_checkpoint_id = Some(target_checkpoint_id.to_string());
+        state.last_checkpoint_id = Some(target_checkpoint_id.clone());
 
-        let vfs_root_blake3 = state.files.root_hash();
+        let vfs_root_blake3 = target_vfs_root;
 
         Ok(ReconstructedCheckpoint {
             state,

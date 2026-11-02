@@ -199,7 +199,7 @@ impl SemanticCache {
 
         let candidates = self
             .store
-            .search(query_embedding, 1, 0.8)
+            .search_top_k(query_embedding, 1, 0.8)
             .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
 
         if let Some((best_id, _score)) = candidates.first() {

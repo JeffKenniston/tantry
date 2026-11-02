@@ -148,7 +148,7 @@ impl GraphCentrality {
 
         // 2. Vector Search using MatryoshkaVectorStore
         let vector_results = vector_store
-            .search(query_embedding, top_k, 0.0)
+            .search_top_k(query_embedding, top_k, 0.0)
             .map_err(|e| e.to_string())?;
 
         let mut vec_ranks = std::collections::HashMap::new();
