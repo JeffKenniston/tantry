@@ -144,7 +144,7 @@ fn test_quantized_vec() {
     store.insert_vector("v2", &vec2).unwrap();
 
     let query: Vec<f32> = vec![0.1, 0.2, 0.3, 0.0];
-    let res = store.search(&query, 10, -1.0).unwrap();
+    let res = store.search_top_k(&query, 10, -1.0).unwrap();
 
     assert!(!res.is_empty());
 }

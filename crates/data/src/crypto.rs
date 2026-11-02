@@ -281,6 +281,15 @@ impl KeyEpochStore {
         Self { db }
     }
 
+    pub fn resolve_existing_thread_dek(
+        &self,
+        iam_keys: &iam::key_hierarchy::KeyHierarchy,
+        thread_id: &str,
+        epoch_id: u32,
+    ) -> Result<Zeroizing<[u8; 32]>, DataError> {
+        self.resolve_or_init_thread_dek(iam_keys, thread_id, epoch_id)
+    }
+
     pub fn resolve_or_init_thread_dek(
         &self,
         iam_keys: &iam::key_hierarchy::KeyHierarchy,

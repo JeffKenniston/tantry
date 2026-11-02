@@ -18,6 +18,40 @@ pub struct MatryoshkaVectorStore {
 }
 
 impl MatryoshkaVectorStore {
+    pub fn quantize_matryoshka_rabitq(embedding: &[f32]) -> Result<([u64; 4], Vec<i8>, f32, f32), DataError> {
+        if embedding.len() < 256 {
+            return Err(DataError::VectorDimensionMismatch { expected: 256, actual: embedding.len() });
+        }
+
+        let mut words = [0u64; 4];
+        for b in 0..256 {
+            if embedding[b] >= 0.0 {
+                words[b / 64] |= 1u64 << (b % 64);
+            }
+        }
+
+        let mut min_val = f32::MAX;
+        let mut max_val = f32::MIN;
+        for &v in embedding {
+            if v < min_val { min_val = v; }
+            if v > max_val { max_val = v; }
+        }
+
+        let scale = if max_val > min_val {
+            (max_val - min_val) / 254.0
+        } else {
+            1.0
+        };
+
+        let mut i8_vec = Vec::with_capacity(embedding.len());
+        for &v in embedding {
+            let q = ((v - min_val) / scale).round() as i16 - 127;
+            i8_vec.push(q.clamp(-127, 127) as i8);
+        }
+
+        Ok((words, i8_vec, min_val, scale))
+    }
+
     /// Initializes a new MatryoshkaVectorStore wrapping the provided database connection.
     pub fn new(path: &str) -> Result<Self, DataError> {
         let handle = crate::db::DbHandle::open(path, 4, &base::platform::RuntimePlatform::LinuxStandard, |conn| { conn.execute_batch(VECTOR_INDEX_DDL)?; Ok(()) })?;
@@ -80,7 +114,7 @@ impl MatryoshkaVectorStore {
     }
 
     /// Executes a two-stage asymmetric search, scanning binary signs via Hamming distance before rescoring top candidates using RaBitQ cosine similarity.
-    pub fn search(
+    pub fn search_top_k(
         &self,
         query: &[f32],
         top_k: usize,
@@ -121,16 +155,16 @@ impl MatryoshkaVectorStore {
 
             let mut hamming_dist = 0;
             #[allow(clippy::needless_range_loop)]
-            for i in 0..8 {
+            for i in 0..4 {
                 hamming_dist += (q_packed_sign[i] ^ candidate_packed[i]).count_ones();
             }
 
             candidates.push((id, hamming_dist, i8_vec_bytes, scale_factor));
         }
 
-        // Sort by hamming distance (ascending) and take top K1 = 4096
+        // Sort by hamming distance (ascending) and take top K1 = (top_k * 4).max(32)
         candidates.sort_by_key(|c| c.1);
-        let k1 = 4096.min(candidates.len());
+        let k1 = (top_k * 4).max(32).min(candidates.len());
         candidates.truncate(k1);
 
         let mut results = Vec::new();

@@ -631,6 +631,7 @@ pub fn fork_thread_at_checkpoint(
             Some(&ext_slots_aead),
             Some(todos_json.as_str()),
             Some(async_tasks_json.as_str()),
+            key_hierarchy,
         )
         .map_err(RuntimeError::Data)?;
 
@@ -1272,6 +1273,7 @@ pub fn commit_step_checkpoint(
             Some(&ext_slots_aead),
             Some(&serde_json::to_string(&state.todos).unwrap_or_default()),
             Some(&serde_json::to_string(&state.async_tasks).unwrap_or_default()),
+            key_hierarchy,
         )
         .map_err(RuntimeError::Data)?;
     state.last_checkpoint_id = Some(cp_id.clone());
