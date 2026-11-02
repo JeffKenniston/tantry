@@ -303,7 +303,7 @@ impl InteractionChainStore {
             thread_id,
             epoch_id,
         );
-        crate::crypto::encrypt_envelope_xchacha20(plaintext, &dek, &aad)
+        crate::crypto::encrypt_envelope(plaintext, &dek, &aad, crate::crypto::AeadCipherSuite::default())
     }
 
     pub fn get_latest_checkpoint_for_thread(

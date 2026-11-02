@@ -163,7 +163,7 @@ impl SemanticCache {
         let plaintext = serde_json::to_vec(messages)
             .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
 
-        let encrypted = data::crypto::encrypt_envelope_xchacha20(&plaintext, dek, aad)
+        let encrypted = data::crypto::encrypt_envelope(&plaintext, dek, aad, data::crypto::AeadCipherSuite::default())
             .map_err(|e| crate::error::CognitiveError::DatabaseError(e.to_string()))?;
 
         let conn = self.store.db.lock();

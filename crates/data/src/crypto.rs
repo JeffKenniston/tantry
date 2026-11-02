@@ -116,36 +116,75 @@ pub fn generate_xchacha20_nonce() -> [u8; 24] {
 }
 
 /// Compresses plaintext using zstd and encrypts it into a canonical envelope using XChaCha20-Poly1305 and the provided DEK/AAD.
-pub fn encrypt_envelope_xchacha20(
+pub fn encrypt_envelope(
     plaintext: &[u8],
     dek: &[u8; 32],
     aad: &[u8; 32],
+    cipher_suite: AeadCipherSuite,
 ) -> Result<Vec<u8>, DataError> {
     let compressed =
         zstd::encode_all(plaintext, 3).map_err(|e| DataError::Compression(e.to_string()))?;
 
-    let nonce_bytes = generate_xchacha20_nonce();
-    let nonce = chacha20poly1305::XNonce::from(nonce_bytes);
+    match cipher_suite {
+        AeadCipherSuite::XChaCha20Poly1305 => {
+            let nonce_bytes = generate_xchacha20_nonce();
+            let nonce = chacha20poly1305::XNonce::from(nonce_bytes);
 
-    let key = Key::<XChaCha20Poly1305>::from(*dek);
-    let cipher = XChaCha20Poly1305::new(&key);
+            let key = Key::<XChaCha20Poly1305>::from(*dek);
+            let cipher = XChaCha20Poly1305::new(&key);
 
-    let payload = chacha20poly1305::aead::Payload {
-        msg: &compressed,
-        aad,
-    };
+            let payload = chacha20poly1305::aead::Payload {
+                msg: &compressed,
+                aad,
+            };
 
-    let ciphertext = cipher
-        .encrypt(&nonce, payload)
-        .map_err(|_| DataError::AeadEncryptionFailed)?;
+            let ciphertext = cipher
+                .encrypt(&nonce, payload)
+                .map_err(|_| DataError::AeadEncryptionFailed)?;
 
-    let mut wire = Vec::with_capacity(1 + 1 + 24 + ciphertext.len());
-    wire.push(0x03);
-    wire.push(0x01);
-    wire.extend_from_slice(&nonce_bytes);
-    wire.extend_from_slice(&ciphertext);
+            let mut wire = Vec::with_capacity(1 + 1 + 24 + ciphertext.len());
+            wire.push(0x03);
+            wire.push(cipher_suite.cipher_id());
+            wire.extend_from_slice(&nonce_bytes);
+            wire.extend_from_slice(&ciphertext);
 
-    Ok(wire)
+            Ok(wire)
+        }
+        AeadCipherSuite::Aes256GcmSiv => {
+            let mut nonce_bytes = [0u8; 12];
+            let timestamp_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            let ts_low4 = (timestamp_ms & 0xFFFFFFFF) as u32;
+            nonce_bytes[0..4].copy_from_slice(&ts_low4.to_be_bytes());
+            let mut os_csprng = [0u8; 8];
+            rand_core::RngCore::fill_bytes(&mut rand_core::OsRng, &mut os_csprng);
+            nonce_bytes[4..12].copy_from_slice(&os_csprng);
+
+            let nonce = aes_gcm_siv::Nonce::from(nonce_bytes);
+
+            let key = Key::<Aes256GcmSiv>::from(*dek);
+            let cipher = Aes256GcmSiv::new(&key);
+
+            let payload = aes_gcm_siv::aead::Payload {
+                msg: &compressed,
+                aad,
+            };
+
+            let ciphertext = cipher
+                .encrypt(&nonce, payload)
+                .map_err(|_| DataError::AeadEncryptionFailed)?;
+
+            let mut wire = Vec::with_capacity(1 + 1 + 12 + ciphertext.len());
+            wire.push(0x03);
+            wire.push(cipher_suite.cipher_id());
+            wire.extend_from_slice(&nonce_bytes);
+            wire.extend_from_slice(&ciphertext);
+
+            Ok(wire)
+        }
+    }
 }
 
 /// Authenticates and decrypts a wire-format envelope (supporting XChaCha20-Poly1305 or AES-GCM-SIV) and decompresses the zstd payload.
@@ -164,8 +203,8 @@ pub fn decrypt_envelope(
         return Err(DataError::Serialization("Unknown version".to_string()));
     }
 
-    let compressed = match wire[1] {
-        0x01 => {
+    let compressed = match AeadCipherSuite::from_cipher_id(wire[1]) {
+        Some(AeadCipherSuite::XChaCha20Poly1305) => {
             // XChaCha20Poly1305
             if wire.len() < 2 + 24 + 16 {
                 return Err(DataError::Serialization(
@@ -187,7 +226,7 @@ pub fn decrypt_envelope(
                 .decrypt(&nonce, payload)
                 .map_err(|_| DataError::AeadDecryptionFailed { context: "AAD mismatch".to_string() })?
         }
-        0x02 => {
+        Some(AeadCipherSuite::Aes256GcmSiv) => {
             // Aes256GcmSiv
             if wire.len() < 2 + 12 + 16 {
                 return Err(DataError::Serialization(
