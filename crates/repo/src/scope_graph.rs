@@ -99,7 +99,7 @@ pub enum ImportEdge {
         file_path: PosixPath,
         import_name: String,
         target_path: PosixPath,
-    }
+    },
 }
 
 impl ImportEdge {
@@ -154,8 +154,11 @@ impl ScopeGraph {
     pub fn pass_1_local_scope_extraction(&mut self) -> Result<(), base::error::ExtensionError> {
         let mut updates = Vec::new();
         for (id, def) in &self.definitions {
-            let expected_id =
-                Self::compute_symbol_id(def.file_path.as_str(), &def.scope_qualified_name, &def.kind);
+            let expected_id = Self::compute_symbol_id(
+                def.file_path.as_str(),
+                &def.scope_qualified_name,
+                &def.kind,
+            );
             if *id != expected_id {
                 updates.push((id.clone(), expected_id));
             }
@@ -173,7 +176,12 @@ impl ScopeGraph {
     pub fn pass_2_import_edge_wiring(&mut self) -> Result<(), base::error::ExtensionError> {
         for import in self.imports.iter_mut() {
             match import {
-                ImportEdge::ExplicitNamed { target_symbol_id, target_symbol, target_path, .. } => {
+                ImportEdge::ExplicitNamed {
+                    target_symbol_id,
+                    target_symbol,
+                    target_path,
+                    ..
+                } => {
                     if target_symbol_id.is_none() {
                         for def in self.definitions.values() {
                             if def.scope_qualified_name.ends_with(target_symbol.as_str()) {
@@ -184,10 +192,19 @@ impl ScopeGraph {
                         }
                     }
                 }
-                ImportEdge::Wildcard { import_name, target_path, .. } => {
-                    let prefix = import_name.trim_end_matches('*').trim_end_matches("::").trim();
+                ImportEdge::Wildcard {
+                    import_name,
+                    target_path,
+                    ..
+                } => {
+                    let prefix = import_name
+                        .trim_end_matches('*')
+                        .trim_end_matches("::")
+                        .trim();
                     for def in self.definitions.values() {
-                        if def.scope_qualified_name.ends_with(prefix) || def.file_path.contains(prefix) {
+                        if def.scope_qualified_name.ends_with(prefix)
+                            || def.file_path.contains(prefix)
+                        {
                             *target_path = def.file_path.clone();
                             break;
                         }
@@ -220,7 +237,9 @@ impl ScopeGraph {
                         for imp in &self.imports {
                             if imp.file_path() == &pref.file_path {
                                 match imp {
-                                    ImportEdge::ExplicitNamed { target_symbol_id, .. } => {
+                                    ImportEdge::ExplicitNamed {
+                                        target_symbol_id, ..
+                                    } => {
                                         if target_symbol_id.as_ref() == Some(&def.symbol_id) {
                                             priority = ShadowPriority::ExplicitNamedImport as u8;
                                         }

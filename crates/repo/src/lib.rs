@@ -4,7 +4,6 @@ pub mod linting_hooks;
 pub use linting_hooks::CstDiagnostic;
 pub mod parser;
 
-
 /// Analysis report of file mutations, containing diagnostics and blast radius impacts.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FileMutationAnalysis {
@@ -24,4 +23,6 @@ pub mod repomap;
 pub use engine::{RepoEngine, RepoEngineConfig};
 
 pub use repomap::SkeletonRepoMapSlot;
+pub mod error;
 pub mod scope_graph;
+pub use error::RepoError;

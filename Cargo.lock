@@ -3754,6 +3754,7 @@ dependencies = [
  "data",
  "rayon",
  "rusqlite",
+ "thiserror 2.0.21",
  "tree-sitter",
  "tree-sitter-c",
  "tree-sitter-cpp",

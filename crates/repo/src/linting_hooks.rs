@@ -43,7 +43,18 @@ pub fn check_cst_diagnostics(path: &str, tree: &Tree, source: &str) -> Vec<CstDi
                     String::new()
                 };
 
-            let message = format!("{}:{}:{}: syntax {} near `{}`", path, start.row + 1, start.column + 1, if node.is_missing() { "missing token" } else { "error" }, snippet);
+            let message = format!(
+                "{}:{}:{}: syntax {} near `{}`",
+                path,
+                start.row + 1,
+                start.column + 1,
+                if node.is_missing() {
+                    "missing token"
+                } else {
+                    "error"
+                },
+                snippet
+            );
 
             diagnostics.push(CstDiagnostic {
                 file_path: path.to_string(),

@@ -285,7 +285,7 @@ impl RepoEngine {
                 file_path TEXT
             );
             CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
-                symbol_id, file_path, scope_qualified_name
+                symbol_id UNINDEXED, name, qualified_name, signature_text, file_path
             );",
         )
         .map_err(|e| e.to_string())?;
@@ -357,13 +357,13 @@ impl RepoEngine {
         let mut blast_radius = Vec::new();
         let mut max_risk_score = 0.0_f32;
 
-        for def in scope_graph.definitions.values() {
-            let br =
-                centrality.ast_blast_radius(&def.symbol_id, vec![def.file_path.clone()], true, 0);
-            if br.risk_score > max_risk_score {
-                max_risk_score = br.risk_score;
+        for symbol_def in scope_graph.definitions.values() {
+            if let Ok(br) = centrality.compute_blast_radius(&conn, None, Some(symbol_def)) {
+                if br.risk_score > max_risk_score {
+                    max_risk_score = br.risk_score;
+                }
+                blast_radius.push(br);
             }
-            blast_radius.push(br);
         }
 
         Ok(FileMutationAnalysis {
