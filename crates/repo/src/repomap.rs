@@ -73,13 +73,13 @@ impl SkeletonRepoMapSlot {
         _files: &[&str],
         symbols: &[&str],
         centrality: &std::collections::HashMap<String, f32>,
-        user_prompt_hits: &[&str],
+        prompt_mentioned_files: &[&str],
     ) {
         let mut ranked_symbols: Vec<(&str, f32)> = symbols
             .iter()
             .map(|&sym| {
                 let mut score = *centrality.get(sym).unwrap_or(&1.0);
-                if user_prompt_hits.iter().any(|&hit| sym.contains(hit)) {
+                if prompt_mentioned_files.iter().any(|&hit| sym.contains(hit)) {
                     score *= 3.0;
                 }
                 (sym, score)
@@ -89,16 +89,15 @@ impl SkeletonRepoMapSlot {
         ranked_symbols.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let mut result = String::new();
-        let mut current_tokens = 0;
+        let mut accumulated_bytes = 0;
 
         for (sym, _) in ranked_symbols {
             let decl = format!("{} {{ ... }}\n", sym);
-            let tokens = (decl.len() as f64 / 4.0).ceil() as u64;
-            if current_tokens + tokens > self.max_tokens {
+            if (accumulated_bytes + decl.len() + 3) as u64 / 4 >= self.max_tokens {
                 break;
             }
             result.push_str(&decl);
-            current_tokens += tokens;
+            accumulated_bytes += decl.len();
         }
 
         self.payload = result.into_bytes();
