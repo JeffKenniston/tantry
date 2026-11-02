@@ -76,4 +76,43 @@ impl SecureProcess {
             Err(e) => Err(format!("kill failed: {}", e)),
         }
     }
+
+}
+
+pub struct AdaptiveSandboxRunner {
+    pub env_cap: std::sync::Arc<permissions::EnvCapability>,
+}
+pub struct RunnerRequest {
+    pub timeout_ms: u64,
+}
+
+impl AdaptiveSandboxRunner {
+    pub async fn execute(&self, mut cmd: tokio::process::Command, req: RunnerRequest) -> Result<std::process::ExitStatus, crate::error::BackendError> {
+        let env_vars = std::env::vars();
+        let scrubbed = self.env_cap.scrub_host_env(env_vars);
+        cmd.env_clear();
+        cmd.envs(scrubbed);
+
+        unsafe {
+            cmd.pre_exec(|| {
+                nix::unistd::setsid().map_err(std::io::Error::from)?;
+                Ok(())
+            });
+        }
+
+        let mut child = cmd.spawn().map_err(|e| crate::error::BackendError::Io(e.to_string()))?;
+        let child_pid = child.id().unwrap();
+
+        let res = tokio::time::timeout(std::time::Duration::from_millis(req.timeout_ms), child.wait()).await;
+
+        match res {
+            Ok(Ok(status)) => Ok(status),
+            Ok(Err(e)) => Err(crate::error::BackendError::Io(e.to_string())),
+            Err(_) => {
+                let _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(-(child_pid as i32)), nix::sys::signal::Signal::SIGKILL);
+                let _ = child.wait().await;
+                Err(crate::error::BackendError::SandboxTimeout { timeout_ms: req.timeout_ms, pgid: child_pid as i32 })
+            }
+        }
+    }
 }
