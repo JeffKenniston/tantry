@@ -712,7 +712,7 @@ pub async fn execute_single_tool(
                 Ok(entries) => {
                     let mut lines = Vec::new();
                     for e in entries {
-                        lines.push(format!("{} (dir: {}, size: {})", e.name, e.is_dir, e.size));
+                        lines.push(format!("{} (dir: {}, size: {})", e.name, e.is_dir, e.size_bytes));
                     }
                     let output = lines.join("\n");
                     let final_out = base::tools_meta::maybe_offload_tool_output(
@@ -824,7 +824,7 @@ pub async fn execute_single_tool(
                 Ok(receipt) => {
                     let output = format!(
                         "Edit successful. {} occurrences replaced.",
-                        receipt.occurrences_replaced
+                        receipt.replacements_made
                     );
                     let final_out = base::tools_meta::maybe_offload_tool_output(
                         tool_use_id,
@@ -909,7 +909,7 @@ pub async fn execute_single_tool(
                 Ok(matches) => {
                     let mut lines = Vec::new();
                     for m in matches {
-                        lines.push(format!("{}:{}: {}", m.path, m.line_number, m.content));
+                        lines.push(format!("{}:{}: {}", m.path, m.line_number, m.line_text));
                     }
                     let output = lines.join("\n");
                     let final_out = base::tools_meta::maybe_offload_tool_output(
@@ -948,7 +948,7 @@ pub async fn execute_single_tool(
                 .unwrap_or_default();
 
             let start = std::time::Instant::now();
-            match ctx.backend.execute(SandboxExecRequest { command, args }) {
+            match ctx.backend.execute(SandboxExecRequest { command, args, cwd: base::path::PosixPath::default(), env_overrides: std::collections::BTreeMap::new(), timeout_ms: 30000, svid: None }) {
                 Ok(res) => {
                     let duration = start.elapsed();
                     let output = format!(

@@ -66,7 +66,7 @@ fn test_local_fs_ls_glob_grep() {
     let grep_res = backend.grep(&state, "match", None).unwrap();
     assert_eq!(grep_res.len(), 1);
     assert_eq!(grep_res[0].path, "/foo/bar.txt");
-    assert_eq!(grep_res[0].content, "match this");
+    assert_eq!(grep_res[0].line_text, "match this");
 }
 
 #[test]

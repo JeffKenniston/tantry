@@ -55,7 +55,7 @@ impl LocalFsBackend {
                         final_path.push_str(&new_path);
 
                         if matcher.matches(&final_path) {
-                            matches.push(final_path.clone());
+                            matches.push(base::path::validate_and_normalize_path(&final_path).unwrap_or_else(|_| PosixPath::default()));
                         }
 
                         if metadata.is_dir() {
@@ -98,10 +98,14 @@ impl VfsBackend for LocalFsBackend {
                 .metadata()
                 .map_err(|e| BackendError::Io(e.to_string()))?;
             let name = entry.file_name().to_string_lossy().to_string();
+            let path_str = if local_path.is_empty() { name.clone() } else { format!("{}/{}", local_path, name) };
+            let posix_path = base::path::validate_and_normalize_path(&path_str).unwrap_or_else(|_| PosixPath::default());
             entries.push(DirEntryInfo {
+                path: posix_path,
                 name,
                 is_dir: metadata.is_dir(),
-                size: metadata.len(),
+                size_bytes: metadata.len(),
+                blake3_hash: None,
             });
         }
         Ok(entries)
@@ -154,13 +158,16 @@ impl VfsBackend for LocalFsBackend {
         let normalized = base::path::validate_and_normalize_path(path)
             .map_err(|e| BackendError::Path(e.to_string()))?;
         let file_data = Arc::new(FileData::new_utf8(content.to_string(), Utc::now()));
-        state
+        let _ = state
             .files
-            .insert(normalized, file_data)
-            .map_err(|e| BackendError::Path(e.to_string()))?;
+            .insert(normalized.clone(), file_data);
 
+        let new_blake3_hash = *blake3::hash(content.as_bytes()).as_bytes();
         Ok(WriteReceipt {
-            bytes_written: content.len() as u64,
+            path: normalized,
+            bytes_written: content.len(),
+            new_blake3_hash,
+            cst_diagnostics: vec![],
         })
     }
 
@@ -188,10 +195,13 @@ impl VfsBackend for LocalFsBackend {
             content.replacen(old_string, new_string, 1)
         };
 
-        self.write_file(state, path, &new_content)?;
+        let receipt = self.write_file(state, path, &new_content)?;
 
         Ok(EditReceipt {
-            occurrences_replaced: occurrences,
+            path: receipt.path,
+            replacements_made: occurrences,
+            new_blake3_hash: receipt.new_blake3_hash,
+            cst_diagnostics: receipt.cst_diagnostics,
         })
     }
 
@@ -230,13 +240,13 @@ impl VfsBackend for LocalFsBackend {
 
         let mut grep_matches = Vec::new();
         for path in paths {
-            if let Ok(content) = self.read_file(state, &path, None, None) {
+            if let Ok(content) = self.read_file(state, &path.to_string(), None, None) {
                 for (i, line) in content.lines().enumerate() {
                     if line.contains(pattern) {
                         grep_matches.push(GrepMatch {
                             path: path.clone(),
                             line_number: i + 1,
-                            content: line.to_string(),
+                            line_text: line.to_string(),
                         });
                     }
                 }
