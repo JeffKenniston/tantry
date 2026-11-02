@@ -233,7 +233,9 @@ pub fn validate_component_no_start_yield(wasm_bytes: &[u8]) -> Result<(), Backen
     for payload in parser.parse_all(wasm_bytes) {
         match payload {
             Ok(Payload::StartSection { .. }) | Ok(Payload::ComponentStartSection { .. }) => {
-                return Err(BackendError::UnsafeWasmStartSection);
+                return Err(BackendError::UnsafeWasmStartSection(
+                    "WASM binary contains a forbidden core or component start section (RUSTSEC-2026-0358)".into(),
+                ));
             }
             Err(e) => return Err(BackendError::Execution(format!("Invalid WASM: {}", e))),
             _ => continue,

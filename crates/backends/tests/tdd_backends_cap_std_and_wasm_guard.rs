@@ -82,7 +82,7 @@ fn test_wasm_guard_rejects_start_section() {
         0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x08, 0x01, 0x00, // start section
     ];
     let err = validate_component_no_start_yield(unsafe_wasm).unwrap_err();
-    assert!(matches!(err, BackendError::UnsafeWasmStartSection));
+    assert!(matches!(err, BackendError::UnsafeWasmStartSection(_)));
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn test_termux_zygote_reap() {
 
 #[test]
 fn test_egress_proxy_blocks_unallowlisted() {
-    use backends::egress_proxy::EgressProxy;
+    use backends::egress_proxy::EgressProxyServer;
     use iam::tunnel_grant::ScopedTunnelRegistry;
 
     let registry = std::sync::Arc::new(ScopedTunnelRegistry::new());
@@ -111,11 +111,16 @@ fn test_egress_proxy_blocks_unallowlisted() {
     let audit_store = std::sync::Arc::new(
         data::audit_mmr::AuditMmrStore::new("file:memdb2?mode=memory&cache=shared").unwrap(),
     );
-    let proxy = EgressProxy::new(vec!["crates.io".to_string()], registry, audit_store);
+    let proxy = EgressProxyServer {
+        allowlisted_mirrors: vec!["crates.io".to_string()],
+        tunnel_registry: registry,
+        audit_mmr: audit_store,
+        iam: None,
+    };
 
     // Allowlisted
-    assert!(proxy.evaluate_connection("crates.io", 0).is_ok());
+    assert!(proxy.evaluate_and_audit_host(b"CONNECT crates.io:443 HTTP/1.1\r\n", 0).is_ok());
 
     // Blocked
-    assert!(proxy.evaluate_connection("malicious.com", 0).is_err());
+    assert!(proxy.evaluate_and_audit_host(b"CONNECT malicious.com:443 HTTP/1.1\r\n", 0).is_err());
 }

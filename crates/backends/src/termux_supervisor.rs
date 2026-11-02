@@ -13,7 +13,7 @@ impl TermuxZygotePool {
     /// Create a new pool
     pub fn new(max_workers: usize) -> Self {
         Self {
-            max_workers: std::cmp::min(max_workers, 8),
+            max_workers: max_workers.clamp(1, 8),
         } // leaving room for up to 12 total
     }
 
