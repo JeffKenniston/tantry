@@ -67,6 +67,17 @@ impl LocalFsBackend {
         }
         Ok(())
     }
+
+    fn map_io_error(err: std::io::Error, path: &str) -> BackendError {
+        let raw = err.raw_os_error();
+        let msg = err.to_string();
+        if raw == Some(nix::libc::ELOOP) || raw == Some(nix::libc::EXDEV) || raw == Some(nix::libc::EACCES) || raw == Some(nix::libc::EPERM) || msg.contains("symlink") || msg.contains("escape") {
+            let norm_path = base::path::validate_and_normalize_path(path).unwrap_or_else(|_| PosixPath::default());
+            BackendError::CapabilityEscapeBlocked { path: norm_path, reason: msg }
+        } else {
+            BackendError::Io(msg)
+        }
+    }
 }
 
 impl VfsBackend for LocalFsBackend {
@@ -85,18 +96,18 @@ impl VfsBackend for LocalFsBackend {
         let dir_entries = if local_path.is_empty() {
             self.dir
                 .entries()
-                .map_err(|e| BackendError::Io(e.to_string()))?
+                .map_err(|e| Self::map_io_error(e, path))?
         } else {
             self.dir
                 .read_dir(local_path)
-                .map_err(|e| BackendError::Io(e.to_string()))?
+                .map_err(|e| Self::map_io_error(e, path))?
         };
 
         for entry in dir_entries {
-            let entry = entry.map_err(|e| BackendError::Io(e.to_string()))?;
+            let entry = entry.map_err(|e| Self::map_io_error(e, path))?;
             let metadata = entry
                 .metadata()
-                .map_err(|e| BackendError::Io(e.to_string()))?;
+                .map_err(|e| Self::map_io_error(e, path))?;
             let name = entry.file_name().to_string_lossy().to_string();
             let path_str = if local_path.is_empty() { name.clone() } else { format!("{}/{}", local_path, name) };
             let posix_path = base::path::validate_and_normalize_path(&path_str).unwrap_or_else(|_| PosixPath::default());
@@ -122,10 +133,10 @@ impl VfsBackend for LocalFsBackend {
         let mut file = self
             .dir
             .open(local_path)
-            .map_err(|e| BackendError::Io(e.to_string()))?;
+            .map_err(|e| Self::map_io_error(e, path))?;
         let mut content = String::new();
         file.read_to_string(&mut content)
-            .map_err(|e| BackendError::Io(e.to_string()))?;
+            .map_err(|e| Self::map_io_error(e, path))?;
 
         let lines: Vec<&str> = content.lines().collect();
         let start = offset_line.unwrap_or(0);
@@ -151,9 +162,9 @@ impl VfsBackend for LocalFsBackend {
         let mut file = self
             .dir
             .create(local_path)
-            .map_err(|e| BackendError::Io(e.to_string()))?;
+            .map_err(|e| Self::map_io_error(e, path))?;
         file.write_all(content.as_bytes())
-            .map_err(|e| BackendError::Io(e.to_string()))?;
+            .map_err(|e| Self::map_io_error(e, path))?;
 
         let normalized = base::path::validate_and_normalize_path(path)
             .map_err(|e| BackendError::Path(e.to_string()))?;
@@ -162,12 +173,18 @@ impl VfsBackend for LocalFsBackend {
             .files
             .insert(normalized.clone(), file_data);
 
+        let mut cst_diagnostics = vec![];
+        let parser = repo::parser::Parser::new();
+        if let Some(tree) = parser.parse(&normalized.to_string(), content, [0; 32]) {
+            cst_diagnostics = repo::linting_hooks::check_cst_diagnostics(&normalized.to_string(), &tree, content);
+        }
+
         let new_blake3_hash = *blake3::hash(content.as_bytes()).as_bytes();
         Ok(WriteReceipt {
             path: normalized,
             bytes_written: content.len(),
             new_blake3_hash,
-            cst_diagnostics: vec![],
+            cst_diagnostics,
         })
     }
 
@@ -183,10 +200,12 @@ impl VfsBackend for LocalFsBackend {
 
         let occurrences = content.matches(old_string).count();
         if occurrences == 0 {
-            return Err(BackendError::OldStringNotFound);
+            let norm_path = base::path::validate_and_normalize_path(path).unwrap_or_default();
+            return Err(BackendError::OldStringNotFound { path: norm_path });
         }
         if occurrences > 1 && !replace_all {
-            return Err(BackendError::OccurrenceMismatch { count: occurrences });
+            let norm_path = base::path::validate_and_normalize_path(path).unwrap_or_default();
+            return Err(BackendError::OccurrenceMismatch { path: norm_path, count: occurrences });
         }
 
         let new_content = if replace_all {
@@ -209,7 +228,7 @@ impl VfsBackend for LocalFsBackend {
         let local_path = self.normalize_local_path(path);
         self.dir
             .remove_file(local_path)
-            .map_err(|e| BackendError::Io(e.to_string()))?;
+            .map_err(|e| Self::map_io_error(e, path))?;
         state.files.remove(path);
         Ok(())
     }

@@ -5,26 +5,27 @@ use crate::traits::{
 };
 use base::path::PosixPath;
 use base::state::TantryState;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// CompositeBackend struct
 pub struct CompositeBackend {
-    /// mounts field
-    pub mounts: BTreeMap<String, Arc<dyn VfsBackend>>,
+    /// Mount routes sorted by prefix length in descending order
+    pub mounts: Vec<(String, Arc<dyn VfsBackend>)>,
 }
 
 impl CompositeBackend {
     /// new method
     pub fn new() -> Self {
         Self {
-            mounts: BTreeMap::new(),
+            mounts: Vec::new(),
         }
     }
 
     /// mount method
     pub fn mount(&mut self, prefix: String, backend: Arc<dyn VfsBackend>) {
-        self.mounts.insert(prefix, backend);
+        self.mounts.retain(|(p, _)| p != &prefix);
+        self.mounts.push((prefix, backend));
+        self.mounts.sort_by(|(a, _), (b, _)| b.len().cmp(&a.len()));
     }
 
     fn get_backend<'a>(
