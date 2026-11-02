@@ -31,6 +31,8 @@ pub struct SymbolDef {
     pub file_path: PosixPath,
     /// The fully qualified name of the symbol within its scope.
     pub scope_qualified_name: String,
+    /// Whether this definition is a public trait/interface implementation.
+    pub is_public_trait_impl: bool,
 }
 
 /// Represents the strict lexical shadowing priority ladder for resolving references.
@@ -85,15 +87,28 @@ pub struct ParentEdge {
 
 /// An import edge connecting a file to a symbol definition.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ImportEdge {
-    /// The file path containing the import.
-    pub file_path: PosixPath,
-    /// The imported name.
-    pub import_name: String,
-    /// The resolved target symbol ID (if any).
-    pub target_symbol_id: Option<String>,
-    /// Whether this is a wildcard import.
-    pub is_wildcard: bool,
+pub enum ImportEdge {
+    ExplicitNamed {
+        file_path: PosixPath,
+        local_alias: String,
+        target_path: PosixPath,
+        target_symbol: String,
+        target_symbol_id: Option<String>,
+    },
+    Wildcard {
+        file_path: PosixPath,
+        import_name: String,
+        target_path: PosixPath,
+    }
+}
+
+impl ImportEdge {
+    pub fn file_path(&self) -> &PosixPath {
+        match self {
+            ImportEdge::ExplicitNamed { file_path, .. } => file_path,
+            ImportEdge::Wildcard { file_path, .. } => file_path,
+        }
+    }
 }
 
 /// Phase 2: A 3-Pass Lexical Scope-Graph for cross-file symbol resolution.
@@ -131,14 +146,7 @@ impl ScopeGraph {
         scope_qualified_name: &str,
         kind: &ScopeKind,
     ) -> String {
-        let kind_str = match kind {
-            ScopeKind::Module => "Module",
-            ScopeKind::StructOrClass => "StructOrClass",
-            ScopeKind::ImplOrInterface => "ImplOrInterface",
-            ScopeKind::Function => "Function",
-            ScopeKind::Block => "Block",
-        };
-        let input = format!("{}::{}::{}", file_path, scope_qualified_name, kind_str);
+        let input = format!("{}::{}::{:?}", file_path, scope_qualified_name, kind);
         blake3::hash(input.as_bytes()).to_hex().to_string()
     }
 
@@ -147,7 +155,7 @@ impl ScopeGraph {
         let mut updates = Vec::new();
         for (id, def) in &self.definitions {
             let expected_id =
-                Self::compute_symbol_id(&def.file_path, &def.scope_qualified_name, &def.kind);
+                Self::compute_symbol_id(def.file_path.as_str(), &def.scope_qualified_name, &def.kind);
             if *id != expected_id {
                 updates.push((id.clone(), expected_id));
             }
@@ -164,11 +172,25 @@ impl ScopeGraph {
     /// Pass 2: Import & Export Edge Wiring
     pub fn pass_2_import_edge_wiring(&mut self) -> Result<(), base::error::ExtensionError> {
         for import in self.imports.iter_mut() {
-            if import.target_symbol_id.is_none() {
-                for def in self.definitions.values() {
-                    if def.scope_qualified_name.ends_with(&import.import_name) {
-                        import.target_symbol_id = Some(def.symbol_id.clone());
-                        break;
+            match import {
+                ImportEdge::ExplicitNamed { target_symbol_id, target_symbol, target_path, .. } => {
+                    if target_symbol_id.is_none() {
+                        for def in self.definitions.values() {
+                            if def.scope_qualified_name.ends_with(target_symbol.as_str()) {
+                                *target_symbol_id = Some(def.symbol_id.clone());
+                                *target_path = def.file_path.clone();
+                                break;
+                            }
+                        }
+                    }
+                }
+                ImportEdge::Wildcard { import_name, target_path, .. } => {
+                    let prefix = import_name.trim_end_matches('*').trim_end_matches("::").trim();
+                    for def in self.definitions.values() {
+                        if def.scope_qualified_name.ends_with(prefix) || def.file_path.contains(prefix) {
+                            *target_path = def.file_path.clone();
+                            break;
+                        }
                     }
                 }
             }
@@ -196,13 +218,18 @@ impl ScopeGraph {
                         }
                     } else {
                         for imp in &self.imports {
-                            if imp.file_path == pref.file_path
-                                && imp.target_symbol_id.as_ref() == Some(&def.symbol_id)
-                            {
-                                if imp.is_wildcard {
-                                    priority = ShadowPriority::WildcardImport as u8;
-                                } else {
-                                    priority = ShadowPriority::ExplicitNamedImport as u8;
+                            if imp.file_path() == &pref.file_path {
+                                match imp {
+                                    ImportEdge::ExplicitNamed { target_symbol_id, .. } => {
+                                        if target_symbol_id.as_ref() == Some(&def.symbol_id) {
+                                            priority = ShadowPriority::ExplicitNamedImport as u8;
+                                        }
+                                    }
+                                    ImportEdge::Wildcard { target_path, .. } => {
+                                        if def.file_path == *target_path {
+                                            priority = ShadowPriority::WildcardImport as u8;
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -232,4 +259,111 @@ impl Default for ScopeGraph {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn walk_signature_tokens(node: tree_sitter::Node<'_>, source: &[u8], hasher: &mut blake3::Hasher) {
+    if node.child_count() == 0 {
+        if !node.kind().contains("comment") {
+            if let Ok(text) = node.utf8_text(source) {
+                hasher.update(b" ");
+                hasher.update(text.as_bytes());
+            }
+        }
+        return;
+    }
+
+    let mut cursor = node.walk();
+    if cursor.goto_first_child() {
+        loop {
+            let child = cursor.node();
+            let field_name = cursor.field_name();
+            let kind = child.kind();
+
+            if field_name == Some("body")
+                || kind == "block"
+                || kind == "declaration_list"
+                || kind == "field_declaration_list"
+                || kind == "statement_block"
+                || kind == "compound_statement"
+                || kind.contains("comment")
+            {
+                // skip
+            } else {
+                walk_signature_tokens(child, source, hasher);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+fn walk_body_tokens(node: tree_sitter::Node<'_>, source: &[u8], hasher: &mut blake3::Hasher) {
+    if node.child_count() == 0 {
+        if !node.kind().contains("comment") {
+            if let Ok(text) = node.utf8_text(source) {
+                hasher.update(b" ");
+                hasher.update(text.as_bytes());
+            }
+        }
+        return;
+    }
+
+    let mut cursor = node.walk();
+    if cursor.goto_first_child() {
+        loop {
+            let child = cursor.node();
+            if child.kind().contains("comment") {
+                // skip
+            } else {
+                walk_body_tokens(child, source, hasher);
+            }
+
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+/// Computes a normalized BLAKE3 hash of a node's signature (excluding its body).
+pub fn compute_normalized_signature_blake3(node: tree_sitter::Node<'_>, source: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"tantry:sig:v3:");
+    hasher.update(node.kind().as_bytes());
+
+    walk_signature_tokens(node, source, &mut hasher);
+
+    *hasher.finalize().as_bytes()
+}
+
+/// Computes a normalized BLAKE3 hash of a node's body.
+pub fn compute_normalized_body_blake3(node: tree_sitter::Node<'_>, source: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"tantry:body:v3:");
+
+    let mut body_node = node.child_by_field_name("body");
+
+    if body_node.is_none() {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            let kind = child.kind();
+            if kind == "block"
+                || kind == "statement_block"
+                || kind == "compound_statement"
+                || kind == "declaration_list"
+                || kind == "field_declaration_list"
+            {
+                body_node = Some(child);
+                break;
+            }
+        }
+    }
+
+    if let Some(body) = body_node {
+        walk_body_tokens(body, source, &mut hasher);
+    }
+
+    *hasher.finalize().as_bytes()
 }

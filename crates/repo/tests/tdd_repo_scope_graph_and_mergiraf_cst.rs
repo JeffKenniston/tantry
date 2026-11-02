@@ -30,6 +30,7 @@ fn test_scope_graph_resolution() {
             body_blake3: [1u8; 32],
             file_path: "/src/mod_a.rs".to_string(),
             scope_qualified_name: "ImplA::method".to_string(),
+            is_public_trait_impl: false,
         },
     );
 
@@ -44,6 +45,7 @@ fn test_scope_graph_resolution() {
             body_blake3: [2u8; 32],
             file_path: "/src/mod_b.rs".to_string(),
             scope_qualified_name: "ImplB::method".to_string(),
+            is_public_trait_impl: false,
         },
     );
 
