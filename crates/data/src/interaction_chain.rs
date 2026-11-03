@@ -106,6 +106,7 @@ impl InteractionChainStore {
             hasher.update(ext);
         }
         let checkpoint_blake3: [u8; 32] = hasher.finalize().into();
+        drop(conn);
 
         let key_epoch_store = crate::crypto::KeyEpochStore::new(self.db.clone());
         let dek = key_epoch_store
@@ -120,6 +121,7 @@ impl InteractionChainStore {
         let file_deltas_aead = file_deltas.map(|p| crate::crypto::encrypt_envelope(p, &dek, &aad_arr, crate::crypto::AeadCipherSuite::default())).transpose()?;
         let ext_slots_aead = ext_slots.map(|p| crate::crypto::encrypt_envelope(p, &dek, &aad_arr, crate::crypto::AeadCipherSuite::default())).transpose()?;
 
+        let conn = self.db.lock();
         // Strict INSERT INTO Invariant
         conn.execute(
             "INSERT INTO interaction_checkpoints (
