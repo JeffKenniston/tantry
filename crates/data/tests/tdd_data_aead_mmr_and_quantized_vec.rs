@@ -1,3 +1,5 @@
+use data::interaction_chain::InteractionChainStore;
+use base::typemap::{StateExtensionRegistry, StateExtensionMap};
 use data::audit_mmr::AuditMmrStore;
 use data::crypto::*;
 use data::db::DbHandle;
@@ -65,6 +67,57 @@ fn test_crypto_shred_thread() {
     // Attempting to read after shredding should fail
     let result = store.resolve_or_init_thread_dek(&kh, thread_id, 1);
     assert!(matches!(result, Err(DataError::KeyEpochShredded { thread_id, .. }) if thread_id == thread_id));
+}
+
+struct MockRegistry;
+impl StateExtensionRegistry for MockRegistry {
+    fn decode_and_insert(&self, _wire_key: &str, _codec_tag: u8, _payload: &[u8], _map: &mut StateExtensionMap) -> Result<(), base::error::ExtensionError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn test_interaction_chain_cross_thread_reconstruction() {
+    let tmp = std::env::temp_dir().join("test_reconstruct.sqlite");
+    let _ = std::fs::remove_file(&tmp);
+
+    let store = InteractionChainStore::new(tmp.to_str().unwrap()).unwrap();
+    let kh = KeyHierarchy::new([0u8; 32]);
+    let registry = MockRegistry;
+
+    let msg_delta = base::delta::MessageDelta::Append(vec![]);
+    let file_deltas: Vec<base::delta::FileDelta> = vec![];
+    let msg_delta_bytes = rmp_serde::to_vec_named(&msg_delta).unwrap();
+    let file_deltas_bytes = rmp_serde::to_vec_named(&file_deltas).unwrap();
+
+    // Step 1 on thread_main
+    store.commit_checkpoint(
+        "thread_main", 1, None, "cp_1", 1,
+        Some(&msg_delta_bytes), Some(&file_deltas_bytes), None, None, None, &kh
+    ).unwrap();
+
+    // Step 2 on thread_main
+    store.commit_checkpoint(
+        "thread_main", 2, Some("cp_1"), "cp_2", 1,
+        Some(&msg_delta_bytes), Some(&file_deltas_bytes), None, None, None, &kh
+    ).unwrap();
+
+    // Step 3 on thread_branch, branching from cp_2
+    store.commit_checkpoint(
+        "thread_branch", 3, Some("cp_2"), "cp_3", 1,
+        Some(&msg_delta_bytes), Some(&file_deltas_bytes), None, None, None, &kh
+    ).unwrap();
+
+    // Reconstruct state at cp_3
+    let reconstructed = store.reconstruct_state_at_checkpoint("cp_3", &registry, &kh).unwrap();
+
+    // Verification details: reconstruct_state_at_checkpoint read cp_3, traversed to cp_2, then cp_1.
+    // It decrypted cp_1 and cp_2 using thread_main DEK, and cp_3 using thread_branch DEK.
+    // Since it didn't fail on decryption, it means it correctly used row.thread_id to get the DEK.
+
+    assert_eq!(reconstructed.state.thread_id, "thread_branch");
+    assert_eq!(reconstructed.state.step_index, 3);
+    assert_eq!(reconstructed.state.last_checkpoint_id, Some("cp_3".to_string()));
 }
 
 struct MockIdentityManager;
